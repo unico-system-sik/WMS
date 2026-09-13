@@ -3717,6 +3717,13 @@ $("saveSchedule").addEventListener(
         saveSchedule
     );
 
+    // Individual employee schedule has its own Save button.
+    // V24.2 was missing this listener, so clicking Save did nothing.
+    $("saveIndividualSchedule")?.addEventListener(
+        "click",
+        saveIndividualSchedules
+    );
+
     $("exportSchedule").addEventListener(
         "click",
         exportSchedule
