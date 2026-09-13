@@ -253,6 +253,7 @@
         <button class="subtab active" data-employees-tab="employeeDatabaseTab">Employee Database</button>
         <button class="subtab" data-employees-tab="formerEmployeesTab">Former Employees</button>
         <button class="subtab" data-employees-tab="brigadeStatsTab">Brigade Statistics</button>
+        <button class="subtab admin-only-tab" id="systemUsersTabButton" data-employees-tab="systemUsersTab" hidden>System Users</button>
     </div>
 
     <section id="employeeDatabaseTab" class="subpage active-subpage">
@@ -312,6 +313,24 @@
                         </tr>
                     </thead>
                     <tbody id="formerEmployeeTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <section id="systemUsersTab" class="subpage">
+        <div class="panel">
+            <div class="panel-title">
+                <div>
+                    <h3>System Users</h3>
+                    <p>Admin-only directory for Leaders, Coordinators and Admins. Full name is shown throughout the WMS as the actor identity.</p>
+                </div>
+                <button id="reloadSystemUsers" type="button" class="secondary">Reload</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Login</th><th>Full name</th><th>Role</th><th>Active</th><th>Action</th></tr></thead>
+                    <tbody id="systemUsersTable"></tbody>
                 </table>
             </div>
         </div>

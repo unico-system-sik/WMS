@@ -1597,3 +1597,9 @@ th {
     align-items: center;
     flex-wrap: wrap;
 }
+
+
+/* V24 — Admin system user directory */
+.system-user-name-input { min-width: 220px; }
+.system-user-active { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.admin-only-tab[hidden] { display: none !important; }

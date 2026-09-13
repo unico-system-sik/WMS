@@ -280,6 +280,21 @@ async function addAudit(action, details = "", employeeLogin = "", actorLogin = "
     return true;
 }
 
+function roleLabel(role) {
+    const normalized = String(role || "").trim().toLowerCase();
+    if (normalized === "admin") return "Admin";
+    if (normalized === "coordinator") return "Coordinator";
+    if (normalized === "leader") return "Leader";
+    return role || "";
+}
+
+function actorDisplay(name, login) {
+    const cleanName = String(name || "").trim();
+    const cleanLogin = String(login || "").trim();
+    if (cleanName && cleanLogin) return `${cleanName} · ${cleanLogin}`;
+    return cleanName || cleanLogin || "—";
+}
+
 function setAuthScreen(isLoggedIn) {
     const loginScreen = document.getElementById("loginScreen");
     const userBox = document.getElementById("currentUserBox");
@@ -297,7 +312,7 @@ function setAuthScreen(isLoggedIn) {
             currentUser.name;
 
         document.getElementById("currentUserLogin").textContent =
-            `${currentUser.login} · ${currentUser.role}`;
+            `${roleLabel(currentUser.role)} · ${currentUser.login}`;
         syncExtraLeaderLogin();
 
         // Audit Log is intentionally visible only to Admin users.
@@ -863,7 +878,7 @@ async function loadExtraDaysFromSupabase() {
 
     const { data, error } = await supabaseClient
         .from("schedule_exceptions")
-        .select("id, work_date, employee_login, type, shift, leader_id, leader_login, created_at")
+        .select("id, work_date, employee_login, type, shift, leader_id, leader_login, leader_name, created_at")
         .order("work_date", { ascending: true });
 
     if (error) {
@@ -886,14 +901,15 @@ async function loadExtraDaysFromSupabase() {
                 type: item.type,
                 shift: item.type === "extra-off" ? null : (item.shift || "day"),
                 leader_id: currentUser.id,
-                leader_login: currentUser.login
+                leader_login: currentUser.login,
+                leader_name: currentUser.name || currentUser.login
             };
         });
 
         const { data: migrated, error: migrateError } = await supabaseClient
             .from("schedule_exceptions")
             .upsert(legacyRows, { onConflict: "work_date,employee_login" })
-            .select("id, work_date, employee_login, type, shift, leader_id, leader_login, created_at");
+            .select("id, work_date, employee_login, type, shift, leader_id, leader_login, leader_name, created_at");
 
         if (!migrateError) {
             rows.push(...(migrated || []));
@@ -910,6 +926,7 @@ async function loadExtraDaysFromSupabase() {
             type: row.type,
             shift: row.shift || null,
             leaderLogin: row.leader_login || "",
+            leaderName: row.leader_name || "",
             leaderId: row.leader_id || "",
             createdAt: row.created_at || ""
         };
@@ -1243,6 +1260,7 @@ function attendanceRowFromLocal(employee, date, data) {
         confirmed: Boolean(data?.confirmed),
         confirmed_by: data?.confirmedById || (data?.confirmed ? (currentUser?.id || null) : null),
         confirmed_by_login: data?.confirmedByLogin || (data?.confirmed ? (currentUser?.login || "") : ""),
+        confirmed_by_name: data?.confirmedByName || (data?.confirmed ? (currentUser?.name || currentUser?.login || "") : ""),
         confirmed_at: data?.confirmedAt || (data?.confirmed ? new Date().toISOString() : null),
         last_changed_by: currentUser?.id || null,
         last_changed_by_login: currentUser?.login || "",
@@ -1264,6 +1282,7 @@ function localAttendanceFromRemote(row) {
         confirmedAt: row.confirmed_at || "",
         confirmedById: row.confirmed_by || "",
         confirmedByLogin: row.confirmed_by_login || "",
+        confirmedByName: row.confirmed_by_name || "",
         lastChangedById: row.last_changed_by || "",
         lastChangedByLogin: row.last_changed_by_login || "",
         lastChangedByName: row.last_changed_by_name || "",
@@ -1288,7 +1307,7 @@ async function loadAttendanceFromSupabase() {
             .select(`
                 id, work_date, employee_login, shift, planned_hours, actual_hours,
                 actual_start, actual_end, break_minutes, status, reason, note, confirmed,
-                confirmed_by, confirmed_by_login, confirmed_at, last_changed_by, last_changed_by_login, last_changed_by_name, last_changed_at, created_at, updated_at
+                confirmed_by, confirmed_by_login, confirmed_by_name, confirmed_at, last_changed_by, last_changed_by_login, last_changed_by_name, last_changed_at, created_at, updated_at
             `)
             .order("work_date", { ascending: true })
             .range(from, from + pageSize - 1);
@@ -1507,6 +1526,66 @@ function fillOverviewFilters() {
     fillMultiFilter('overviewExceptionFilter', ['private-leave','forced-leave','feeling-unwell','terminated','other','absent'], 'exceptions', {'private-leave':'Private leave','forced-leave':'Forced leave','feeling-unwell':'Feeling unwell',terminated:'Terminated',other:'Other',absent:'Absent'});
     updateAllMultiFilterLabels();
 }
+async function loadSystemUsers() {
+    const tabButton = $("systemUsersTabButton");
+    const table = $("systemUsersTable");
+    const isAdmin = String(currentUser?.role || "").trim().toLowerCase() === "admin";
+    if (tabButton) tabButton.hidden = !isAdmin;
+    if (!table || !isAdmin) return;
+
+    const { data, error } = await supabaseClient.rpc("admin_list_profiles");
+    if (error) {
+        console.error("System users load error:", error);
+        table.innerHTML = `<tr><td colspan="5"><div class="empty">System users could not be loaded.<br><small>${esc(error.message)}</small></div></td></tr>`;
+        return;
+    }
+
+    table.innerHTML = (data || []).map(user => `
+        <tr data-system-user-row="${esc(user.login)}">
+            <td><strong>${esc(user.login)}</strong></td>
+            <td><input class="system-user-name-input" data-system-user-name="${esc(user.login)}" value="${esc(user.full_name || "")}" placeholder="First name Last name"></td>
+            <td>
+                <select data-system-user-role="${esc(user.login)}">
+                    <option value="Leader" ${user.role === "Leader" ? "selected" : ""}>Leader</option>
+                    <option value="Coordinator" ${user.role === "Coordinator" ? "selected" : ""}>Coordinator</option>
+                    <option value="Admin" ${user.role === "Admin" ? "selected" : ""}>Admin</option>
+                </select>
+            </td>
+            <td><label class="system-user-active"><input type="checkbox" data-system-user-active="${esc(user.login)}" ${user.active ? "checked" : ""}> Active</label></td>
+            <td><button type="button" class="mini-btn" data-system-user-save="${esc(user.login)}">Save</button></td>
+        </tr>`).join("") || `<tr><td colspan="5"><div class="empty">No system users found.</div></td></tr>`;
+
+    table.querySelectorAll("[data-system-user-save]").forEach(button => {
+        button.addEventListener("click", () => saveSystemUser(button.dataset.systemUserSave));
+    });
+}
+
+async function saveSystemUser(login) {
+    if (String(currentUser?.role || "").trim().toLowerCase() !== "admin") return;
+    const row = document.querySelector(`[data-system-user-row="${CSS.escape(login)}"]`);
+    if (!row) return;
+    const fullName = row.querySelector(`[data-system-user-name="${CSS.escape(login)}"]`)?.value.trim() || "";
+    const role = row.querySelector(`[data-system-user-role="${CSS.escape(login)}"]`)?.value || "Leader";
+    const active = Boolean(row.querySelector(`[data-system-user-active="${CSS.escape(login)}"]`)?.checked);
+    if (!fullName) { toast("Full name is required."); return; }
+
+    const { error } = await supabaseClient.rpc("admin_update_profile", {
+        p_login: login, p_full_name: fullName, p_role: role, p_active: active
+    });
+    if (error) {
+        console.error("System user update error:", error);
+        toast(`Could not update user: ${error.message}`);
+        return;
+    }
+    toast(`${fullName}: user profile updated.`);
+    await loadSystemUsers();
+    if (login === currentUser.login) {
+        const session = await supabaseClient.auth.getSession();
+        if (session?.data?.session?.user) await loadCurrentUser(session.data.session.user);
+        setAuthScreen(true);
+    }
+}
+
 function fillEmployeeFilters() {
     fillMultiFilter('employeeProcessFilter', PROCESSES, 'processes');
     fillMultiFilter('employeeBrigadeFilter', BRIGADES, 'brigades', Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
@@ -1815,6 +1894,7 @@ async function confirmSelectedHours() {
             confirmedAt: new Date().toISOString(),
             confirmedById: currentUser?.id || "",
             confirmedByLogin: currentUser?.login || "",
+            confirmedByName: currentUser?.name || currentUser?.login || "",
             lastChangedById: currentUser?.id || "",
             lastChangedByLogin: currentUser?.login || "",
             lastChangedByName: currentUser?.name || currentUser?.login || "",
@@ -2120,6 +2200,7 @@ async function saveHoursEdit(event) {
         confirmedAt: current.confirmedAt || "",
         confirmedById: current.confirmedById || "",
         confirmedByLogin: current.confirmedByLogin || "",
+        confirmedByName: current.confirmedByName || "",
         lastChangedById: currentUser?.id || "",
         lastChangedByLogin: currentUser?.login || "",
         lastChangedByName: currentUser?.name || currentUser?.login || "",
@@ -2815,7 +2896,7 @@ function updateExtraScheduleHint() {
 function syncExtraLeaderLogin() {
     const field = $("extraLeaderLogin");
     if (!field) return;
-    field.value = currentUser?.login || "";
+    field.value = currentUser ? actorDisplay(currentUser.name, currentUser.login) : "";
     field.readOnly = true;
     field.title = "Automatically taken from the currently logged-in user.";
 }
@@ -2867,13 +2948,14 @@ async function saveExtraDay() {
         type,
         shift: type === "extra-off" ? null : (type === "extra-work-night" ? "night" : "day"),
         leader_id: leaderId,
-        leader_login: leaderLogin
+        leader_login: leaderLogin,
+        leader_name: currentUser?.name || leaderLogin
     };
 
     const { data, error } = await supabaseClient
         .from("schedule_exceptions")
         .upsert(payload, { onConflict: "work_date,employee_login" })
-        .select("id, work_date, employee_login, type, shift, leader_id, leader_login, created_at")
+        .select("id, work_date, employee_login, type, shift, leader_id, leader_login, leader_name, created_at")
         .single();
 
     if (error) {
@@ -2887,6 +2969,7 @@ async function saveExtraDay() {
         type: data.type,
         shift: data.shift || null,
         leaderLogin: data.leader_login || leaderLogin,
+        leaderName: data.leader_name || currentUser?.name || leaderLogin,
         leaderId: data.leader_id || leaderId,
         createdAt: data.created_at || new Date().toISOString()
     };
@@ -2939,7 +3022,7 @@ function renderExtraDays() {
         const isOff = item.type === "extra-off";
         const label = isOff ? "Extra day off" : `Extra work — ${String(item.shift || "day").toUpperCase()}`;
         const created = item.createdAt ? new Date(item.createdAt).toLocaleString("en-GB") : "—";
-        return `<tr><td>${esc(date)}</td><td><strong>${esc(employee.name)}</strong><br><small>${esc(employee.login)}</small></td><td>${esc(employee.brigade)}</td><td>${esc(employee.process)}</td><td><span class="extra-change ${isOff ? "off" : "work"}">${esc(label)}</span></td><td>${esc(item.leaderLogin || "—")}</td><td>${esc(created)}</td><td><button class="icon-btn" type="button" data-remove-extra="${esc(key)}">×</button></td></tr>`;
+        return `<tr><td>${esc(date)}</td><td><strong>${esc(employee.name)}</strong><br><small>${esc(employee.login)}</small></td><td>${esc(employee.brigade)}</td><td>${esc(employee.process)}</td><td><span class="extra-change ${isOff ? "off" : "work"}">${esc(label)}</span></td><td>${esc(actorDisplay(item.leaderName, item.leaderLogin))}</td><td>${esc(created)}</td><td><button class="icon-btn" type="button" data-remove-extra="${esc(key)}">×</button></td></tr>`;
     }).join("") || `<tr><td colspan="8"><div class="empty">No active Extra Days match the selected filters.</div></td></tr>`;
 
     $("extraDaysTable").querySelectorAll("[data-remove-extra]").forEach(button => button.addEventListener("click", () => removeExtraDay(button.dataset.removeExtra)));
@@ -3004,7 +3087,7 @@ async function renderScheduleHistory() {
     let allRows = [];
     for (let from = 0; ; from += pageSize) {
         let query = supabaseClient.from("schedule_exception_history")
-            .select("id, action, work_date, employee_login, type, shift, leader_login, changed_by_login, created_at")
+            .select("id, action, work_date, employee_login, type, shift, leader_login, leader_name, changed_by_login, changed_by_name, created_at")
             .order("created_at", { ascending: false })
             .range(from, from + pageSize - 1);
         if (dateFrom) query = query.gte("work_date", dateFrom);
@@ -3022,7 +3105,7 @@ async function renderScheduleHistory() {
 
     const rows = allRows.filter(item => {
         if (loginSearch) {
-            const q = `${item.employee_login || ""} ${item.leader_login || ""} ${item.changed_by_login || ""}`.toLowerCase();
+            const q = `${item.employee_login || ""} ${item.leader_login || ""} ${item.leader_name || ""} ${item.changed_by_login || ""} ${item.changed_by_name || ""}`.toLowerCase();
             if (!q.includes(loginSearch)) return false;
         }
         if (typeFilters.length) {
@@ -3048,7 +3131,7 @@ async function renderScheduleHistory() {
     table.innerHTML = rows.map(item => {
         const employee = employeeByLogin(item.employee_login);
         const change = item.action === "Extra day removed" ? "Removed" : item.type === "extra-off" ? "Extra day off" : `Extra work — ${String(item.shift || "day").toUpperCase()}`;
-        return `<tr><td>${new Date(item.created_at).toLocaleString("en-GB")}</td><td><strong>${esc(item.action)}</strong></td><td>${esc(employee?.name || item.employee_login)}<br><small>${esc(item.employee_login)}</small></td><td>${esc(item.work_date)}</td><td>${esc(item.leader_login || "—")}</td><td>${esc(change)}</td><td>${esc(item.changed_by_login || "—")}</td></tr>`;
+        return `<tr><td>${new Date(item.created_at).toLocaleString("en-GB")}</td><td><strong>${esc(item.action)}</strong></td><td>${esc(employee?.name || item.employee_login)}<br><small>${esc(item.employee_login)}</small></td><td>${esc(item.work_date)}</td><td>${esc(actorDisplay(item.leader_name, item.leader_login))}</td><td>${esc(change)}</td><td>${esc(actorDisplay(item.changed_by_name, item.changed_by_login))}</td></tr>`;
     }).join("") || `<tr><td colspan="7"><div class="empty">No Extra Day history matches the selected filters.</div></td></tr>`;
 }
 function csvCell(value) {
@@ -3171,6 +3254,7 @@ async function confirmHoursDay(employee, date) {
         confirmedAt: new Date().toISOString(),
         confirmedById: currentUser.id || "",
         confirmedByLogin: currentUser.login || "",
+        confirmedByName: currentUser.name || currentUser.login || "",
         lastChangedById: currentUser.id || "",
         lastChangedByLogin: currentUser.login || "",
         lastChangedByName: currentUser.name || currentUser.login || "",
@@ -3269,14 +3353,16 @@ function renderHoursAttendance() {
                 <td>${data.confirmed && Number(data.breakMinutes || 0) ? "45 min" : "—"}</td>
                 <td><span class="${statusClass}">${data.confirmed ? esc(data.status) : (p ? "Not confirmed" : "OFF")}</span></td>
                 <td>${esc(data.reason || "—")}</td>
-                <td>${esc(data.confirmedByLogin || "—")}</td>
-                <td>${esc(data.lastChangedByLogin || data.confirmedByLogin || "—")}</td>
+                <td>${esc(actorDisplay(data.confirmedByName, data.confirmedByLogin))}</td>
+                <td>${esc(actorDisplay(data.lastChangedByName, data.lastChangedByLogin || data.confirmedByLogin))}</td>
                 <td class="hours-note">${esc(data.note || "—")}</td>
                 <td>
-                    ${p > 0
+                    ${(p > 0 || a > 0 || data.confirmed || data.status === "Absent" || data.reason)
                         ? data.confirmed
                             ? `<button class="mini-btn" data-ha-edit="${dateKey(date)}">Edit</button>`
-                            : `<div class="hours-action-group"><button class="mini-btn confirm" data-ha-confirm="${dateKey(date)}">Confirm</button><button class="mini-btn" data-ha-edit="${dateKey(date)}">Edit</button></div>`
+                            : p > 0
+                                ? `<div class="hours-action-group"><button class="mini-btn confirm" data-ha-confirm="${dateKey(date)}">Confirm</button><button class="mini-btn" data-ha-edit="${dateKey(date)}">Edit</button></div>`
+                                : `<button class="mini-btn" data-ha-edit="${dateKey(date)}">Edit</button>`
                         : "—"}
                 </td>
             </tr>
@@ -3347,7 +3433,7 @@ async function renderHoursHistory(employee) {
             <td>${Number(item.break_minutes || 0) ? "45 min" : "—"}</td>
             <td>${esc(item.status || "")}</td>
             <td>${esc(item.reason || "—")}</td>
-            <td>${esc(item.changed_by_login || item.changed_by_name || "—")}</td>
+            <td>${esc(actorDisplay(item.changed_by_name, item.changed_by_login))}</td>
             <td>${esc(item.note || "—")}</td>
         </tr>`).join("") || `<tr><td colspan="11"><div class="empty">No confirmed or edited hours yet.</div></td></tr>`;
 }
@@ -3852,6 +3938,8 @@ async function initApp() {
 
     initEvents();
     initEmployeeStatusActions();
+    $("reloadSystemUsers")?.addEventListener("click", loadSystemUsers);
+    await loadSystemUsers();
 
     switchPage("overviewPage");
 }
