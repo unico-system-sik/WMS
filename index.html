@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warehouse Management System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- =========================================================
+     LOGIN SCREEN
+     - Warehouse photo is used as the full-screen background.
+     - Password visibility is controlled by the eye button.
+     - Failed-login lockout is handled in script.js.
+========================================================= -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-overlay" aria-hidden="true"></div>
+
+  <div class="login-card">
+    <div class="login-brand">WAREHOUSE UNICO</div>
+    <h1>Warehouse Management System</h1>
+    <p class="login-subtitle">Sign in with your warehouse account to continue.</p>
+
+    <form id="loginForm" novalidate>
+      <label for="loginUsername">Login</label>
+      <input id="loginUsername" autocomplete="username" placeholder="Enter login" required>
+
+      <label for="loginPassword">Password</label>
+      <div class="login-password-wrap">
+        <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Enter password" required>
+        <!-- Eye button: does NOT change or expose the password anywhere else. -->
+        <button id="togglePassword" class="password-toggle" type="button" aria-label="Show password" title="Show password">
+          <svg class="password-eye" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path>
+            <circle cx="12" cy="12" r="2.5"></circle>
+          </svg>
+        </button>
+      </div>
+
+      <button type="submit" class="primary login-button">Sign in</button>
+      <div id="loginError" class="login-error" role="alert" aria-live="polite"></div>
+    </form>
+
+    <div id="loginLockout" class="login-lockout hidden" aria-live="polite">
+      <strong>Account temporarily locked</strong>
+      <span>Too many failed attempts. Try again in <b id="loginCountdown">05:00</b>.</span>
+    </div>
+
+    <div class="login-footer">Warehouse Management System</div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<aside class="sidebar">
+
+<div id="currentUserBox" class="current-user-box hidden">
+  <div id="currentUserName" class="current-user-name">—</div>
+  <div id="currentUserLogin" class="current-user-login">—</div>
+  <button id="logoutButton" class="logout-button" type="button">Log out</button>
+</div>
+
+    <div class="sidebar-clock">
+        <div class="sidebar-clock-time" id="liveTime">--:--:--</div>
+        <div class="sidebar-clock-date" id="liveDate">--.--.----</div>
+    </div>
+
+    <div class="brand">
+        <h1>Warehouse UNICO</h1>
+        <p>Management<br>System</p>
+    </div>
+    <nav>
+        <button class="nav-btn active" data-page="overviewPage">📊 <span>Shift Overview</span></button>
+        <button class="nav-btn" data-page="employeesPage">👥 <span>Employees</span></button>
+        <button class="nav-btn" data-page="schedulingPage">📅 <span>Shift Scheduling</span></button>
+        <button class="nav-btn" data-page="hoursAttendancePage">⏱️ <span>Hours Attendance</span>
+</button>
+    </nav>
+</aside>
+
+<main class="main">
+
+<section id="overviewPage" class="page active-page">
+    <header class="page-header">
+        <div>
+            <h2>Shift Overview</h2>
+            <p>Live overview of the selected warehouse shift.</p>
+        </div>
+        <div class="toolbar">
+<input id="overviewDate" type="date">
+            <button id="overviewToday" class="secondary">Today</button>
+            <div id="overviewShiftButtons" class="segmented">
+                <button data-shift="day" class="selected">DAY</button>
+                <button data-shift="night">NIGHT</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="shift-banner">
+        <div>
+            <span>Selected shift</span>
+            <strong id="overviewShiftTime">06:00–17:45</strong>
+            <small>11:45 presence · 11:00 net work · 45 min break</small>
+        </div>
+        <div>
+            <span>Attendance</span>
+            <strong id="ovRate">0%</strong>
+        </div>
+    </div>
+
+    <div class="cards four">
+        <div class="card">
+            <span>Should be working</span>
+            <strong id="ovPlanned">0</strong>
+            <small>scheduled employees</small>
+        </div>
+        <div class="card">
+            <span>Confirmed</span>
+            <strong id="ovPresent">0</strong>
+            <small>hours confirmed</small>
+        </div>
+        <div class="card">
+            <span>Pending</span>
+            <strong id="ovMissing">0</strong>
+            <small>waiting for confirmation</small>
+        </div>
+        <div class="card">
+            <span>Coverage</span>
+            <strong id="ovRateCard">0%</strong>
+            <small>confirmed / planned</small>
+        </div>
+    </div>
+
+    <section class="panel quick-stats-panel">
+        <div class="panel-title"><div><h3>Hours exceptions</h3><p>Quick view for the selected date and shift.</p></div></div>
+        <div class="quick-stats-grid">
+            <div class="quick-stat"><span>Private leave</span><strong id="ovPrivateLeave">0</strong><small>reason</small></div>
+            <div class="quick-stat"><span>Forced leave</span><strong id="ovForcedLeave">0</strong><small>reason</small></div>
+            <div class="quick-stat"><span>Feeling unwell</span><strong id="ovFeelingUnwell">0</strong><small>reason</small></div>
+            <div class="quick-stat"><span>Terminated</span><strong id="ovTerminated">0</strong><small>reason</small></div>
+            <div class="quick-stat"><span>Other</span><strong id="ovOther">0</strong><small>reason</small></div>
+            <div class="quick-stat"><span>Absent</span><strong id="ovAbsent">0</strong><small>reason</small></div>
+        </div>
+    </section>
+
+    <div class="grid two">
+        <section class="panel">
+            <div class="panel-title">
+                <h3>Shift Summary</h3>
+                <span class="muted">process staffing</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Process</th>
+                            <th>Planned</th>
+                            <th>Confirmed</th>
+                            <th>Pending</th>
+                            <th>Share</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ovProcessTable"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-title">
+                <h3>Brigade Summary</h3>
+                <span class="muted">selected shift</span>
+            </div>
+            <div id="ovBrigades" class="coverage-list"></div>
+        </section>
+    </div>
+
+    <section class="panel">
+        <div class="panel-title">
+            <div>
+                <h3>Shift Employees</h3>
+                <p>Confirm or edit working hours directly from the shift.</p>
+            </div>
+            <button id="exportShiftEmployees" class="secondary" type="button">Export Excel</button>
+            <div class="filters">
+                <input id="overviewSearch" placeholder="Search name or login">
+                <div class="multi-filter filter-control" id="overviewBrigadeFilter">
+                    <button type="button" class="multi-filter-button" data-multi-toggle="overviewBrigadeFilter">All brigades ▾</button>
+                    <div class="multi-filter-menu" data-multi-menu="overviewBrigadeFilter"></div>
+                </div>
+                <div class="multi-filter filter-control" id="overviewProcessFilter">
+                    <button type="button" class="multi-filter-button" data-multi-toggle="overviewProcessFilter">All processes ▾</button>
+                    <div class="multi-filter-menu" data-multi-menu="overviewProcessFilter"></div>
+                </div>
+                <div class="multi-filter filter-control" id="overviewAttendanceFilter">
+                    <button type="button" class="multi-filter-button" data-multi-toggle="overviewAttendanceFilter">All attendance ▾</button>
+                    <div class="multi-filter-menu" data-multi-menu="overviewAttendanceFilter"></div>
+                </div>
+                <div class="multi-filter filter-control" id="overviewExceptionFilter">
+                    <button type="button" class="multi-filter-button" data-multi-toggle="overviewExceptionFilter">All exceptions ▾</button>
+                    <div class="multi-filter-menu" data-multi-menu="overviewExceptionFilter"></div>
+                </div>
+                <button id="applyOverviewFilters" type="button" class="primary filter-search-btn">Search</button>
+            </div>
+        </div>
+
+        <div class="selection-bar">
+            <span><strong id="selectedShiftCount">0</strong> selected</span>
+            <button id="confirmSelectedHours" class="primary" type="button">
+                Confirm selected
+            </button>
+            <button id="markSelectedAbsent" class="secondary" type="button">
+                Mark absent
+            </button>
+            <button id="clearSelectedHours" class="secondary" type="button">
+                Clear selection
+            </button>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="check-col">
+                            <input id="selectAllShiftEmployees" type="checkbox" aria-label="Select all employees">
+                        </th>
+                        <th>Employee</th>
+                        <th>Brigade</th>
+                        <th>Process</th>
+                        <th>Shift</th>
+                        <th>Planned</th>
+                        <th>Actual</th>
+                        <th>Status</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody id="overviewEmployeeTable"></tbody>
+            </table>
+        </div>
+    </section>
+</section>
+
+<section id="employeesPage" class="page">
+    <header class="page-header">
+        <div>
+            <h2>Employees</h2>
+            <p>Read-only employee database and brigade statistics.</p>
+            <div class="employee-count-badge"><strong id="employeeTotalCount">0</strong><span>active employees</span><small id="employeeFilteredCount">0 shown</small></div>
+        </div>
+    </header>
+
+    <div class="subtabs">
+        <button class="subtab active" data-employees-tab="employeeDatabaseTab">Employee Database</button>
+        <button class="subtab" data-employees-tab="formerEmployeesTab">Former Employees</button>
+        <button class="subtab" data-employees-tab="brigadeStatsTab">Brigade Statistics</button>
+    </div>
+
+    <section id="employeeDatabaseTab" class="subpage active-subpage">
+        <div class="panel">
+            <div class="filters">
+                <input id="employeeSearch" placeholder="Search by login or name">
+                <div class="multi-filter" id="employeeProcessFilter">
+                    <button type="button" class="multi-filter-button" data-multi-toggle="employeeProcessFilter">All processes ▾</button>
+                    <div class="multi-filter-menu" data-multi-menu="employeeProcessFilter"></div>
+                </div>
+                <div class="multi-filter" id="employeeBrigadeFilter">
+                    <button type="button" class="multi-filter-button" data-multi-toggle="employeeBrigadeFilter">All brigades ▾</button>
+                    <div class="multi-filter-menu" data-multi-menu="employeeBrigadeFilter"></div>
+                </div>
+                <button id="applyEmployeeFilters" type="button" class="primary filter-search-btn">Search</button>
+                <button id="clearEmployeeFilters" type="button" class="secondary">Clear filters</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Login</th>
+                            <th>Process</th>
+                            <th>Brigade</th>
+                            <th>Start date</th>
+                            <th class="employee-action-header">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="employeeTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <section id="formerEmployeesTab" class="subpage">
+        <div class="panel">
+            <div class="panel-title">
+                <div>
+                    <h3>Former Employees</h3>
+                    <p>Employees marked as no longer active in the code database.</p>
+                    <div class="employee-count-badge former-count-badge"><strong id="formerEmployeeTotalCount">0</strong><span>former employees</span><small id="formerEmployeeFilteredCount">0 shown</small></div>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Login</th>
+                            <th>Process</th>
+                            <th>Brigade</th>
+                            <th>Start date</th>
+                            <th>End date</th>
+                            <th>Reason</th>
+                            <th class="employee-action-header">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="formerEmployeeTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <section id="brigadeStatsTab" class="subpage">
+        <div class="stats-tiles" id="statsTiles"></div>
+
+        <div class="panel">
+            <div class="panel-title">
+                <div>
+                    <h3>Process distribution inside each brigade</h3>
+                    <p>Count and percentage are calculated from the total active employees of each brigade.</p>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr id="statsHeader"></tr></thead>
+                    <tbody id="statsTable"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-title">
+                <div>
+                    <h3>Process distribution by brigade</h3>
+                    <p>For each process, see its distribution across brigades.</p>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr id="processStatsHeader"></tr></thead>
+                    <tbody id="processStatsTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</section>
+
+
+<section id="schedulingPage" class="page">
+    <header class="page-header">
+        <div>
+            <h2>Shift Scheduling</h2>
+            <p>Plan the monthly schedule for all brigades and manage individual exceptions.</p>
+        </div>
+        <div class="toolbar">
+            <button id="schedulePrev" class="secondary">←</button>
+            <strong id="scheduleMonthLabel" class="month-label"></strong>
+            <button id="scheduleNext" class="secondary">→</button>
+        </div>
+    </header>
+
+    <div class="subtabs scheduling-subtabs">
+        <button type="button" class="subtab active" data-scheduling-tab="scheduleTab">Schedule</button>
+        <button type="button" class="subtab" data-scheduling-tab="extraDaysTab">Extra Days</button>
+        <button type="button" class="subtab" data-scheduling-tab="historyTab">History</button>
+        <button type="button" class="subtab" data-scheduling-tab="auditTab">Audit Log</button>
+    </div>
+
+    <section id="scheduleTab" class="subpage active-subpage panel">
+        <div class="schedule-controls">
+<div class="schedule-actions">
+                <button id="saveSchedule" type="button" class="primary">Save & apply</button>
+                <button id="exportSchedule" class="secondary">Export</button>
+            </div>
+        </div>
+
+        <div class="panel-title schedule-title-row">
+            <div>
+                <h3 id="scheduleInfoTitle">Brigade schedule</h3>
+                <p>Each row is one brigade. The schedule is applied to all active employees in that brigade.</p>
+            </div>
+            <div class="schedule-legend">
+                <span><i class="legend-day"></i> DAY</span>
+                <span><i class="legend-night"></i> NIGHT</span>
+                <span><i class="legend-off"></i> OFF</span><span><i class="legend-rest"></i> R</span>
+            </div>
+        </div>
+
+        <div class="schedule-table-wrap">
+            <table class="schedule-table">
+                <thead>
+                    <tr id="scheduleHeadRow"></tr>
+                </thead>
+                <tbody id="scheduleBody"></tbody>
+            </table>
+        </div>
+
+        <div class="individual-schedule-panel">
+            <div class="panel-title individual-schedule-title">
+                <div>
+                    <h3>Individual employee schedule</h3>
+                    <p>Search by login and change only the selected employee. Individual changes have priority over the brigade schedule.</p>
+                </div>
+                <div class="individual-schedule-actions">
+                    <input id="individualScheduleSearch" class="individual-schedule-search" type="search" placeholder="Search by login or name" autocomplete="off">
+                    <button id="individualScheduleSearchBtn" type="button" class="secondary">Search</button>
+                    <button id="clearIndividualScheduleSearch" type="button" class="secondary">Clear</button>
+                    <button id="saveIndividualSchedule" type="button" class="primary">Save individual changes</button>
+                </div>
+            </div>
+            <div class="schedule-override-note"><strong>Priority:</strong> Individual schedule → Extra Day → Brigade schedule → default. <span>R = additional scheduled day off, not Urlop.</span></div>
+            <div class="schedule-table-wrap">
+                <table class="schedule-table individual-schedule-table">
+                    <thead><tr id="individualScheduleHeadRow"></tr></thead>
+                    <tbody id="individualScheduleBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <section id="extraDaysTab" class="subpage panel">
+        <div class="panel-title">
+            <div><h3>Extra Days</h3><p>Manage current Extra OFF and Extra Work days. The list is ordered by work date and creation time.</p></div>
+        </div>
+
+        <div class="quick-stats-grid extra-days-stats">
+            <div class="quick-stat"><span>Extra OFF</span><strong id="extraStatOff">0</strong><small>current records</small></div>
+            <div class="quick-stat"><span>Extra DAY</span><strong id="extraStatDay">0</strong><small>current records</small></div>
+            <div class="quick-stat"><span>Extra NIGHT</span><strong id="extraStatNight">0</strong><small>current records</small></div>
+            <div class="quick-stat"><span>Total</span><strong id="extraStatTotal">0</strong><small>current records</small></div>
+        </div>
+
+        <div class="extra-form">
+            <div><label class="control-label">Employee login</label><input id="extraEmployeeLogin" placeholder="e.g. 60010001"><small id="extraEmployeeHint" class="field-hint">Enter the exact employee login.</small></div>
+            <div><label class="control-label">Date</label><input id="extraDate" type="date"><small id="extraScheduleHint" class="field-hint">The current schedule for this date will appear here.</small></div>
+            <div><label class="control-label">Change</label><select id="extraType"><option value="extra-off">Extra day off</option><option value="extra-work-day">Extra work — DAY</option><option value="extra-work-night">Extra work — NIGHT</option></select><small class="field-hint">Choose what should change for this date.</small></div>
+            <div><label class="control-label">Approved by</label><input id="extraLeaderLogin" placeholder="Logged-in user" readonly><small class="field-hint">Automatically taken from the currently logged-in user.</small></div>
+            <div class="extra-actions"><button id="saveExtraDay" class="primary">Save exception</button></div>
+        </div>
+
+        <div class="history-filters extra-days-filters">
+            <div><label class="control-label">Date</label><input id="extraDaysDateFilter" type="date"></div>
+            <div><label class="control-label">Employee login</label><input id="extraDaysLoginFilter" placeholder="Employee login"></div>
+            <div class="filter-control"><label class="control-label">Type</label><div class="multi-filter" id="extraDaysTypeFilter"><button type="button" class="multi-filter-button" data-multi-toggle="extraDaysTypeFilter">All types ▾</button><div class="multi-filter-menu" data-multi-menu="extraDaysTypeFilter"></div></div></div>
+            <button id="applyExtraDaysFilters" class="primary filter-search-btn" type="button">Search</button>
+            <button id="clearExtraDaysFilters" class="secondary" type="button">Clear</button>
+        </div>
+
+        <div class="panel-title extra-history-inline-title"><div><h3>Current Extra Days</h3><p>All active exceptions, ordered by date and latest action.</p></div></div>
+        <div class="table-wrap">
+            <table><thead><tr><th>Date</th><th>Employee</th><th>Brigade</th><th>Process</th><th>Change</th><th>Approved by</th><th>Created</th><th>Action</th></tr></thead>
+            <tbody id="extraDaysTable"></tbody></table>
+        </div>
+    </section>
+
+    <section id="historyTab" class="subpage panel">
+        <div class="panel-title">
+            <div><h3>Extra Days History</h3><p>Immutable record of who added, changed or removed Extra Days.</p></div>
+        </div>
+        <div class="quick-stats-grid extra-history-stats">
+            <div class="quick-stat"><span>Extra work</span><strong id="historyStatWork">0</strong><small>DAY + NIGHT</small></div>
+            <div class="quick-stat"><span>Extra OFF</span><strong id="historyStatOff">0</strong><small>day-off events</small></div>
+            <div class="quick-stat"><span>DAY</span><strong id="historyStatDay">0</strong><small>extra work</small></div>
+            <div class="quick-stat"><span>NIGHT</span><strong id="historyStatNight">0</strong><small>extra work</small></div>
+            <div class="quick-stat"><span>Total events</span><strong id="historyStatTotal">0</strong><small>including removals</small></div>
+        </div>
+        <div class="history-filters">
+            <div class="history-filter-note">Search by operator/employee, select a date, or combine filters to see exactly who performed the Extra Day action.</div>
+            <div><label class="control-label">From date</label><input id="scheduleHistoryDateFrom" type="date"></div>
+            <div><label class="control-label">To date</label><input id="scheduleHistoryDateTo" type="date"></div>
+            <div><label class="control-label">Operator / employee login</label><input id="scheduleHistoryLogin" placeholder="Login"></div>
+            <div class="filter-control"><label class="control-label">Type</label><div class="multi-filter" id="scheduleHistoryType"><button type="button" class="multi-filter-button" data-multi-toggle="scheduleHistoryType">All types ▾</button><div class="multi-filter-menu" data-multi-menu="scheduleHistoryType"></div></div></div>
+            <button id="applyScheduleHistoryFilters" class="primary filter-search-btn" type="button">Search</button>
+            <button id="clearScheduleHistoryFilters" class="secondary" type="button">Clear</button>
+        </div>
+        <div class="table-wrap">
+            <table><thead><tr><th>Created at</th><th>Action</th><th>Employee</th><th>Work date</th><th>Approved by</th><th>Change</th><th>Changed by</th></tr></thead>
+            <tbody id="scheduleHistoryTable"></tbody></table>
+        </div>
+    </section>
+
+    <div id="auditTab" class="subpage">
+  <section class="panel">
+    <div class="panel-title">
+      <div>
+        <h3>Audit Log</h3>
+        <p>Login and logout activity only. History cannot be deleted from the application.</p>
+      </div>
+    </div>
+    <div class="history-filters">
+      <div>
+        <label class="control-label">Date</label>
+        <input id="auditDate" type="date">
+      </div>
+      <div>
+        <label class="control-label">Login</label>
+        <input id="auditLogin" placeholder="Employee or user login">
+      </div>
+      <button id="applyAuditFilters" class="primary filter-search-btn" type="button">Search</button>
+      <button id="clearAuditFilters" class="secondary" type="button">Clear</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Created at</th>
+            <th>User</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="auditTable"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+</section>
+
+
+
+
+<section id="hoursAttendancePage" class="page">
+    <header class="page-header">
+        <div>
+            <h2>Hours Attendance</h2>
+<p>Check and correct one employee's working hours for the whole month.</p>
+        </div>
+        <div class="toolbar">
+            <button id="hoursMonthPrev" class="secondary">←</button>
+            <strong id="hoursMonthLabel" class="month-label"></strong>
+            <button id="hoursMonthNext" class="secondary">→</button>
+        </div>
+    </header>
+
+    <section class="panel attendance-search-panel">
+        <div class="attendance-search">
+            <div class="attendance-search-field">
+                <label class="control-label">Employee login</label>
+                <input id="hoursEmployeeLogin" placeholder="e.g. 60010001" autocomplete="off">
+                <small id="hoursEmployeeHint" class="field-hint">Enter the exact employee login.</small>
+            </div>
+            <button id="hoursFindEmployee" class="primary" type="button">Find employee</button>
+        </div>
+    </section>
+
+<section id="hoursEmployeeSummary" class="hidden-section">
+        <div class="hours-employee-header panel">
+            <div>
+                <span class="muted">Selected employee</span>
+                <h3 id="hoursEmployeeName">—</h3>
+                <p id="hoursEmployeeMeta">—</p>
+            </div>
+            <button id="hoursClearEmployee" class="secondary" type="button">Clear</button>
+        </div>
+
+        <div class="cards four hours-summary-cards">
+            <div class="card"><span>Planned</span><strong id="haPlanned">0.0h</strong><small>scheduled net hours</small></div>
+            <div class="card"><span>Confirmed</span><strong id="haConfirmed">0.0h</strong><small>confirmed actual hours</small></div>
+            <div class="card"><span>Difference</span><strong id="haDifference">0.0h</strong><small>actual minus planned</small></div>
+            <div class="card"><span>Pending</span><strong id="haPending">0</strong><small>working days waiting</small></div>
+        </div>
+
+        <section class="panel">
+            <div class="panel-title">
+                <div>
+                    <h3>Monthly hours</h3>
+                    <p>Edit any day if the employee arrived late, left early, was absent or worked different hours.</p>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Day</th>
+                            <th>Shift</th>
+                            <th>Planned</th>
+                            <th>Actual</th>
+                            <th>Break</th>
+                            <th>Status</th>
+                            <th>Reason</th>
+                            <th>Confirmed by</th>
+                            <th>Last changed by</th>
+                            <th>Note</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="hoursAttendanceTable"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="panel hours-history-panel">
+            <div class="panel-title">
+                <div>
+                    <h3>Hours History</h3>
+                    <p>Confirmed and edited hours for this employee. Stored centrally in Supabase.</p>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Created at</th>
+                            <th>Action</th>
+                            <th>Work date</th>
+                            <th>Shift</th>
+                            <th>Planned</th>
+                            <th>Actual</th>
+                            <th>Break</th>
+                            <th>Status</th>
+                            <th>Changed by</th>
+                            <th>Note</th>
+                        </tr>
+                    </thead>
+                    <tbody id="hoursHistoryTable"></tbody>
+                </table>
+            </div>
+        </section>
+    </section>
+
+    
+
+    <section id="hoursAllEmployeesPanel" class="panel hours-all-panel">
+        <div class="panel-title hours-all-title">
+            <div><h3>All employees</h3><p>All active employees for the selected month. Use the filters above to narrow the list.</p></div>
+            <div id="hoursExportToolbar" class="hours-export-toolbar" hidden>
+                <button type="button" id="hoursExportAllBtn" class="primary">Export All Excel</button>
+                <button type="button" id="hoursExportFilteredBtn" class="secondary">Export Filtered Excel</button>
+            </div>
+<div class="hours-export-hint">Excel: Login and Name on the left, each day of the selected month across the top. Unconfirmed hours = 0.</div>
+        </div>
+        <div class="hours-all-filters">
+            <div><label class="control-label" for="hoursAllSearch">Search</label><input id="hoursAllSearch" type="search" placeholder="Login or name" autocomplete="off"></div>
+            <div class="filter-control"><label class="control-label">Brigade</label><div class="multi-filter" id="hoursAllBrigade"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllBrigade">All brigades ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllBrigade"></div></div></div>
+            <div class="filter-control"><label class="control-label">Process</label><div class="multi-filter" id="hoursAllProcess"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllProcess">All processes ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllProcess"></div></div></div>
+            <div class="filter-control"><label class="control-label">Status</label><div class="multi-filter" id="hoursAllStatus"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllStatus">All statuses ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllStatus"></div></div></div>
+            <button id="applyHoursAllFilters" class="primary filter-search-btn" type="button">Search</button>
+            <button id="clearHoursAllFilters" class="secondary" type="button">Clear</button>
+        </div>
+        <div class="hours-all-meta" id="hoursAllMeta">0 employees</div>
+        <div class="table-wrap"><table id="hoursAllTable"><thead><tr><th>Login</th><th>Name</th><th>Brigade</th><th>Process</th><th>Planned</th><th>Confirmed</th><th>Difference</th><th>Pending</th></tr></thead><tbody id="hoursAllTableBody"></tbody></table></div>
+    </section>
+<section id="hoursEmptyState" class="panel empty-state-panel">
+        <div class="empty">Search for an employee by login to see the monthly hours.</div>
+    </section>
+</section>
+
+</main>
+
+<div id="employeeStatusModal" class="modal hidden">
+    <div class="modal-card employee-status-card">
+        <div class="panel-title">
+            <div>
+                <h3 id="employeeStatusTitle">Mark employee as Former</h3>
+                <p id="employeeStatusEmployee" class="modal-subtitle"></p>
+            </div>
+            <button id="closeEmployeeStatusModal" class="icon-btn" type="button">×</button>
+        </div>
+
+        <form id="employeeStatusForm">
+            <input id="employeeStatusLogin" type="hidden">
+            <input id="employeeStatusAction" type="hidden">
+
+            <div id="employeeFormerFields">
+                <label>
+                    End date
+                    <input id="employeeEndDate" type="date" required>
+                </label>
+
+                <label>
+                    Reason
+                    <textarea id="employeeReason" rows="3" placeholder="e.g. Resignation" required></textarea>
+                </label>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" id="cancelEmployeeStatus" class="secondary">Cancel</button>
+                <button type="submit" id="saveEmployeeStatus" class="primary">Confirm</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="hoursModal" class="modal hidden">
+    <div class="modal-card">
+        <div class="panel-title">
+            <h3>Edit working hours</h3>
+            <button id="closeHoursModal" class="icon-btn">×</button>
+        </div>
+        <p id="hoursModalEmployee" class="modal-subtitle"></p>
+        <form id="hoursForm">
+            <input id="editLogin" type="hidden">
+            <input id="editDate" type="hidden">
+
+            <div class="form-grid">
+                <label>
+                    Shift
+                    <select id="editShift">
+                        <option value="day">DAY</option>
+                        <option value="night">NIGHT</option>
+                    </select>
+                </label>
+
+                <label id="editStatusField">
+                    Status
+                    <select id="editStatus">
+                        <option value="Confirmed">Confirmed</option>
+                        <option value="Absent">Absent</option>
+                        <option value="Late">Late</option>
+                        <option value="Poor health">Poor health</option>
+                        <option value="Private leave">Private leave</option>
+                        <option value="Shein leave">Shein leave</option>
+                        <option value="No work">No work</option>
+                        <option value="Terminated">Terminated</option>
+                    </select>
+                </label>
+
+                <label id="editActualHoursField" style="display:none;">
+                    Actual hours
+                    <input id="editActualHours" type="number" min="0" max="24" step="0.01" inputmode="decimal">
+                    <small>Enter the final actual hours directly.</small>
+                </label>
+
+                <label>
+                    Actual start
+                    <input id="editStart" type="time">
+                </label>
+
+                <label>
+                    Actual end
+                    <input id="editEnd" type="time">
+                </label>
+
+                <label class="checkbox-field break-field">
+                    <span>Break</span>
+                    <span class="checkbox-inline">
+                        <input id="editBreak45" type="checkbox">
+                        Deduct 45 min break
+                    </span>
+                    <small>45 minutes are deducted from the actual hours.</small>
+                </label>
+            </div>
+
+            <label>
+                Reason
+                <select id="editReason">
+                    <option value="">—</option>
+                    <option value="Private leave">Private leave</option>
+                    <option value="Forced leave">Forced leave</option>
+                    <option value="Feeling unwell">Feeling unwell</option>
+                    <option value="Terminated">Terminated</option>
+                    <option value="Other">Other</option>
+                </select>
+            </label>
+
+            <label>
+                Note
+                <textarea id="editNote" rows="3"></textarea>
+            </label>
+
+            <div class="edit-preview">
+                <span>Actual <strong id="editActual">0.00h</strong></span>
+                <span>Difference <strong id="editDiff">0.00h</strong></span>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" id="cancelHoursModal" class="secondary">Cancel</button>
+                <button class="primary">Save hours</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="script.js"></script>
+</body>
+</html>
