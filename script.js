@@ -295,6 +295,19 @@ function actorDisplay(name, login) {
     return cleanName || cleanLogin || "—";
 }
 
+
+// Keep long attendance notes compact in the monthly table.
+// The full note remains untouched in Supabase and in exports.
+function notePreview(text, maxWords = 8) {
+    const full = String(text || '').trim();
+    if (!full) return '—';
+
+    const words = full.split(/\s+/);
+    if (words.length <= maxWords) return full;
+
+    return `${words.slice(0, maxWords).join(' ')}…`;
+}
+
 function currentUserRole() {
     return String(currentUser?.role || "").trim().toLowerCase();
 }
@@ -3397,7 +3410,7 @@ function renderHoursAttendance() {
                 <td>${esc(data.reason || "—")}</td>
                 <td>${esc(actorDisplay(data.confirmedByName, data.confirmedByLogin))}</td>
                 <td>${esc(actorDisplay(data.lastChangedByName, data.lastChangedByLogin || data.confirmedByLogin))}</td>
-                <td class="hours-note" title="${esc(data.note || "")}">${esc(data.note || "—")}</td>
+                <td class="hours-note" title="${esc(data.note || "")}">${esc(notePreview(data.note, 8))}</td>
                 <td>
                     ${(p > 0 || a > 0 || data.confirmed || data.status === "Absent" || data.reason)
                         ? data.confirmed
@@ -3476,7 +3489,7 @@ async function renderHoursHistory(employee) {
             <td>${esc(item.status || "")}</td>
             <td>${esc(item.reason || "—")}</td>
             <td>${esc(actorDisplay(item.changed_by_name, item.changed_by_login))}</td>
-            <td>${esc(item.note || "—")}</td>
+            <td class="hours-note" title="${esc(item.note || "")}">${esc(notePreview(item.note, 8))}</td>
         </tr>`).join("") || `<tr><td colspan="11"><div class="empty">No confirmed or edited hours yet.</div></td></tr>`;
 }
 

@@ -1164,8 +1164,9 @@ th {
 }
 
 .hours-note {
-    width: 180px;
-    max-width: 180px;
+    width: 170px;
+    max-width: 170px;
+    min-width: 170px;
     color: #667085;
     font-size: 12px;
     white-space: nowrap;
@@ -1174,14 +1175,19 @@ th {
     vertical-align: middle;
 }
 
+.hours-note[title] {
+    cursor: help;
+}
+
 .hours-note:hover {
     color: #344054;
 }
 
 @media (max-width: 900px) {
     .hours-note {
-        width: 140px;
-        max-width: 140px;
+        width: 130px;
+        max-width: 130px;
+        min-width: 130px;
     }
 }
 
