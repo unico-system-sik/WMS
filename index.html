@@ -712,14 +712,9 @@
                 <label id="editStatusField">
                     Status
                     <select id="editStatus">
+                        <option value="Pending">Not confirmed</option>
                         <option value="Confirmed">Confirmed</option>
                         <option value="Absent">Absent</option>
-                        <option value="Late">Late</option>
-                        <option value="Poor health">Poor health</option>
-                        <option value="Private leave">Private leave</option>
-                        <option value="Shein leave">Shein leave</option>
-                        <option value="No work">No work</option>
-                        <option value="Terminated">Terminated</option>
                     </select>
                 </label>
 
@@ -745,7 +740,7 @@
                         <input id="editBreak45" type="checkbox">
                         Deduct 45 min break
                     </span>
-                    <small>45 minutes are deducted from the actual hours.</small>
+                    <small id="editBreak45Hint">45 minutes are deducted from the actual hours.</small>
                 </label>
             </div>
 
@@ -781,5 +776,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="script.js"></script>
+
 </body>
 </html>

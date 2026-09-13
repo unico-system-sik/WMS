@@ -154,7 +154,7 @@ function refreshLoginLockoutUI() {
 let currentUser = null;
 // Audit Log is stored centrally in Supabase.
 async function loadAuditHistory() {
-    if (!currentUser) {
+    if (!currentUser || String(currentUser.role || "").trim().toLowerCase() !== "admin") {
         return { data: [], error: null };
     }
 
@@ -257,46 +257,6 @@ function loginEmail(login) {
     return `${String(login).trim().toLowerCase()}@warehouse.local`;
 }
 
-function formatAuditDate(value) {
-    if (!value) return "";
-
-    // YYYY-MM-DD values are formatted directly to avoid timezone shifts.
-    const raw = String(value);
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-        const [year, month, day] = raw.split("-");
-        return `${day}.${month}.${year}`;
-    }
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return raw;
-
-    return date.toLocaleDateString("pl-PL");
-}
-
-function formatAuditDetails(details) {
-    const raw = String(details || "");
-    if (!raw) return "";
-
-    // Legacy records created before V9 may contain a full JS Date string:
-    // "Wed Sep 02 2026 12:00:00 GMT+0200 (...) · NIGHT · 11.00h"
-    // Convert only that legacy prefix; leave all other details untouched.
-    const legacyMatch = raw.match(
-        /^([A-Za-z]{3} [A-Za-z]{3} \d{2} \d{4} \d{2}:\d{2}:\d{2} GMT[+-]\d{4})(?:\s*\([^)]*\))?\s*·\s*(.*)$/
-    );
-
-    if (legacyMatch) {
-        const parsed = new Date(legacyMatch[1]);
-
-        if (!Number.isNaN(parsed.getTime())) {
-            const date = parsed.toLocaleDateString("pl-PL");
-            return `${date} · ${legacyMatch[2]}`;
-        }
-    }
-
-    return raw;
-}
-
 async function addAudit(action, details = "", employeeLogin = "", actorLogin = "") {
     const actorUser = getCurrentUser();
     if (!actorUser) return;
@@ -339,6 +299,18 @@ function setAuthScreen(isLoggedIn) {
         document.getElementById("currentUserLogin").textContent =
             `${currentUser.login} · ${currentUser.role}`;
         syncExtraLeaderLogin();
+
+        // Audit Log is intentionally visible only to Admin users.
+        // The database RLS patch in V22.7 enforces the same rule server-side.
+        const auditTabButton = document.querySelector('[data-scheduling-tab="auditTab"]');
+        const isAdmin = String(currentUser.role || "").trim().toLowerCase() === "admin";
+        if (auditTabButton) {
+            auditTabButton.hidden = !isAdmin;
+        }
+
+        if (!isAdmin && activeSchedulingTab === "auditTab") {
+            setSchedulingTab("scheduleTab");
+        }
     }
 }
 
@@ -398,9 +370,22 @@ async function logout() {
     setAuthScreen(false);
 }
 
+function auditDateKey(value) {
+    if (!value) return "";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return String(value).slice(0, 10);
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/Warsaw",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+    }).format(parsed);
+}
+
 async function renderAuditLog() {
     const table = document.getElementById("auditTable");
     if (!table) return;
+    if (String(currentUser?.role || "").trim().toLowerCase() !== "admin") return;
 
     const dateFilter =
         document.getElementById("auditDate").value;
@@ -435,8 +420,7 @@ async function renderAuditLog() {
             // Supabase timestamptz is returned as an ISO string.
             // Compare directly with the date input value to avoid
             // browser locale differences (en-CA, en-GB, etc.).
-            const itemDate =
-                String(item.created_at || "").slice(0, 10);
+            const itemDate = auditDateKey(item.created_at);
 
             if (itemDate !== dateFilter) return false;
         }
@@ -829,10 +813,6 @@ function saveStorage() {
     localStorage.setItem(STORAGE.scheduleHistory, JSON.stringify(scheduleHistory));
 }
 
-function addScheduleHistory() {
-    // V13: scheduling history is written by Supabase triggers, not localStorage.
-}
-
 function startDay(value) {
     const d = new Date(value);
     return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12);
@@ -1173,37 +1153,6 @@ function individualScheduleValue(employee, date) {
     return individualSchedules[scheduleKey(date, employee.login)] || "";
 }
 
-function finalScheduleSource(employee, date) {
-    const key = scheduleKey(date, employee.login);
-    if (individualSchedules[key]) return "individual";
-    if (extraDays[key]) return "extra";
-    if (schedules[key]) return "brigade";
-    return "default";
-}
-
-async function saveScheduleToSupabase(payloadRows) {
-    if (!currentUser || !payloadRows.length) return true;
-
-    const rows = payloadRows.map(row => ({
-        work_date: row.work_date,
-        employee_login: row.employee_login,
-        shift: row.shift
-    }));
-
-    const { error } = await supabaseClient.rpc(
-        "save_monthly_schedule",
-        { p_rows: rows }
-    );
-
-    if (error) {
-        console.error("Atomic Monthly Schedule save error:", error);
-        toast(`Could not save schedule: ${error.message}`);
-        return false;
-    }
-
-    return true;
-}
-
 function getSchedule(employee, date) {
     const key = scheduleKey(date, employee.login);
     const individual = individualSchedules[key];
@@ -1216,16 +1165,58 @@ function getSchedule(employee, date) {
     return { shift: schedules[key], source: "saved" };
 }
 
+const ALLOWED_ATTENDANCE_REASONS = [
+    "Private leave",
+    "Forced leave",
+    "Feeling unwell",
+    "Terminated",
+    "Other"
+];
+
+function normalizeAttendanceData(data = {}) {
+    const confirmed = Boolean(data.confirmed);
+    const legacyStatus = String(data.status || "Pending");
+    let reason = ALLOWED_ATTENDANCE_REASONS.includes(String(data.reason || ""))
+        ? String(data.reason)
+        : "";
+
+    const legacyReasonMap = {
+        "Private leave": "Private leave",
+        "Forced leave": "Forced leave",
+        "Feeling unwell": "Feeling unwell",
+        "Poor health": "Feeling unwell",
+        "Shein leave": "Private leave",
+        "No work": "Other",
+        "Terminated": "Terminated",
+        "Late": "Other",
+        "Left early": "Other"
+    };
+    if (!reason && legacyReasonMap[legacyStatus]) reason = legacyReasonMap[legacyStatus];
+
+    return {
+        ...data,
+        confirmed,
+        actualHours: Number(data.actualHours || 0),
+        actualStart: data.actualStart || "",
+        actualEnd: data.actualEnd || "",
+        breakMinutes: Number(data.breakMinutes || 0),
+        status: confirmed ? (legacyStatus === "Absent" ? "Absent" : "Confirmed") : "Pending",
+        reason
+    };
+}
+
 function getAttendance(employee, date) {
-    return attendance[attendanceKey(date, employee.login)] || {
+    const existing = attendance[attendanceKey(date, employee.login)];
+    return normalizeAttendanceData(existing || {
         confirmed: false,
         actualHours: 0,
         actualStart: "",
         actualEnd: "",
         breakMinutes: 0,
         status: "Pending",
+        reason: "",
         note: ""
-    };
+    });
 }
 
 let attendanceRealtimeChannel = null;
@@ -1255,13 +1246,13 @@ function attendanceRowFromLocal(employee, date, data) {
         confirmed_at: data?.confirmedAt || (data?.confirmed ? new Date().toISOString() : null),
         last_changed_by: currentUser?.id || null,
         last_changed_by_login: currentUser?.login || "",
-        last_changed_by_name: currentUser?.fullName || currentUser?.login || "",
+        last_changed_by_name: currentUser?.name || currentUser?.login || "",
         last_changed_at: new Date().toISOString()
     };
 }
 
 function localAttendanceFromRemote(row) {
-    return {
+    return normalizeAttendanceData({
         confirmed: Boolean(row.confirmed),
         actualHours: Number(row.actual_hours || 0),
         actualStart: row.actual_start ? String(row.actual_start).slice(0, 5) : "",
@@ -1277,7 +1268,7 @@ function localAttendanceFromRemote(row) {
         lastChangedByLogin: row.last_changed_by_login || "",
         lastChangedByName: row.last_changed_by_name || "",
         lastChangedAt: row.last_changed_at || ""
-    };
+    });
 }
 
 async function loadAttendanceFromSupabase() {
@@ -1668,115 +1659,9 @@ function renderBrigadeSummary(people) {
         `<div class="empty">No employees scheduled for this shift.</div>`;
 }
 
-const SHIFT_STATUS_OPTIONS = [
-    ["pending", "Not confirmed"],
-    ["confirmed", "Confirmed"]
-];
-
-const SHIFT_REASON_OPTIONS = [
-    ["", "—"],
-    ["Private leave", "Private leave"],
-    ["Forced leave", "Forced leave"],
-    ["Feeling unwell", "Feeling unwell"],
-    ["Terminated", "Terminated"],
-    ["Other", "Other"]
-];
-
-function shiftReasonOptionsHtml(currentReason) {
-    return SHIFT_REASON_OPTIONS.map(([key, label]) =>
-        `<option value="${esc(key)}" ${key === (currentReason || "") ? "selected" : ""}>${esc(label)}</option>`
-    ).join("");
-}
-
-function shiftStatusOptionsHtml(currentStatus, confirmed) {
-    const value = confirmed ? "confirmed" : "pending";
-    return SHIFT_STATUS_OPTIONS.map(([key, label]) =>
-        `<option value="${esc(key)}" ${key === value ? "selected" : ""}>${esc(label)}</option>`
-    ).join("");
-}
-
 function shiftStatusClass(status, confirmed) {
     if (!confirmed) return "pending";
-    if (["Absent", "Terminated"].includes(status)) return "absent";
-    if (["Private leave", "Forced leave", "Feeling unwell", "Shein leave", "No work"].includes(status)) return "leave";
-    if (["Left early", "Late", "Poor health"].includes(status)) return "warning";
-    return "confirmed";
-}
-
-async function saveShiftEmployeeStatus(login, status) {
-    const employee = employeeByLogin(login);
-    if (!employee) return;
-
-    const date = overviewDate;
-    const key = attendanceKey(date, login);
-    const current = attendance[key] || {};
-    const schedule = getSchedule(employee, date);
-    const planned = plannedHours(employee, date);
-    const selected = String(status || "Confirmed");
-    const zeroHourStatuses = ["Private leave", "Shein leave", "No work", "Terminated", "Absent"];
-
-    // Keep the original Status behavior: the status field itself is the attendance outcome.
-    let nextData = {
-        ...current,
-        confirmed: true,
-        status: selected,
-        confirmedAt: current.confirmedAt || new Date().toISOString(),
-        confirmedById: current.confirmedById || currentUser?.id || "",
-        confirmedByLogin: current.confirmedByLogin || currentUser?.login || ""
-    };
-
-    if (zeroHourStatuses.includes(selected)) {
-        nextData.actualHours = 0;
-        nextData.actualStart = "";
-        nextData.actualEnd = "";
-        nextData.breakMinutes = 0;
-    } else if (!current.confirmed) {
-        nextData.actualHours = Number(current.actualHours || planned);
-        nextData.actualStart = current.actualStart || (SHIFTS[schedule.shift]?.start || "");
-        nextData.actualEnd = current.actualEnd || (SHIFTS[schedule.shift]?.end || "");
-        nextData.breakMinutes = current.breakMinutes ?? 45;
-    }
-
-    // A fully confirmed planned shift does not need a reason.
-    if (nextData.confirmed && planned > 0 && Math.abs(Number(nextData.actualHours || 0) - planned) < 0.001) {
-        nextData.reason = "";
-    }
-
-    const saved = attendanceRemoteReady
-        ? await saveAttendanceToSupabase(employee, date, nextData)
-        : (() => { attendance[key] = nextData; saveStorage(); return true; })();
-
-    if (!saved) return;
-    renderOverview();
-    renderAuditLog();
-    toast(`${employee.name}: ${nextData.status}.`);
-}
-
-async function saveShiftEmployeeReason(login, reason) {
-    const employee = employeeByLogin(login);
-    if (!employee) return;
-
-    const date = overviewDate;
-    const key = attendanceKey(date, login);
-    const current = attendance[key] || {};
-    const planned = plannedHours(employee, date);
-    const actual = Number(current.actualHours || 0);
-    const isFullConfirmed = Boolean(current.confirmed) && planned > 0 && Math.abs(actual - planned) < 0.001;
-    const nextData = {
-        ...current,
-        reason: isFullConfirmed ? "" : (reason || ""),
-        confirmed: Boolean(current.confirmed),
-        status: current.status || (current.confirmed ? "Confirmed" : "Pending")
-    };
-
-    const saved = attendanceRemoteReady
-        ? await saveAttendanceToSupabase(employee, date, nextData)
-        : (() => { attendance[key] = nextData; saveStorage(); return true; })();
-
-    if (saved) {
-        renderOverview();
-        toast(`${employee.name}: reason updated.`);
-    }
+    return status === "Absent" ? "absent" : "confirmed";
 }
 
 function renderShiftEmployees(people) {
@@ -1816,7 +1701,7 @@ function renderShiftEmployees(people) {
         const data = getAttendance(employee, overviewDate);
         const planned = plannedHours(employee, overviewDate);
         const actual = Number(data.actualHours || 0);
-        const fullConfirmed = Boolean(data.confirmed) && planned > 0 && Math.abs(actual - planned) < 0.001;
+        const fullConfirmed = Boolean(data.confirmed) && Math.abs(actual - planned) < 0.001;
         const visibleReason = fullConfirmed ? "" : (data.reason || "");
         const statusClass = shiftStatusClass(data.status, data.confirmed);
 
@@ -1926,10 +1811,7 @@ async function confirmSelectedHours() {
             actualHours: confirmedActualHours,
             actualStart: current.actualStart || (SHIFTS[shift]?.start || ""),
             actualEnd: current.actualEnd || (SHIFTS[shift]?.end || ""),
-            status:
-                current.status && current.status !== "Pending"
-                    ? current.status
-                    : "Confirmed",
+            status: "Confirmed",
             confirmedAt: new Date().toISOString(),
             confirmedById: currentUser?.id || "",
             confirmedByLogin: currentUser?.login || "",
@@ -2064,70 +1946,6 @@ function clearSelectedHours() {
 }
 
 
-async function confirmAllHours() {
-    const people = activeEmployees().filter(
-        employee =>
-            getSchedule(employee, overviewDate).shift === overviewShift
-    );
-
-    if (!people.length) {
-        toast("No employees are scheduled for this shift.");
-        return;
-    }
-
-    const rowsToSave = people
-        .filter(employee => !getAttendance(employee, overviewDate).confirmed)
-        .map(employee => {
-            const key = attendanceKey(overviewDate, employee.login);
-            const current = attendance[key] || {};
-            const shift = getSchedule(employee, overviewDate).shift;
-            const planned = plannedHours(employee, overviewDate);
-
-            return {
-                employee,
-                date: overviewDate,
-                data: {
-                    ...current,
-                    confirmed: true,
-                    actualHours: Number(current.actualHours || planned),
-                    actualStart: current.actualStart || (SHIFTS[shift]?.start || ""),
-                    actualEnd: current.actualEnd || (SHIFTS[shift]?.end || ""),
-                    status:
-                        current.status && current.status !== "Pending"
-                            ? current.status
-                            : "Confirmed",
-                    confirmedAt: new Date().toISOString(),
-                    confirmedById: currentUser?.id || "",
-                    confirmedByLogin: currentUser?.login || "",
-                    lastChangedById: currentUser?.id || "",
-                    lastChangedByLogin: currentUser?.login || "",
-                    lastChangedByName: currentUser?.name || currentUser?.login || "",
-                    lastChangedAt: new Date().toISOString()
-                }
-            };
-        });
-
-    if (!rowsToSave.length) {
-        toast("All hours are already confirmed.");
-        return;
-    }
-
-    const saved = attendanceRemoteReady
-        ? await saveAttendanceRowsToSupabase(rowsToSave)
-        : (() => {
-            rowsToSave.forEach(({ employee, date, data }) => {
-                attendance[attendanceKey(date, employee.login)] = data;
-            });
-            saveStorage();
-            return true;
-        })();
-
-    if (!saved) return;
-
-    renderOverview();
-    toast(`${rowsToSave.length} employees confirmed.`);
-}
-
 function openHoursModal(employee, date = overviewDate, source = "hours") {
     hoursModalSource = source;
     const data = getAttendance(
@@ -2137,7 +1955,7 @@ function openHoursModal(employee, date = overviewDate, source = "hours") {
 
     const schedule = getSchedule(
         employee,
-        overviewDate
+        date
     );
 
     const shift = schedule.shift;
@@ -2160,12 +1978,9 @@ function openHoursModal(employee, date = overviewDate, source = "hours") {
         ? Number(data.breakMinutes || 0) === 45
         : true;
 
-    $("editStatus").value =
-        ["Confirmed", "Absent", "Late", "Poor health", "Private leave", "Shein leave", "No work", "Terminated", "Left early"].includes(
-            data.status
-        )
-            ? data.status
-            : "Confirmed";
+    $("editStatus").value = data.confirmed
+        ? (data.status === "Absent" ? "Absent" : "Confirmed")
+        : "Pending";
 
     $("editReason").value = data.reason || "";
     $("editNote").value = data.note || "";
@@ -2183,10 +1998,11 @@ function openHoursModal(employee, date = overviewDate, source = "hours") {
     if (statusField) statusField.style.display = "";
     if (actualHoursField) actualHoursField.style.display = "none";
     if ($("editStatus")) {
-        $("editStatus").disabled = source === "overview";
-        $("editStatus").title = source === "overview"
-            ? "Status can only be changed by Confirm."
-            : "";
+        const canChangeConfirmedStatus = Boolean(data.confirmed);
+        $("editStatus").disabled = !canChangeConfirmedStatus;
+        $("editStatus").title = canChangeConfirmedStatus
+            ? "Use this field to correct a confirmed day between Confirmed and Absent."
+            : "Pending days become confirmed only through the explicit Confirm action.";
     }
 
     const modalSaveButton = $("hoursForm")?.querySelector('button[type="submit"]');
@@ -2202,22 +2018,16 @@ function getEditBreakHours() {
 function updateEditPreview() {
     const shift = $("editShift").value;
 
-    let actual = 0;
-    let gross = 0;
-    let breakHours = 0;
-
-    if (hoursModalSource === "overview" && $("editActualHours")) {
-        actual = Math.max(0, Number($("editActualHours").value || 0));
-    } else {
-        const start = $("editStart").value;
-        const end = $("editEnd").value;
-        gross = calculateHours(start, end);
-        breakHours = getEditBreakHours();
-        actual = Math.max(0, gross - breakHours);
-    }
+    const start = $("editStart").value;
+    const end = $("editEnd").value;
+    const gross = calculateHours(start, end);
+    const breakHours = $("editStatus").value === "Absent" ? 0 : getEditBreakHours();
+    const actual = $("editStatus").value === "Absent"
+        ? 0
+        : Math.max(0, gross - breakHours);
 
     const difference =
-        actual - SHIFTS[shift].netHours;
+        actual - (SHIFTS[shift]?.netHours ?? 0);
 
     $("editActual").textContent =
         `${actual.toFixed(2)}h`;
@@ -2250,9 +2060,10 @@ async function saveHoursEdit(event) {
     // Saving edits NEVER confirms a pending row; Confirm remains a separate action.
     if (hoursModalSource === "overview") {
         const shift = $("editShift").value;
-        const status = current.confirmed ? (current.status || "Confirmed") : "Pending";
-        const zeroHourStatuses = ["Absent", "Private leave", "Forced leave", "Feeling unwell", "Shein leave", "No work", "Terminated"];
-        const zeroHours = zeroHourStatuses.includes(status);
+        const status = current.confirmed
+            ? ($("editStatus").value === "Absent" ? "Absent" : "Confirmed")
+            : "Pending";
+        const zeroHours = status === "Absent";
         const breakMinutes = zeroHours ? 0 : ($("editBreak45").checked ? 45 : 0);
         const grossHours = zeroHours ? 0 : calculateHours($("editStart").value, $("editEnd").value);
         const actual = zeroHours ? 0 : Math.max(0, grossHours - breakMinutes / 60);
@@ -2265,7 +2076,7 @@ async function saveHoursEdit(event) {
             breakMinutes,
             confirmed: Boolean(current.confirmed),
             status,
-            reason: (current.confirmed && planned > 0 && Math.abs(actual - planned) < 0.001) ? "" : ($("editReason").value || ""),
+            reason: (current.confirmed && Math.abs(actual - planned) < 0.001) ? "" : (ALLOWED_ATTENDANCE_REASONS.includes($("editReason").value) ? $("editReason").value : ""),
             note: $("editNote").value.trim(),
             lastChangedById: currentUser?.id || "",
             lastChangedByLogin: currentUser?.login || "",
@@ -2288,27 +2099,27 @@ async function saveHoursEdit(event) {
     }
 
     // Existing Hours page editing flow.
-    let status = $("editStatus").value;
-    const zeroHourStatuses = ["Absent", "Private leave", "Forced leave", "Feeling unwell", "Shein leave", "No work", "Terminated"];
-    const breakMinutes = zeroHourStatuses.includes(status) ? 0 : ($("editBreak45").checked ? 45 : 0);
-    const grossHours = zeroHourStatuses.includes(status) ? 0 : calculateHours($("editStart").value, $("editEnd").value);
-    const actual = zeroHourStatuses.includes(status) ? 0 : Math.max(0, grossHours - breakMinutes / 60);
-
-    if (status === "Confirmed" && planned > 0 && actual < planned - 0.001) status = "Left early";
+    const status = current.confirmed
+        ? ($("editStatus").value === "Absent" ? "Absent" : "Confirmed")
+        : "Pending";
+    const zeroHours = status === "Absent";
+    const breakMinutes = zeroHours ? 0 : ($("editBreak45").checked ? 45 : 0);
+    const grossHours = zeroHours ? 0 : calculateHours($("editStart").value, $("editEnd").value);
+    const actual = zeroHours ? 0 : Math.max(0, grossHours - breakMinutes / 60);
 
     const nextData = {
         ...current,
-        confirmed: true,
+        confirmed: Boolean(current.confirmed),
         actualHours: actual,
-        actualStart: zeroHourStatuses.includes(status) ? "" : $("editStart").value,
-        actualEnd: zeroHourStatuses.includes(status) ? "" : $("editEnd").value,
+        actualStart: zeroHours ? "" : $("editStart").value,
+        actualEnd: zeroHours ? "" : $("editEnd").value,
         breakMinutes,
         status,
-        reason: (planned > 0 && Math.abs(actual - planned) < 0.001) ? "" : ($("editReason").value || ""),
+        reason: (current.confirmed && Math.abs(actual - planned) < 0.001) ? "" : (ALLOWED_ATTENDANCE_REASONS.includes($("editReason").value) ? $("editReason").value : ""),
         note: $("editNote").value.trim(),
-        confirmedAt: current.confirmedAt || new Date().toISOString(),
-        confirmedById: current.confirmedById || currentUser?.id || "",
-        confirmedByLogin: current.confirmedByLogin || currentUser?.login || "",
+        confirmedAt: current.confirmedAt || "",
+        confirmedById: current.confirmedById || "",
+        confirmedByLogin: current.confirmedByLogin || "",
         lastChangedById: currentUser?.id || "",
         lastChangedByLogin: currentUser?.login || "",
         lastChangedByName: currentUser?.name || currentUser?.login || "",
@@ -2723,6 +2534,17 @@ function setSchedulingTab(tabId, renderContent = true) {
     if (!renderContent) return;
 
     if (activeSchedulingTab === "auditTab") {
+        const isAdmin = String(currentUser?.role || "").trim().toLowerCase() === "admin";
+        if (!isAdmin) {
+            activeSchedulingTab = "scheduleTab";
+            document.querySelectorAll("[data-scheduling-tab]").forEach(button => {
+                button.classList.toggle("active", button.dataset.schedulingTab === activeSchedulingTab);
+            });
+            document.querySelectorAll("#schedulingPage .subpage").forEach(page => {
+                page.classList.toggle("active-subpage", page.id === activeSchedulingTab);
+            });
+            return;
+        }
         renderAuditLog();
     } else if (activeSchedulingTab === "extraDaysTab") {
         renderExtraDays();
@@ -2844,7 +2666,6 @@ async function saveIndividualSchedules() {
     if (button) { button.disabled = true; button.textContent = "Saving…"; }
 
     try {
-        const monthStart = new Date(scheduleMonth.getFullYear(), scheduleMonth.getMonth(), 1, 12);
         const monthPrefix = monthKey(scheduleMonth);
         const payload = [];
         Object.entries(individualSchedules).forEach(([key, shift]) => {
@@ -2855,24 +2676,20 @@ async function saveIndividualSchedules() {
             }
         });
 
-        const { error: clearError } = await supabaseClient
-            .from("employee_schedule_overrides")
-            .delete()
-            .gte("work_date", `${monthPrefix}-01`)
-            .lte("work_date", `${monthPrefix}-${String(monthDays(monthStart)).padStart(2, "0")}`);
-        if (clearError) throw clearError;
-
-        if (payload.length) {
-            const rows = payload.map(row => ({ ...row, updated_by: currentUser.id, updated_by_login: currentUser.login }));
-            const { error } = await supabaseClient.from("employee_schedule_overrides").upsert(rows, { onConflict: "work_date,employee_login" });
-            if (error) throw error;
-        }
+        const { data: savedCount, error } = await supabaseClient.rpc(
+            "save_employee_schedule_overrides",
+            {
+                p_month: `${monthPrefix}-01`,
+                p_rows: payload
+            }
+        );
+        if (error) throw error;
 
         await loadIndividualSchedulesFromSupabase();
         renderScheduling();
         renderOverview();
         renderHoursAttendance();
-        toast(`Individual schedule saved: ${payload.length} overrides.`);
+        toast(`Individual schedule saved: ${Number(savedCount ?? payload.length)} overrides.`);
     } catch (error) {
         console.error("Individual Schedule save error:", error);
         toast(`Could not save individual schedule: ${error.message || error}`);
@@ -3326,6 +3143,52 @@ function exportSchedule() {
     toast("Schedule exported with separate day columns.");
 }
 
+async function confirmHoursDay(employee, date) {
+    if (!employee || !currentUser) return;
+
+    const key = attendanceKey(date, employee.login);
+    const current = getAttendance(employee, date);
+    if (current.confirmed) {
+        toast("This day is already confirmed.");
+        return;
+    }
+
+    const schedule = getSchedule(employee, date);
+    const planned = plannedHours(employee, date);
+    const actual = Number(current.actualHours || planned);
+    const nextData = {
+        ...current,
+        shift: schedule.shift,
+        confirmed: true,
+        actualHours: actual,
+        actualStart: current.actualStart || (SHIFTS[schedule.shift]?.start || ""),
+        actualEnd: current.actualEnd || (SHIFTS[schedule.shift]?.end || ""),
+        breakMinutes: current.breakMinutes ?? (planned > 0 ? 45 : 0),
+        status: "Confirmed",
+        reason: Math.abs(actual - planned) < 0.001
+            ? ""
+            : (ALLOWED_ATTENDANCE_REASONS.includes(current.reason) ? current.reason : ""),
+        confirmedAt: new Date().toISOString(),
+        confirmedById: currentUser.id || "",
+        confirmedByLogin: currentUser.login || "",
+        lastChangedById: currentUser.id || "",
+        lastChangedByLogin: currentUser.login || "",
+        lastChangedByName: currentUser.name || currentUser.login || "",
+        lastChangedAt: new Date().toISOString()
+    };
+
+    const saved = attendanceRemoteReady
+        ? await saveAttendanceToSupabase(employee, date, nextData)
+        : (() => { attendance[key] = nextData; saveStorage(); return true; })();
+
+    if (!saved) return;
+
+    renderOverview();
+    renderHoursAttendance();
+    renderAuditLog();
+    toast(`${employee.name}: hours confirmed.`);
+}
+
 function renderHoursAttendance() {
     renderAllHoursAttendance();
     const employee = employeeByLogin(hoursAttendanceEmployeeLogin);
@@ -3373,9 +3236,18 @@ function renderHoursAttendance() {
         const a = Number(data.actualHours || 0);
 
         planned += p;
-        if (p > 0) {
-            if (data.confirmed) confirmed += a;
-            else pending++;
+
+        // Count every confirmed actual hour, even when the employee was
+        // originally scheduled OFF (for example, a manually entered 8h day).
+        // Previously this was nested inside `if (p > 0)`, which incorrectly
+        // showed 0.00h in the Confirmed tile for confirmed hours on OFF days.
+        if (data.confirmed) {
+            confirmed += a;
+        }
+
+        // Pending means a scheduled working day that still has not been confirmed.
+        if (p > 0 && !data.confirmed) {
+            pending++;
         }
 
         const statusClass =
@@ -3401,7 +3273,11 @@ function renderHoursAttendance() {
                 <td>${esc(data.lastChangedByLogin || data.confirmedByLogin || "—")}</td>
                 <td class="hours-note">${esc(data.note || "—")}</td>
                 <td>
-                    ${p > 0 ? `<button class="mini-btn ${data.confirmed ? "" : "confirm"}" data-ha-edit="${dateKey(date)}">${data.confirmed ? "Edit" : "Confirm / Edit"}</button>` : "—"}
+                    ${p > 0
+                        ? data.confirmed
+                            ? `<button class="mini-btn" data-ha-edit="${dateKey(date)}">Edit</button>`
+                            : `<div class="hours-action-group"><button class="mini-btn confirm" data-ha-confirm="${dateKey(date)}">Confirm</button><button class="mini-btn" data-ha-edit="${dateKey(date)}">Edit</button></div>`
+                        : "—"}
                 </td>
             </tr>
         `);
@@ -3415,6 +3291,15 @@ function renderHoursAttendance() {
         `<tr><td colspan="12"><div class="empty">No days in this month.</div></td></tr>`;
 
     renderHoursHistory(employee);
+
+    $("hoursAttendanceTable")
+        .querySelectorAll("[data-ha-confirm]")
+        .forEach(button => {
+            button.addEventListener("click", () => {
+                const date = fromKey(button.dataset.haConfirm);
+                confirmHoursDay(employee, date);
+            });
+        });
 
     $("hoursAttendanceTable")
         .querySelectorAll("[data-ha-edit]")
@@ -3484,7 +3369,7 @@ function subscribeToHistoryRealtime() {
         auditRealtimeChannel = supabaseClient
             .channel("warehouse-audit-log")
             .on("postgres_changes", { event: "*", schema: "public", table: "audit_logs" }, () => {
-                if (activeSchedulingTab === "auditTab") renderAuditLog();
+                if (String(currentUser?.role || "").trim().toLowerCase() === "admin" && activeSchedulingTab === "auditTab") renderAuditLog();
             })
             .subscribe(status => console.info("Audit realtime status:", status));
     }
@@ -3928,7 +3813,7 @@ $("saveSchedule").addEventListener(
     $("editStatus").addEventListener(
         "change",
         () => {
-            if (["Absent", "Private leave", "Shein leave", "No work", "Terminated"].includes($("editStatus").value)) {
+            if ($("editStatus").value === "Absent") {
                 $("editStart").value = "";
                 $("editEnd").value = "";
                 $("editBreak45").checked = false;
@@ -4004,7 +3889,8 @@ function getHoursEmployeeSummary(employee) {
         const date = new Date(hoursAttendanceMonth.getFullYear(), hoursAttendanceMonth.getMonth(), day, 12);
         const p = plannedHours(employee, date), data = getAttendance(employee, date);
         planned += p;
-        if (p > 0) { if (data.confirmed) confirmed += Number(data.actualHours || 0); else pending++; }
+        if (data.confirmed) confirmed += Number(data.actualHours || 0);
+        if (p > 0 && !data.confirmed) pending++;
     }
     return { planned, confirmed, difference: confirmed - planned, pending };
 }
@@ -4038,7 +3924,7 @@ function hoursExportRows(ignoreFilters) {
     }
     return rows;
 }
-function csvCell(value) { return `"${String(value ?? "").replace(/"/g,'""')}"`; }
+// csvCell is declared once above and reused by all CSV exports.
 
 /* V12.10 — real XLSX export for Hours Attendance
    Matrix layout:

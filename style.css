@@ -1588,3 +1588,12 @@ th {
     .login-card{padding:25px 21px;border-radius:15px}
     .login-card h1{font-size:23px}
 }
+
+
+/* V23 — separate Confirm and Edit actions in Hours Attendance. */
+.hours-action-group {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
