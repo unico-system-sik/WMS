@@ -295,6 +295,34 @@ function actorDisplay(name, login) {
     return cleanName || cleanLogin || "—";
 }
 
+function currentUserRole() {
+    return String(currentUser?.role || "").trim().toLowerCase();
+}
+
+// Export is an operational/reporting permission. Leaders can work with
+// attendance, but they do not get Excel export controls.
+// Coordinators and Admins can export.
+function canExportData() {
+    const role = currentUserRole();
+    return role === "coordinator" || role === "admin";
+}
+
+function canDeleteExtraDays() {
+    const role = currentUserRole();
+    return role === "coordinator" || role === "admin";
+}
+
+function updateRoleBasedControls() {
+    const canExport = canExportData();
+
+    ["exportShiftEmployees", "exportSchedule"].forEach(id => {
+        const button = $(id);
+        if (button) button.hidden = !canExport;
+    });
+
+    updateHoursExportVisibility();
+}
+
 function setAuthScreen(isLoggedIn) {
     const loginScreen = document.getElementById("loginScreen");
     const userBox = document.getElementById("currentUserBox");
@@ -314,6 +342,7 @@ function setAuthScreen(isLoggedIn) {
         document.getElementById("currentUserLogin").textContent =
             `${roleLabel(currentUser.role)} · ${currentUser.login}`;
         syncExtraLeaderLogin();
+        updateRoleBasedControls();
 
         // Audit Log is intentionally visible only to Admin users.
         // The database RLS patch in V22.7 enforces the same rule server-side.
@@ -3022,12 +3051,20 @@ function renderExtraDays() {
         const isOff = item.type === "extra-off";
         const label = isOff ? "Extra day off" : `Extra work — ${String(item.shift || "day").toUpperCase()}`;
         const created = item.createdAt ? new Date(item.createdAt).toLocaleString("en-GB") : "—";
-        return `<tr><td>${esc(date)}</td><td><strong>${esc(employee.name)}</strong><br><small>${esc(employee.login)}</small></td><td>${esc(employee.brigade)}</td><td>${esc(employee.process)}</td><td><span class="extra-change ${isOff ? "off" : "work"}">${esc(label)}</span></td><td>${esc(actorDisplay(item.leaderName, item.leaderLogin))}</td><td>${esc(created)}</td><td><button class="icon-btn" type="button" data-remove-extra="${esc(key)}">×</button></td></tr>`;
+        const actionCell = canDeleteExtraDays()
+            ? `<button class="icon-btn" type="button" data-remove-extra="${esc(key)}" title="Remove Extra Day">×</button>`
+            : `—`;
+        return `<tr><td>${esc(date)}</td><td><strong>${esc(employee.name)}</strong><br><small>${esc(employee.login)}</small></td><td>${esc(employee.brigade)}</td><td>${esc(employee.process)}</td><td><span class="extra-change ${isOff ? "off" : "work"}">${esc(label)}</span></td><td>${esc(actorDisplay(item.leaderName, item.leaderLogin))}</td><td>${esc(created)}</td><td>${actionCell}</td></tr>`;
     }).join("") || `<tr><td colspan="8"><div class="empty">No active Extra Days match the selected filters.</div></td></tr>`;
 
     $("extraDaysTable").querySelectorAll("[data-remove-extra]").forEach(button => button.addEventListener("click", () => removeExtraDay(button.dataset.removeExtra)));
 }
 async function removeExtraDay(key) {
+    if (!canDeleteExtraDays()) {
+        toast("Only Coordinator or Admin can delete Extra Days.");
+        return;
+    }
+
     const split = key.lastIndexOf("_");
     const date = key.slice(0, split);
     const login = key.slice(split + 1);
@@ -3139,6 +3176,11 @@ function csvCell(value) {
 }
 
 function exportSchedule() {
+    if (!canExportData()) {
+        toast("Only Coordinator or Admin can export.");
+        return;
+    }
+
     const totalDays = monthDays(scheduleMonth);
     const headers = Array.from(
         { length: totalDays },
@@ -3971,8 +4013,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 /* V12.8 — Hours Attendance: all employees + filters + export */
 function hoursExportAllowed() {
-    const role = String(currentUser?.role || "").trim().toLowerCase();
-    return role === "coordinator" || role === "admin";
+    return canExportData();
 }
 function updateHoursExportVisibility() {
     const toolbar = $("hoursExportToolbar");
@@ -4328,6 +4369,11 @@ function buildShiftEmployeesXlsx(people) {
 }
 
 function exportShiftEmployees() {
+    if (!canExportData()) {
+        toast("Only Coordinator or Admin can export.");
+        return;
+    }
+
     const people = activeEmployees().filter(employee => getSchedule(employee, overviewDate).shift === overviewShift);
     if (!people.length) { toast("There are no employees scheduled for this shift."); return; }
     const xlsx = buildShiftEmployeesXlsx(people);
