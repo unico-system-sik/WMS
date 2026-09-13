@@ -3397,7 +3397,7 @@ function renderHoursAttendance() {
                 <td>${esc(data.reason || "—")}</td>
                 <td>${esc(actorDisplay(data.confirmedByName, data.confirmedByLogin))}</td>
                 <td>${esc(actorDisplay(data.lastChangedByName, data.lastChangedByLogin || data.confirmedByLogin))}</td>
-                <td class="hours-note">${esc(data.note || "—")}</td>
+                <td class="hours-note" title="${esc(data.note || "")}">${esc(data.note || "—")}</td>
                 <td>
                     ${(p > 0 || a > 0 || data.confirmed || data.status === "Absent" || data.reason)
                         ? data.confirmed
