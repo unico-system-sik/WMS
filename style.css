@@ -1625,3 +1625,7 @@ th {
 .system-user-name-input { min-width: 220px; }
 .system-user-active { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .admin-only-tab[hidden] { display: none !important; }
+
+
+/* Global utility: hide elements marked hidden. */
+.hidden{display:none !important;}

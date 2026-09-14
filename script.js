@@ -590,7 +590,10 @@ async function initAuth() {
         const user = await loadCurrentUser(data.user);
 
         if (!user) {
-            error.textContent = "This account is inactive.";
+            // Authentication succeeded, but the WMS profile is missing/inactive.
+            // Do not leave a valid Auth session hanging in the background.
+            await supabaseClient.auth.signOut({ scope: "local" });
+            error.textContent = "This account is inactive or has no active WMS profile.";
             if (button) button.disabled = false;
             return;
         }
