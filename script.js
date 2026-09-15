@@ -2740,37 +2740,116 @@ function renderIndividualScheduleTable() {
     if (!body || !head) return;
 
     const totalDays = monthDays(scheduleMonth);
-    head.innerHTML = `<th>Employee</th>` + Array.from({ length: totalDays }, (_, index) => {
-        const date = new Date(scheduleMonth.getFullYear(), scheduleMonth.getMonth(), index + 1, 12);
-        return `<th class="schedule-day-head"><strong>${String(index + 1).padStart(2, "0")}</strong><small>${date.toLocaleDateString("en-US", { weekday: "short" })}</small></th>`;
-    }).join("");
+    const query = ($("individualScheduleSearch")?.value || "").trim().toLowerCase();
 
-    const query = ($( "individualScheduleSearch")?.value || "").trim().toLowerCase();
-    const people = activeEmployees()
-        .filter(employee => !query || employee.login.toLowerCase().includes(query) || employee.name.toLowerCase().includes(query))
+    // Performance: never render all employee schedules at once.
+    // Only the employee selected through the search is rendered.
+    if (!query) {
+        head.innerHTML = "";
+        body.innerHTML = `<tr><td class="empty-state" colspan="${totalDays + 1}">
+            Search for an employee by login or name to edit an individual schedule.
+        </td></tr>`;
+        return;
+    }
+
+    const matches = activeEmployees()
+        .filter(employee =>
+            String(employee.login || "").toLowerCase().includes(query) ||
+            String(employee.name || "").toLowerCase().includes(query)
+        )
         .sort((a, b) => a.name.localeCompare(b.name));
 
-    body.innerHTML = people.map(employee => {
-        const cells = Array.from({ length: totalDays }, (_, index) => {
-            const date = new Date(scheduleMonth.getFullYear(), scheduleMonth.getMonth(), index + 1, 12);
-            const override = individualScheduleValue(employee, date);
-            const effective = getSchedule(employee, date).shift;
-            const cls = override || effective || "off";
-            return `<td class="schedule-cell individual-schedule-cell ${override ? "has-override" : ""}">
-                <select class="${cls}" data-individual-schedule="${esc(employee.login)}" data-schedule-date="${dateKey(date)}" title="${override ? `Override: ${override}` : `Brigade: ${effective}`}" data-effective-shift="${effective}">${scheduleOptionHtml(override)}</select>
-            </td>`;
-        }).join("");
-        return `<tr><td class="employee-schedule-name"><strong>${esc(employee.name)}</strong><small>${esc(employee.login)} · ${esc(employee.process)} · Brigade ${esc(employee.brigade)}</small></td>${cells}</tr>`;
-    }).join("") || `<tr><td colspan="${totalDays + 1}"><div class="empty">No employees found.</div></td></tr>`;
+    if (!matches.length) {
+        head.innerHTML = "";
+        body.innerHTML = `<tr><td class="empty-state" colspan="${totalDays + 1}">
+            No active employee found.
+        </td></tr>`;
+        return;
+    }
 
-    body.querySelectorAll("[data-individual-schedule]").forEach(select => {
+    // A broad search shows a compact picker instead of hundreds of rows.
+    if (matches.length > 1) {
+        head.innerHTML = `<th>Employee</th>`;
+        body.innerHTML = `<tr><td colspan="${totalDays + 1}">
+            <label class="control-label">Select employee (${matches.length} matches)</label>
+            <select id="individualEmployeePicker" class="individual-employee-picker">
+                <option value="">Choose employee…</option>
+                ${matches.slice(0, 100).map(employee =>
+                    `<option value="${esc(employee.login)}">${esc(employee.login)} — ${esc(employee.name)}</option>`
+                ).join("")}
+            </select>
+        </td></tr>`;
+
+        $("individualEmployeePicker")?.addEventListener("change", event => {
+            if (event.target.value) renderSelectedIndividualSchedule(event.target.value);
+        });
+        return;
+    }
+
+    renderSelectedIndividualSchedule(matches[0].login);
+}
+
+function renderSelectedIndividualSchedule(login) {
+    const body = $("individualScheduleBody");
+    const head = $("individualScheduleHeadRow");
+    if (!body || !head) return;
+
+    const employee = activeEmployees().find(item => item.login === login);
+    if (!employee) return;
+
+    const totalDays = monthDays(scheduleMonth);
+
+    head.innerHTML = `<th>Employee</th>` + Array.from(
+        { length: totalDays },
+        (_, index) => {
+            const date = new Date(
+                scheduleMonth.getFullYear(),
+                scheduleMonth.getMonth(),
+                index + 1,
+                12
+            );
+            return `<th class="schedule-day-head">
+                <strong>${String(index + 1).padStart(2, "0")}</strong>
+                <small>${date.toLocaleDateString("en-US", { weekday: "short" })}</small>
+            </th>`;
+        }
+    ).join("");
+
+    const cells = Array.from({ length: totalDays }, (_, index) => {
+        const date = new Date(
+            scheduleMonth.getFullYear(),
+            scheduleMonth.getMonth(),
+            index + 1,
+            12
+        );
+        const override = individualScheduleValue(employee, date);
+        const effective = getSchedule(employee, date).shift;
+        const cls = override || effective || "off";
+
+        return `<td class="schedule-cell individual-schedule-cell ${override ? "has-override" : ""}">
+            <select
+                class="${esc(cls)}"
+                data-individual-login="${esc(employee.login)}"
+                data-individual-date="${dateKey(date)}"
+                title="${override ? `Override: ${override}` : "Uses brigade schedule"}">
+                ${scheduleOptionHtml(override)}
+            </select>
+        </td>`;
+    }).join("");
+
+    body.innerHTML = `<tr>
+        <td class="employee-schedule-name">
+            <strong>${esc(employee.name)}</strong>
+            <small>${esc(employee.login)} · Brigade ${esc(employee.brigade)} · ${esc(employee.process)}</small>
+        </td>
+        ${cells}
+    </tr>`;
+
+    body.querySelectorAll("[data-individual-login]").forEach(select => {
         select.addEventListener("change", () => {
-            const key = `${select.dataset.scheduleDate}_${select.dataset.individualSchedule}`;
-            if (select.value) individualSchedules[key] = select.value;
-            else delete individualSchedules[key];
-            select.className = select.value || getSchedule(employeeByLogin(select.dataset.individualSchedule), new Date(`${select.dataset.scheduleDate}T12:00:00`)).shift || "off";
-            select.classList.toggle("override-selected", Boolean(select.value));
-            select.title = select.value ? `Override: ${select.value}` : "Uses brigade schedule";
+            const selected = select.value || "";
+            select.className = selected || "off";
+            select.title = selected ? `Override: ${selected}` : "Uses brigade schedule";
         });
     });
 }
