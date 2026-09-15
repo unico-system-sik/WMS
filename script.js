@@ -2737,83 +2737,136 @@ function scheduleOptionHtml(value) {
 function renderIndividualScheduleTable() {
     const body = $("individualScheduleBody");
     const head = $("individualScheduleHeadRow");
+
     if (!body || !head) return;
 
-    const totalDays = monthDays(scheduleMonth);
-    const query = ($("individualScheduleSearch")?.value || "").trim().toLowerCase();
+    const searchInput = $("individualScheduleSearch");
+    const query = (searchInput?.value || "").trim().toLowerCase();
 
-    // Performance: never render all employee schedules at once.
-    // Only the employee selected through the search is rendered.
-    if (!query) {
-        head.innerHTML = "";
-        body.innerHTML = `<tr><td class="empty-state" colspan="${totalDays + 1}">
-            Search for an employee by login or name to edit an individual schedule.
-        </td></tr>`;
-        return;
-    }
+    // No search = do not render employee schedules.
+    head.innerHTML = "";
+    body.innerHTML = `
+        <tr>
+            <td>
+                <div class="empty">
+                    Search for an employee to view their individual schedule.
+                </div>
+            </td>
+        </tr>
+    `;
 
-    const matches = activeEmployees()
-        .filter(employee =>
-            String(employee.login || "").toLowerCase().includes(query) ||
-            String(employee.name || "").toLowerCase().includes(query)
-        )
+    if (!query) return;
+
+    // Search only active employees.
+    const people = activeEmployees()
+        .filter(employee => {
+            const login = String(employee.login || "").toLowerCase();
+            const name = String(employee.name || "").toLowerCase();
+
+            return login.includes(query) || name.includes(query);
+        })
         .sort((a, b) => a.name.localeCompare(b.name));
 
-    if (!matches.length) {
-        head.innerHTML = "";
-        body.innerHTML = `<tr><td class="empty-state" colspan="${totalDays + 1}">
-            No active employee found.
-        </td></tr>`;
+    if (!people.length) {
+        body.innerHTML = `
+            <tr>
+                <td>
+                    <div class="empty">
+                        No employees found.
+                    </div>
+                </td>
+            </tr>
+        `;
         return;
     }
 
-    // A broad search shows a compact picker instead of hundreds of rows.
-    if (matches.length > 1) {
-        head.innerHTML = `<th>Employee</th>`;
-        body.innerHTML = `<tr><td colspan="${totalDays + 1}">
-            <label class="control-label">Select employee (${matches.length} matches)</label>
-            <select id="individualEmployeePicker" class="individual-employee-picker">
-                <option value="">Choose employee…</option>
-                ${matches.slice(0, 100).map(employee =>
-                    `<option value="${esc(employee.login)}">${esc(employee.login)} — ${esc(employee.name)}</option>`
-                ).join("")}
-            </select>
-        </td></tr>`;
+    // If several employees match, ask the user to select exactly one.
+    if (people.length > 1) {
+        body.innerHTML = `
+            <tr>
+                <td>
+                    <div class="empty">
+                        <strong>${people.length} employees found.</strong>
+                        <br>
+                        Select one employee below.
+                        <select id="individualEmployeePicker"
+                                class="individual-employee-picker">
+                            <option value="">Select employee...</option>
+                            ${people.map(employee => `
+                                <option value="${esc(employee.login)}">
+                                    ${esc(employee.name)} · ${esc(employee.login)}
+                                </option>
+                            `).join("")}
+                        </select>
+                    </div>
+                </td>
+            </tr>
+        `;
 
-        $("individualEmployeePicker")?.addEventListener("change", event => {
-            if (event.target.value) renderSelectedIndividualSchedule(event.target.value);
-        });
+        const picker = $("individualEmployeePicker");
+
+        if (picker) {
+            picker.addEventListener("change", () => {
+                if (picker.value) {
+                    renderSelectedIndividualSchedule(picker.value);
+                }
+            });
+        }
+
         return;
     }
 
-    renderSelectedIndividualSchedule(matches[0].login);
+    // Exactly one employee matched.
+    renderSelectedIndividualSchedule(people[0].login);
 }
+
 
 function renderSelectedIndividualSchedule(login) {
     const body = $("individualScheduleBody");
     const head = $("individualScheduleHeadRow");
+
     if (!body || !head) return;
 
-    const employee = activeEmployees().find(item => item.login === login);
-    if (!employee) return;
+    const employee = employeeByLogin(login);
+
+    if (!employee) {
+        head.innerHTML = "";
+        body.innerHTML = `
+            <tr>
+                <td>
+                    <div class="empty">
+                        Employee not found.
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
 
     const totalDays = monthDays(scheduleMonth);
 
-    head.innerHTML = `<th>Employee</th>` + Array.from(
-        { length: totalDays },
-        (_, index) => {
+    // Render the month header only for the selected employee.
+    head.innerHTML =
+        `<th>Employee</th>` +
+        Array.from({ length: totalDays }, (_, index) => {
             const date = new Date(
                 scheduleMonth.getFullYear(),
                 scheduleMonth.getMonth(),
                 index + 1,
                 12
             );
-            return `<th class="schedule-day-head">
-                <strong>${String(index + 1).padStart(2, "0")}</strong>
-                <small>${date.toLocaleDateString("en-US", { weekday: "short" })}</small>
-            </th>`;
-        }
-    ).join("");
+
+            return `
+                <th class="schedule-day-head">
+                    <strong>${String(index + 1).padStart(2, "0")}</strong>
+                    <small>
+                        ${date.toLocaleDateString("en-US", {
+                            weekday: "short"
+                        })}
+                    </small>
+                </th>
+            `;
+        }).join("");
 
     const cells = Array.from({ length: totalDays }, (_, index) => {
         const date = new Date(
@@ -2822,37 +2875,80 @@ function renderSelectedIndividualSchedule(login) {
             index + 1,
             12
         );
+
         const override = individualScheduleValue(employee, date);
         const effective = getSchedule(employee, date).shift;
-        const cls = override || effective || "off";
 
-        return `<td class="schedule-cell individual-schedule-cell ${override ? "has-override" : ""}">
-            <select
-                class="${esc(cls)}"
-                data-individual-login="${esc(employee.login)}"
-                data-individual-date="${dateKey(date)}"
-                title="${override ? `Override: ${override}` : "Uses brigade schedule"}">
-                ${scheduleOptionHtml(override)}
-            </select>
-        </td>`;
+        const displayClass = override || effective || "off";
+
+        return `
+            <td class="schedule-cell individual-schedule-cell ${override ? "has-override" : ""}">
+                <select
+                    class="${displayClass}"
+                    data-individual-schedule="${esc(employee.login)}"
+                    data-schedule-date="${dateKey(date)}"
+                    data-effective-shift="${effective || ""}"
+                    title="${override ? `Override: ${override}` : `Brigade: ${effective || "off"}`}">
+                    ${scheduleOptionHtml(override || "")}
+                </select>
+            </td>
+        `;
     }).join("");
 
-    body.innerHTML = `<tr>
-        <td class="employee-schedule-name">
-            <strong>${esc(employee.name)}</strong>
-            <small>${esc(employee.login)} · Brigade ${esc(employee.brigade)} · ${esc(employee.process)}</small>
-        </td>
-        ${cells}
-    </tr>`;
+    body.innerHTML = `
+        <tr>
+            <td class="employee-schedule-name">
+                <strong>${esc(employee.name)}</strong>
+                <small>
+                    ${esc(employee.login)}
+                    · ${esc(employee.process)}
+                    · Brigade ${esc(employee.brigade)}
+                </small>
+            </td>
+            ${cells}
+        </tr>
+    `;
 
-    body.querySelectorAll("[data-individual-login]").forEach(select => {
+    // Only the selected employee's controls are attached.
+    body.querySelectorAll("[data-individual-schedule]").forEach(select => {
         select.addEventListener("change", () => {
-            const selected = select.value || "";
-            select.className = selected || "off";
-            select.title = selected ? `Override: ${selected}` : "Uses brigade schedule";
+            const employeeLogin = select.dataset.individualSchedule;
+            const date = select.dataset.scheduleDate;
+            const key = `${date}_${employeeLogin}`;
+
+            if (select.value) {
+                individualSchedules[key] = select.value;
+            } else {
+                // Empty option removes the individual override.
+                delete individualSchedules[key];
+            }
+
+            const selectedEmployee = employeeByLogin(employeeLogin);
+
+            if (selectedEmployee) {
+                const effectiveShift = getSchedule(
+                    selectedEmployee,
+                    new Date(`${date}T12:00:00`)
+                ).shift;
+
+                select.className =
+                    select.value ||
+                    effectiveShift ||
+                    "off";
+
+                select.classList.toggle(
+                    "override-selected",
+                    Boolean(select.value)
+                );
+
+                select.title = select.value
+                    ? `Override: ${select.value}`
+                    : `Brigade: ${effectiveShift || "off"}`;
+            }
         });
     });
 }
+
 
 async function saveIndividualSchedules() {
     if (individualScheduleSaveInProgress) return;
