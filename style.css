@@ -1629,3 +1629,87 @@ th {
 
 /* Global utility: hide elements marked hidden. */
 .hidden{display:none !important;}
+
+
+/* V25 — employee skills, sorting and action timestamps */
+.table-sort {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: inherit;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+}
+
+.table-sort:hover {
+    text-decoration: underline;
+}
+
+.employee-skills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 150px;
+}
+
+.skill-badge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--border-color, #d7dce2);
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.employee-status-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 7px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .04em;
+}
+
+.employee-status-badge.former {
+    border: 1px solid #c9ced6;
+}
+
+.former-inline {
+    font-weight: 700;
+}
+
+.action-actor-name {
+    display: block;
+    font-weight: 600;
+}
+
+.action-actor-time {
+    display: block;
+    margin-top: 2px;
+    opacity: .7;
+    font-size: 11px;
+}
+
+.future-confirm-note {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 0 7px;
+    border-radius: 6px;
+    font-size: 11px;
+    opacity: .65;
+}
+
+.individual-employee-picker {
+    width: min(520px, 100%);
+    min-height: 38px;
+    margin-top: 8px;
+    padding: 0 10px;
+}

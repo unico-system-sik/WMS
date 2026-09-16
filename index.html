@@ -244,7 +244,7 @@
     <header class="page-header">
         <div>
             <h2>Employees</h2>
-            <p>Read-only employee database and brigade statistics.</p>
+            <p>Employee database, skills and brigade statistics.</p>
             <div class="employee-count-badge"><strong id="employeeTotalCount">0</strong><span>active employees</span><small id="employeeFilteredCount">0 shown</small></div>
         </div>
     </header>
@@ -268,6 +268,10 @@
                     <button type="button" class="multi-filter-button" data-multi-toggle="employeeBrigadeFilter">All brigades ▾</button>
                     <div class="multi-filter-menu" data-multi-menu="employeeBrigadeFilter"></div>
                 </div>
+                <div class="multi-filter" id="employeeSkillsFilter">
+                    <button type="button" class="multi-filter-button" data-multi-toggle="employeeSkillsFilter">All skills ▾</button>
+                    <div class="multi-filter-menu" data-multi-menu="employeeSkillsFilter"></div>
+                </div>
                 <button id="applyEmployeeFilters" type="button" class="primary filter-search-btn">Search</button>
                 <button id="clearEmployeeFilters" type="button" class="secondary">Clear filters</button>
             </div>
@@ -275,11 +279,12 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>Name</th>
-                            <th>Login</th>
-                            <th>Process</th>
-                            <th>Brigade</th>
-                            <th>Start date</th>
+                            <th><button type="button" class="table-sort" data-employee-sort="name" data-employee-label="Name">Name</button></th>
+                            <th><button type="button" class="table-sort" data-employee-sort="login" data-employee-label="Login">Login</button></th>
+                            <th><button type="button" class="table-sort" data-employee-sort="process" data-employee-label="Process">Process</button></th>
+                            <th><button type="button" class="table-sort" data-employee-sort="brigade" data-employee-label="Brigade">Brigade</button></th>
+                            <th><button type="button" class="table-sort" data-employee-sort="skills" data-employee-label="Skills">Skills</button></th>
+                            <th><button type="button" class="table-sort" data-employee-sort="startDate" data-employee-label="Start date">Start date</button></th>
                             <th class="employee-action-header">Action</th>
                         </tr>
                     </thead>
@@ -306,6 +311,7 @@
                             <th>Login</th>
                             <th>Process</th>
                             <th>Brigade</th>
+                            <th>Skills</th>
                             <th>Start date</th>
                             <th>End date</th>
                             <th>Reason</th>
@@ -425,7 +431,7 @@
             <div class="panel-title individual-schedule-title">
                 <div>
                     <h3>Individual employee schedule</h3>
-                    <p>Search for one employee. Only the selected employee's monthly schedule is rendered.</p>
+                    <p>Search by login and change only the selected employee. Individual changes have priority over the brigade schedule.</p>
                 </div>
                 <div class="individual-schedule-actions">
                     <input id="individualScheduleSearch" class="individual-schedule-search" type="search" placeholder="Search by login or name" autocomplete="off">
@@ -549,7 +555,7 @@
     <header class="page-header">
         <div>
             <h2>Hours Attendance</h2>
-<p>Check and correct one employee's working hours for the whole month.</p>
+<p>Check and correct one employee's working hours for the whole month. Future hours cannot be confirmed. Former employees remain available for historical review.</p>
         </div>
         <div class="toolbar">
             <button id="hoursMonthPrev" class="secondary">←</button>

@@ -676,6 +676,75 @@ const PROCESSES = [
     "Consolidation"
 ];
 
+const EMPLOYEE_SKILLS = [
+    "Instructor",
+    "Yard Coordinator",
+    "Forklift operator",
+    "Pick",
+    "Putaway",
+    "Abnormal",
+    "Consolidation",
+    "Leader"
+];
+
+let employeeSort = {
+    key: "name",
+    direction: 1
+};
+
+function employeeSkills(employee) {
+    return Array.isArray(employee?.skills)
+        ? employee.skills.filter(Boolean)
+        : [];
+}
+
+function employeeHasSkill(employee, skill) {
+    return employeeSkills(employee).includes(skill);
+}
+
+function formatActionActor(name, timestamp) {
+    const cleanName = String(name || "").trim() || "—";
+    if (!timestamp) return esc(cleanName);
+
+    const date = new Date(timestamp);
+    const when = Number.isNaN(date.getTime())
+        ? String(timestamp)
+        : date.toLocaleString("en-GB", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit"
+        });
+
+    return `
+        <span class="action-actor-name">${esc(cleanName)}</span>
+        <small class="action-actor-time">${esc(when)}</small>
+    `;
+}
+
+function isTodayOrPast(date) {
+    const today = startDay(new Date());
+    return startDay(date).getTime() <= today.getTime();
+}
+
+function employeeStatusBadge(employee) {
+    if (employee?.status !== "Former") return "";
+    return `
+        <span class="employee-status-badge former">
+            FORMER
+        </span>
+    `;
+}
+
+function employeeSortValue(employee, key) {
+    if (key === "skills") {
+        return employeeSkills(employee).join(", ").toLowerCase();
+    }
+
+    return String(employee?.[key] ?? "").toLowerCase();
+}
+
 const SHIFTS = {
     rest: {
         label: "R",
@@ -700,72 +769,8 @@ const SHIFTS = {
     }
 };
 
-let EMPLOYEES = [
-    { login: "60010001", name: "Anna Kowalska", process: "Pick", brigade: "A", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010002", name: "Marek Nowak", process: "Putaway", brigade: "A", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010003", name: "Oleh Bondar", process: "Abnormal", brigade: "B", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010004", name: "Iryna Melnyk", process: "Pick", brigade: "B", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010005", name: "Piotr Wójcik", process: "Putaway", brigade: "C", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010006", name: "Svitlana Tkachenko", process: "Consolidation", brigade: "C", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010007", name: "Kamil Zieliński", process: "Leader", brigade: "D1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010008", name: "Olena Shevchenko", process: "Pick", brigade: "D1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010009", name: "Jakub Kamiński", process: "Pick", brigade: "D2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010010", name: "Maksym Kravets", process: "Putaway", brigade: "D2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010011", name: "Natalia Lis", process: "Consolidation", brigade: "N1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010012", name: "Tomasz Pawlak", process: "Pick", brigade: "N1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010013", name: "Dmytro Kovalenko", process: "Abnormal", brigade: "N2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010014", name: "Karolina Mazur", process: "Putaway", brigade: "N2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010015", name: "Adam Wiśniewski", process: "Pick", brigade: "A", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010016", name: "Julia Kaczmarek", process: "Putaway", brigade: "A", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010017", name: "Viktor Hrytsenko", process: "Pick", brigade: "A", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010018", name: "Zofia Dąbrowska", process: "Consolidation", brigade: "A", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010019", name: "Andrii Shevchuk", process: "Abnormal", brigade: "A", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010020", name: "Michał Król", process: "Pick", brigade: "A", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010021", name: "Sofiia Marchenko", process: "Putaway", brigade: "A", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010022", name: "Kacper Wrona", process: "Leader", brigade: "B", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010023", name: "Yuliia Romanenko", process: "Pick", brigade: "B", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010024", name: "Mateusz Pawlak", process: "Putaway", brigade: "B", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010025", name: "Danylo Tkachenko", process: "Consolidation", brigade: "B", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010026", name: "Natalia Wysocka", process: "Pick", brigade: "B", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010027", name: "Pavlo Melnyk", process: "Abnormal", brigade: "B", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010028", name: "Weronika Kubiak", process: "Pick", brigade: "B", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010029", name: "Oksana Lysenko", process: "Putaway", brigade: "C", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010030", name: "Szymon Maj", process: "Pick", brigade: "C", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010031", name: "Anastasiia Bondarenko", process: "Consolidation", brigade: "C", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010032", name: "Filip Wieczorek", process: "Putaway", brigade: "C", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010033", name: "Maksym Hnatiuk", process: "Pick", brigade: "C", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010034", name: "Aleksandra Sikora", process: "Abnormal", brigade: "C", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010035", name: "Bartosz Kaczmarek", process: "Pick", brigade: "C", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010036", name: "Kateryna Savchuk", process: "Leader", brigade: "D1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010037", name: "Marcin Pawłowski", process: "Putaway", brigade: "D1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010038", name: "Vladyslav Kozak", process: "Pick", brigade: "D1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010039", name: "Lena Nowicka", process: "Consolidation", brigade: "D1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010040", name: "Igor Boyko", process: "Abnormal", brigade: "D1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010041", name: "Paulina Adamczyk", process: "Pick", brigade: "D1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010042", name: "Mykola Oliinyk", process: "Putaway", brigade: "D2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010043", name: "Karol Gajda", process: "Pick", brigade: "D2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010044", name: "Tetiana Kovalenko", process: "Consolidation", brigade: "D2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010045", name: "Damian Zając", process: "Putaway", brigade: "D2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010046", name: "Artem Kravchuk", process: "Pick", brigade: "D2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010047", name: "Magdalena Baran", process: "Abnormal", brigade: "D2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010048", name: "Oleh Savchenko", process: "Pick", brigade: "D2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010049", name: "Ewa Kamińska", process: "Leader", brigade: "N1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010050", name: "Denys Marchuk", process: "Putaway", brigade: "N1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010051", name: "Wiktoria Bąk", process: "Pick", brigade: "N1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010052", name: "Serhii Melnyk", process: "Consolidation", brigade: "N1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010053", name: "Amelia Szymańska", process: "Pick", brigade: "N1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010054", name: "Bohdan Koval", process: "Abnormal", brigade: "N1", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010055", name: "Patrycja Kurek", process: "Putaway", brigade: "N2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010056", name: "Oleksandr Moroz", process: "Pick", brigade: "N2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010057", name: "Laura Michalska", process: "Consolidation", brigade: "N2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010058", name: "Roman Hryhorenko", process: "Putaway", brigade: "N2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010059", name: "Maja Zalewska", process: "Pick", brigade: "N2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010060", name: "Yaroslav Sydorenko", process: "Abnormal", brigade: "N2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010061", name: "Kinga Pawlik", process: "Pick", brigade: "N2", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010062", name: "Denys Bondar", process: "Putaway", brigade: "A", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010063", name: "Alicja Tomaszewska", process: "Pick", brigade: "B", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" },
-    { login: "60010064", name: "Mykhailo Rudenko", process: "Consolidation", brigade: "C", startDate: "2026-01-01", endDate: "", reason: "", status: "Active" }
-];
+let EMPLOYEES = [];
+
 
 /* =========================================================
    EMPLOYEES — SUPABASE
@@ -777,7 +782,7 @@ let EMPLOYEES = [
 async function loadEmployeesFromSupabase() {
     const { data, error } = await supabaseClient
         .from("employees")
-        .select("login, name, process, brigade, start_date, end_date, reason, status")
+        .select("login, name, process, brigade, start_date, end_date, reason, status, skills")
         .order("name", { ascending: true });
 
     if (error) {
@@ -785,8 +790,10 @@ async function loadEmployeesFromSupabase() {
         return false;
     }
 
-    if (!Array.isArray(data) || !data.length) {
-        console.warn("Supabase employees table is empty. Keeping local fallback.");
+    // Supabase is the single source of truth. An empty table means
+    // there are currently no employees; do not restore a stale JS list.
+    if (!Array.isArray(data)) {
+        EMPLOYEES = [];
         return false;
     }
 
@@ -798,7 +805,8 @@ async function loadEmployeesFromSupabase() {
         startDate: employee.start_date || "",
         endDate: employee.end_date || "",
         reason: employee.reason || "",
-        status: employee.status || "Active"
+        status: employee.status || "Active",
+        skills: Array.isArray(employee.skills) ? employee.skills : []
     }));
 
     console.info(`Loaded ${EMPLOYEES.length} employees from Supabase.`);
@@ -1634,6 +1642,7 @@ async function saveSystemUser(login) {
 function fillEmployeeFilters() {
     fillMultiFilter('employeeProcessFilter', PROCESSES, 'processes');
     fillMultiFilter('employeeBrigadeFilter', BRIGADES, 'brigades', Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
+    fillMultiFilter('employeeSkillsFilter', EMPLOYEE_SKILLS, 'skills');
     updateAllMultiFilterLabels();
 }
 function fillAdditionalMultiFilters() {
@@ -1658,11 +1667,13 @@ function updateMultiFilterLabel(id, allLabel) {
     button.textContent=vals.length ? `${vals.length} ${allLabel} selected ▾` : `All ${allLabel} ▾`;
 }
 function updateAllMultiFilterLabels() {
-    const labels={employeeProcessFilter:'processes',employeeBrigadeFilter:'brigades',overviewBrigadeFilter:'brigades',overviewProcessFilter:'processes',overviewAttendanceFilter:'attendance',overviewExceptionFilter:'exceptions',extraDaysTypeFilter:'types',scheduleHistoryType:'types',hoursAllBrigade:'brigades',hoursAllProcess:'processes',hoursAllStatus:'statuses'};
+    const labels={employeeProcessFilter:'processes',employeeBrigadeFilter:'brigades',employeeSkillsFilter:'skills',overviewBrigadeFilter:'brigades',overviewProcessFilter:'processes',overviewAttendanceFilter:'attendance',overviewExceptionFilter:'exceptions',extraDaysTypeFilter:'types',scheduleHistoryType:'types',hoursAllBrigade:'brigades',hoursAllProcess:'processes',hoursAllStatus:'statuses'};
     Object.entries(labels).forEach(([id,label])=>updateMultiFilterLabel(id,label));
 }
 function updateEmployeeMultiFilterLabels() {
-    updateMultiFilterLabel('employeeProcessFilter','processes'); updateMultiFilterLabel('employeeBrigadeFilter','brigades');
+    updateMultiFilterLabel('employeeProcessFilter','processes');
+    updateMultiFilterLabel('employeeBrigadeFilter','brigades');
+    updateMultiFilterLabel('employeeSkillsFilter','skills');
 }
 
 function getHoursException(employee, date) {
@@ -2181,6 +2192,12 @@ async function saveHoursEdit(event) {
     const current = attendance[key] || {};
     const planned = plannedHours(employee, date);
 
+    const requestedStatus = $("editStatus")?.value || "Pending";
+    if (requestedStatus === "Confirmed" && !isTodayOrPast(date)) {
+        toast("Future hours cannot be confirmed.");
+        return;
+    }
+
     // Shift Overview uses the same working-hours editor as the Hours tab.
     // Saving edits NEVER confirms a pending row; Confirm remains a separate action.
     if (hoursModalSource === "overview") {
@@ -2201,7 +2218,15 @@ async function saveHoursEdit(event) {
             breakMinutes,
             confirmed: Boolean(current.confirmed),
             status,
-            reason: (current.confirmed && Math.abs(actual - planned) < 0.001) ? "" : (ALLOWED_ATTENDANCE_REASONS.includes($("editReason").value) ? $("editReason").value : ""),
+            reason: $("editReason").value === "Terminated"
+                ? "Terminated"
+                : (current.reason === "Terminated"
+                    ? "Terminated"
+                    : ((current.confirmed && Math.abs(actual - planned) < 0.001)
+                        ? ""
+                        : (ALLOWED_ATTENDANCE_REASONS.includes($("editReason").value)
+                            ? $("editReason").value
+                            : ""))),
             note: $("editNote").value.trim(),
             lastChangedById: currentUser?.id || "",
             lastChangedByLogin: currentUser?.login || "",
@@ -2240,7 +2265,15 @@ async function saveHoursEdit(event) {
         actualEnd: zeroHours ? "" : $("editEnd").value,
         breakMinutes,
         status,
-        reason: (current.confirmed && Math.abs(actual - planned) < 0.001) ? "" : (ALLOWED_ATTENDANCE_REASONS.includes($("editReason").value) ? $("editReason").value : ""),
+        reason: $("editReason").value === "Terminated"
+                ? "Terminated"
+                : (current.reason === "Terminated"
+                    ? "Terminated"
+                    : ((current.confirmed && Math.abs(actual - planned) < 0.001)
+                        ? ""
+                        : (ALLOWED_ATTENDANCE_REASONS.includes($("editReason").value)
+                            ? $("editReason").value
+                            : ""))),
         note: $("editNote").value.trim(),
         confirmedAt: current.confirmedAt || "",
         confirmedById: current.confirmedById || "",
@@ -2309,38 +2342,65 @@ function renderEmployeeDatabase() {
 
     const brigades = selectedMultiValues("employeeBrigadeFilter");
     const processes = selectedMultiValues("employeeProcessFilter");
+    const skills = selectedMultiValues("employeeSkillsFilter");
 
     const allActive = activeEmployees();
+
     const list = allActive
         .filter(employee => {
             const text =
-                `${employee.name} ${employee.login}`.toLowerCase();
+                `${employee.name} ${employee.login} ${employee.process} ${employeeSkills(employee).join(" ")}`
+                    .toLowerCase();
 
             if (search && !text.includes(search)) return false;
             if (brigades.length && !brigades.includes(employee.brigade)) return false;
             if (processes.length && !processes.includes(employee.process)) return false;
+            if (skills.length && !skills.some(skill => employeeHasSkill(employee, skill))) return false;
 
             return true;
         })
-        .sort((a, b) =>
-            a.name.localeCompare(b.name)
-        );
+        .sort((a, b) => {
+            const av = employeeSortValue(a, employeeSort.key);
+            const bv = employeeSortValue(b, employeeSort.key);
+            return av.localeCompare(bv) * employeeSort.direction;
+        });
 
     $("employeeTotalCount").textContent = String(allActive.length);
     $("employeeFilteredCount").textContent = `${list.length} shown`;
 
+    const sortIcon = key =>
+        employeeSort.key === key
+            ? (employeeSort.direction === 1 ? " ↑" : " ↓")
+            : "";
+
     $("employeeTable").innerHTML =
         list.map(employee => `
             <tr>
-                <td><strong>${esc(employee.name)}</strong></td>
+                <td>
+                    <strong>${esc(employee.name)}</strong>
+                    ${employeeStatusBadge(employee)}
+                </td>
                 <td>${esc(employee.login)}</td>
                 <td>${esc(employee.process)}</td>
                 <td>${esc(employee.brigade)}</td>
+                <td>
+                    <div class="employee-skills">
+                        ${employeeSkills(employee).map(skill =>
+                            `<span class="skill-badge">${esc(skill)}</span>`
+                        ).join("") || `<span class="muted">—</span>`}
+                    </div>
+                </td>
                 <td>${esc(employee.startDate || "—")}</td>
                 ${canManageEmployees() ? `<td>${employeeActionButton(employee, "former")}</td>` : ""}
             </tr>
         `).join("") ||
-        `<tr><td colspan="${canManageEmployees() ? 6 : 5}"><div class="empty">No employees found.</div></td></tr>`;
+        `<tr><td colspan="${canManageEmployees() ? 7 : 6}"><div class="empty">No employees found.</div></td></tr>`;
+
+    // Make the active sort visible on the headers.
+    document.querySelectorAll("[data-employee-sort]").forEach(button => {
+        const key = button.dataset.employeeSort;
+        button.textContent = `${button.dataset.employeeLabel}${sortIcon(key)}`;
+    });
 }
 
 function renderFormerEmployees() {
@@ -2358,6 +2418,7 @@ function renderFormerEmployees() {
                 <td>${esc(employee.login)}</td>
                 <td>${esc(employee.process)}</td>
                 <td>${esc(employee.brigade)}</td>
+                <td><div class="employee-skills">${employeeSkills(employee).map(skill => `<span class="skill-badge">${esc(skill)}</span>`).join("") || `<span class="muted">—</span>`}</div></td>
                 <td>${esc(employee.startDate || "—")}</td>
                 <td>${esc(employee.endDate || "—")}</td>
                 <td>${esc(employee.reason || "—")}</td>
@@ -3359,7 +3420,7 @@ async function renderScheduleHistory() {
     table.innerHTML = rows.map(item => {
         const employee = employeeByLogin(item.employee_login);
         const change = item.action === "Extra day removed" ? "Removed" : item.type === "extra-off" ? "Extra day off" : `Extra work — ${String(item.shift || "day").toUpperCase()}`;
-        return `<tr><td>${new Date(item.created_at).toLocaleString("en-GB")}</td><td><strong>${esc(item.action)}</strong></td><td>${esc(employee?.name || item.employee_login)}<br><small>${esc(item.employee_login)}</small></td><td>${esc(item.work_date)}</td><td>${esc(actorDisplay(item.leader_name, item.leader_login))}</td><td>${esc(change)}</td><td>${esc(actorDisplay(item.changed_by_name, item.changed_by_login))}</td></tr>`;
+        return `<tr><td>${new Date(item.created_at).toLocaleString("en-GB")}</td><td><strong>${esc(item.action)}</strong></td><td>${esc(employee?.name || item.employee_login)}<br><small>${esc(item.employee_login)}</small></td><td>${esc(item.work_date)}</td><td>${esc(actorDisplay(item.leader_name, item.leader_login))}</td><td>${esc(change)}</td><td>${formatActionActor(item.changed_by_name, item.created_at)}</td></tr>`;
     }).join("") || `<tr><td colspan="7"><div class="empty">No Extra Day history matches the selected filters.</div></td></tr>`;
 }
 function csvCell(value) {
@@ -3424,8 +3485,8 @@ function exportSchedule() {
 
                 if (extra?.type === "extra-off") {
                     row.push("EXTRA OFF");
-                } else if (extra?.type === "extra-work") {
-                    row.push(`EXTRA ${extra.shift.toUpperCase()}`);
+                } else if (extra?.type === "extra-work-day" || extra?.type === "extra-work-night") {
+                    row.push(`EXTRA ${String(extra.shift || "day").toUpperCase()}`);
                 } else {
                     row.push(
                         schedule.shift === "day" ? "DAY" :
@@ -3462,6 +3523,11 @@ function exportSchedule() {
 async function confirmHoursDay(employee, date) {
     if (!employee || !currentUser) return;
 
+    if (!isTodayOrPast(date)) {
+        toast("Future hours cannot be confirmed.");
+        return;
+    }
+
     const key = attendanceKey(date, employee.login);
     const current = getAttendance(employee, date);
     if (current.confirmed) {
@@ -3481,9 +3547,13 @@ async function confirmHoursDay(employee, date) {
         actualEnd: current.actualEnd || (SHIFTS[schedule.shift]?.end || ""),
         breakMinutes: current.breakMinutes ?? (planned > 0 ? 45 : 0),
         status: "Confirmed",
-        reason: Math.abs(actual - planned) < 0.001
-            ? ""
-            : (ALLOWED_ATTENDANCE_REASONS.includes(current.reason) ? current.reason : ""),
+        // Keep Terminated even when actual hours equal planned hours.
+        // Other reasons may still be cleared when the day exactly matches plan.
+        reason: current.reason === "Terminated"
+            ? "Terminated"
+            : Math.abs(actual - planned) < 0.001
+                ? ""
+                : (ALLOWED_ATTENDANCE_REASONS.includes(current.reason) ? current.reason : ""),
         confirmedAt: new Date().toISOString(),
         confirmedById: currentUser.id || "",
         confirmedByLogin: currentUser.login || "",
@@ -3528,9 +3598,14 @@ function renderHoursAttendance() {
     summary.classList.add("show");
     empty.style.display = "none";
 
-    $("hoursEmployeeName").textContent = employee.name;
-    $("hoursEmployeeMeta").textContent =
-        `${employee.login} · ${employee.process} · Brigade ${employee.brigade}`;
+    $("hoursEmployeeName").innerHTML =
+        `${esc(employee.name)} ${employeeStatusBadge(employee)}`;
+
+    $("hoursEmployeeMeta").innerHTML =
+        `${esc(employee.login)} · ${esc(employee.process)} · Brigade ${esc(employee.brigade)}`
+        + (employee.status === "Former"
+            ? ` · <strong class="former-inline">Former since ${esc(employee.endDate || "—")}</strong>`
+            : "");
 
     let planned = 0;
     let confirmed = 0;
@@ -3586,15 +3661,20 @@ function renderHoursAttendance() {
                 <td>${data.confirmed && Number(data.breakMinutes || 0) ? "45 min" : "—"}</td>
                 <td><span class="${statusClass}">${data.confirmed ? esc(data.status) : (p ? "Not confirmed" : "OFF")}</span></td>
                 <td>${esc(data.reason || "—")}</td>
-                <td>${esc(actorDisplay(data.confirmedByName, data.confirmedByLogin))}</td>
-                <td>${esc(actorDisplay(data.lastChangedByName, data.lastChangedByLogin || data.confirmedByLogin))}</td>
+                <td>${formatActionActor(data.confirmedByName, data.confirmedAt)}</td>
+                <td>${formatActionActor(data.lastChangedByName, data.lastChangedAt)}</td>
                 <td class="hours-note" title="${esc(data.note || "")}">${esc(notePreview(data.note, 8))}</td>
                 <td>
                     ${(p > 0 || a > 0 || data.confirmed || data.status === "Absent" || data.reason)
                         ? data.confirmed
                             ? `<button class="mini-btn" data-ha-edit="${dateKey(date)}">Edit</button>`
                             : p > 0
-                                ? `<div class="hours-action-group"><button class="mini-btn confirm" data-ha-confirm="${dateKey(date)}">Confirm</button><button class="mini-btn" data-ha-edit="${dateKey(date)}">Edit</button></div>`
+                                ? `<div class="hours-action-group">
+                                    ${isTodayOrPast(date)
+                                        ? `<button class="mini-btn confirm" data-ha-confirm="${dateKey(date)}">Confirm</button>`
+                                        : `<span class="future-confirm-note">Future</span>`}
+                                    <button class="mini-btn" data-ha-edit="${dateKey(date)}">Edit</button>
+                                  </div>`
                                 : `<button class="mini-btn" data-ha-edit="${dateKey(date)}">Edit</button>`
                         : "—"}
                 </td>
@@ -3888,6 +3968,19 @@ function initEvents() {
     });
     $("applyEmployeeFilters")?.addEventListener("click", renderEmployeeDatabase);
 
+    document.querySelectorAll("[data-employee-sort]").forEach(button => {
+        button.addEventListener("click", () => {
+            const key = button.dataset.employeeSort;
+            if (employeeSort.key === key) {
+                employeeSort.direction *= -1;
+            } else {
+                employeeSort.key = key;
+                employeeSort.direction = 1;
+            }
+            renderEmployeeDatabase();
+        });
+    });
+
     document.querySelectorAll("[data-multi-toggle]").forEach(button => {
         button.addEventListener("click", event => {
             event.stopPropagation();
@@ -3904,6 +3997,7 @@ function initEvents() {
         $("employeeSearch").value="";
         setMultiFilterValues("employeeProcessFilter", []);
         setMultiFilterValues("employeeBrigadeFilter", []);
+        setMultiFilterValues("employeeSkillsFilter", []);
         renderEmployeeDatabase();
     });
 
