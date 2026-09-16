@@ -1713,3 +1713,17 @@ th {
     margin-top: 8px;
     padding: 0 10px;
 }
+
+
+/* V26 employee capability separation */
+.qualification-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--border, #d7dce2);
+    font-size: 12px;
+    margin: 2px 3px 2px 0;
+    white-space: nowrap;
+}
+.employee-action-btn + .employee-action-btn { margin-left: 4px; }

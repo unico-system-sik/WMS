@@ -676,10 +676,14 @@ const PROCESSES = [
     "Consolidation"
 ];
 
-const EMPLOYEE_SKILLS = [
+const EMPLOYEE_QUALIFICATIONS = [
     "Instructor",
     "Yard Coordinator",
-    "Forklift operator",
+    "Forklift operator"
+];
+
+// Secondary process skills are separate from the employee's primary process.
+const EMPLOYEE_PROCESS_SKILLS = [
     "Pick",
     "Putaway",
     "Abnormal",
@@ -692,10 +696,29 @@ let employeeSort = {
     direction: 1
 };
 
-function employeeSkills(employee) {
+function employeeQualifications(employee) {
+    return Array.isArray(employee?.qualifications)
+        ? employee.qualifications.filter(Boolean)
+        : [];
+}
+
+function employeeProcessSkills(employee) {
     return Array.isArray(employee?.skills)
         ? employee.skills.filter(Boolean)
         : [];
+}
+
+function employeeHasQualification(employee, value) {
+    return employeeQualifications(employee).includes(value);
+}
+
+function employeeHasProcessSkill(employee, value) {
+    return employeeProcessSkills(employee).includes(value);
+}
+
+// Backward-compatible helper used by older render code.
+function employeeSkills(employee) {
+    return [...employeeQualifications(employee), ...employeeProcessSkills(employee)];
 }
 
 function employeeHasSkill(employee, skill) {
@@ -738,8 +761,11 @@ function employeeStatusBadge(employee) {
 }
 
 function employeeSortValue(employee, key) {
-    if (key === "skills") {
-        return employeeSkills(employee).join(", ").toLowerCase();
+    if (key === "qualifications") {
+        return employeeQualifications(employee).join(", ").toLowerCase();
+    }
+    if (key === "processSkills") {
+        return employeeProcessSkills(employee).join(", ").toLowerCase();
     }
 
     return String(employee?.[key] ?? "").toLowerCase();
@@ -782,7 +808,7 @@ let EMPLOYEES = [];
 async function loadEmployeesFromSupabase() {
     const { data, error } = await supabaseClient
         .from("employees")
-        .select("login, name, process, brigade, start_date, end_date, reason, status, skills")
+        .select("login, name, process, brigade, start_date, end_date, reason, status, qualifications, skills")
         .order("name", { ascending: true });
 
     if (error) {
@@ -806,6 +832,7 @@ async function loadEmployeesFromSupabase() {
         endDate: employee.end_date || "",
         reason: employee.reason || "",
         status: employee.status || "Active",
+        qualifications: Array.isArray(employee.qualifications) ? employee.qualifications : [],
         skills: Array.isArray(employee.skills) ? employee.skills : []
     }));
 
@@ -918,6 +945,14 @@ function subscribeToEmployeesRealtime() {
 
 function activeEmployees() {
     return EMPLOYEES.filter(employee => employee.status === "Active");
+}
+
+function employeesAvailableOnDate(date) {
+    return EMPLOYEES.filter(employee => {
+        if (employee.status === "Active") return true;
+        if (employee.status !== "Former") return false;
+        return Boolean(employee.endDate) && String(date) <= String(employee.endDate);
+    });
 }
 
 function employeeByLogin(login) {
@@ -1642,7 +1677,8 @@ async function saveSystemUser(login) {
 function fillEmployeeFilters() {
     fillMultiFilter('employeeProcessFilter', PROCESSES, 'processes');
     fillMultiFilter('employeeBrigadeFilter', BRIGADES, 'brigades', Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
-    fillMultiFilter('employeeSkillsFilter', EMPLOYEE_SKILLS, 'skills');
+    fillMultiFilter('employeeQualificationFilter', EMPLOYEE_QUALIFICATIONS, 'qualifications');
+    fillMultiFilter('employeeProcessSkillFilter', EMPLOYEE_PROCESS_SKILLS, 'secondary processes');
     updateAllMultiFilterLabels();
 }
 function fillAdditionalMultiFilters() {
@@ -1667,13 +1703,14 @@ function updateMultiFilterLabel(id, allLabel) {
     button.textContent=vals.length ? `${vals.length} ${allLabel} selected ▾` : `All ${allLabel} ▾`;
 }
 function updateAllMultiFilterLabels() {
-    const labels={employeeProcessFilter:'processes',employeeBrigadeFilter:'brigades',employeeSkillsFilter:'skills',overviewBrigadeFilter:'brigades',overviewProcessFilter:'processes',overviewAttendanceFilter:'attendance',overviewExceptionFilter:'exceptions',extraDaysTypeFilter:'types',scheduleHistoryType:'types',hoursAllBrigade:'brigades',hoursAllProcess:'processes',hoursAllStatus:'statuses'};
+    const labels={employeeProcessFilter:'processes',employeeBrigadeFilter:'brigades',employeeQualificationFilter:'qualifications',employeeProcessSkillFilter:'secondary processes',overviewBrigadeFilter:'brigades',overviewProcessFilter:'processes',overviewAttendanceFilter:'attendance',overviewExceptionFilter:'exceptions',extraDaysTypeFilter:'types',scheduleHistoryType:'types',hoursAllBrigade:'brigades',hoursAllProcess:'processes',hoursAllStatus:'statuses'};
     Object.entries(labels).forEach(([id,label])=>updateMultiFilterLabel(id,label));
 }
 function updateEmployeeMultiFilterLabels() {
     updateMultiFilterLabel('employeeProcessFilter','processes');
     updateMultiFilterLabel('employeeBrigadeFilter','brigades');
-    updateMultiFilterLabel('employeeSkillsFilter','skills');
+    updateMultiFilterLabel('employeeQualificationFilter','qualifications');
+    updateMultiFilterLabel('employeeProcessSkillFilter','secondary processes');
 }
 
 function getHoursException(employee, date) {
@@ -1712,7 +1749,7 @@ function renderOverviewExceptionStats(people) {
 function renderOverview() {
     $("overviewDate").value = dateKey(overviewDate);
     $("overviewShiftTime").textContent = `${SHIFTS[overviewShift].start}–${SHIFTS[overviewShift].end}`;
-    const people = activeEmployees().filter(employee => getSchedule(employee, overviewDate).shift === overviewShift);
+    const people = employeesAvailableOnDate(overviewDate).filter(employee => getSchedule(employee, overviewDate).shift === overviewShift);
     let confirmed = 0;
     people.forEach(employee => { const data=getAttendance(employee,overviewDate); if(data.confirmed && data.status !== "Absent") confirmed++; });
     const pending=people.length-confirmed, rate=people.length?Math.round((confirmed/people.length)*100):0;
@@ -1917,6 +1954,10 @@ function updateSelectionUI() {
 }
 
 async function confirmSelectedHours() {
+    if (!isTodayOrPast(overviewDate)) {
+        toast("Future hours cannot be confirmed.");
+        return;
+    }
     const logins = getSelectedShiftLogins();
 
     if (!logins.length) {
@@ -2336,26 +2377,91 @@ function employeeActionButton(employee, action) {
     `;
 }
 
+
+function openEmployeeCapabilitiesModal(login) {
+    const employee = employeeByLogin(login);
+    if (!employee || !canManageEmployees()) return;
+    $("employeeCapabilitiesLogin").value = employee.login;
+    $("employeeCapabilitiesEmployee").textContent = `${employee.name} · ${employee.login}`;
+    $("employeeQualifications").value = employeeQualifications(employee).join(", ");
+    $("employeeProcessSkills").value = employeeProcessSkills(employee).join(", ");
+    $("employeeCapabilitiesModal").classList.remove("hidden");
+}
+
+function closeEmployeeCapabilitiesModal() {
+    $("employeeCapabilitiesModal")?.classList.add("hidden");
+}
+
+async function saveEmployeeCapabilities() {
+    if (!canManageEmployees()) return;
+    const login = $("employeeCapabilitiesLogin").value;
+    const employee = employeeByLogin(login);
+    if (!employee) return;
+
+    const parseList = value => [...new Set(String(value || "").split(",").map(x => x.trim()).filter(Boolean))];
+    const qualifications = parseList($("employeeQualifications").value)
+        .filter(x => EMPLOYEE_QUALIFICATIONS.includes(x));
+    const skills = parseList($("employeeProcessSkills").value)
+        .filter(x => EMPLOYEE_PROCESS_SKILLS.includes(x));
+
+    const { data, error } = await supabaseClient.rpc("update_employee_capabilities", {
+        p_login: login,
+        p_qualifications: qualifications,
+        p_skills: skills
+    });
+    if (error) {
+        console.error("Employee capabilities update error:", error);
+        toast(error.message || "Could not update employee capabilities.");
+        return;
+    }
+
+    const updated = Array.isArray(data) ? data[0] : data;
+    if (updated) {
+        const index = EMPLOYEES.findIndex(item => item.login === login);
+        if (index !== -1) {
+            EMPLOYEES[index] = {
+                ...EMPLOYEES[index],
+                qualifications: Array.isArray(updated.qualifications) ? updated.qualifications : qualifications,
+                skills: Array.isArray(updated.skills) ? updated.skills : skills
+            };
+        }
+    }
+
+    closeEmployeeCapabilitiesModal();
+    fillEmployeeFilters();
+    renderEmployeeDatabase();
+    renderFormerEmployees();
+    renderStatistics();
+    toast(`${employee.name}: qualifications and process skills updated.`);
+}
+
+function employeeEditButton(employee) {
+    if (!canManageEmployees()) return "";
+    return `<button class="secondary employee-action-btn" type="button" data-employee-action="edit-capabilities" data-employee-login="${esc(employee.login)}">Edit skills</button>`;
+}
+
 function renderEmployeeDatabase() {
     const search =
         $("employeeSearch").value.trim().toLowerCase();
 
     const brigades = selectedMultiValues("employeeBrigadeFilter");
     const processes = selectedMultiValues("employeeProcessFilter");
-    const skills = selectedMultiValues("employeeSkillsFilter");
+    const qualifications = selectedMultiValues("employeeQualificationFilter");
+    const processSkills = selectedMultiValues("employeeProcessSkillFilter");
 
     const allActive = activeEmployees();
 
     const list = allActive
         .filter(employee => {
             const text =
-                `${employee.name} ${employee.login} ${employee.process} ${employeeSkills(employee).join(" ")}`
+                `${employee.name} ${employee.login} ${employee.process} ${employeeQualifications(employee).join(" ")} ${employeeProcessSkills(employee).join(" ")}`
                     .toLowerCase();
 
             if (search && !text.includes(search)) return false;
             if (brigades.length && !brigades.includes(employee.brigade)) return false;
             if (processes.length && !processes.includes(employee.process)) return false;
-            if (skills.length && !skills.some(skill => employeeHasSkill(employee, skill))) return false;
+            if (qualifications.length && !qualifications.some(value => employeeHasQualification(employee, value))) return false;
+            if (processSkills.length && !processSkills.some(value => employeeHasProcessSkill(employee, value))) return false;
 
             return true;
         })
@@ -2385,16 +2491,19 @@ function renderEmployeeDatabase() {
                 <td>${esc(employee.brigade)}</td>
                 <td>
                     <div class="employee-skills">
-                        ${employeeSkills(employee).map(skill =>
-                            `<span class="skill-badge">${esc(skill)}</span>`
-                        ).join("") || `<span class="muted">—</span>`}
+                        ${employeeQualifications(employee).map(value => `<span class="qualification-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}
+                    </div>
+                </td>
+                <td>
+                    <div class="employee-skills">
+                        ${employeeProcessSkills(employee).map(value => `<span class="skill-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}
                     </div>
                 </td>
                 <td>${esc(employee.startDate || "—")}</td>
-                ${canManageEmployees() ? `<td>${employeeActionButton(employee, "former")}</td>` : ""}
+                ${canManageEmployees() ? `<td>${employeeEditButton(employee)} ${employeeActionButton(employee, "former")}</td>` : ""}
             </tr>
         `).join("") ||
-        `<tr><td colspan="${canManageEmployees() ? 7 : 6}"><div class="empty">No employees found.</div></td></tr>`;
+        `<tr><td colspan="${canManageEmployees() ? 8 : 7}"><div class="empty">No employees found.</div></td></tr>`;
 
     // Make the active sort visible on the headers.
     document.querySelectorAll("[data-employee-sort]").forEach(button => {
@@ -2418,14 +2527,14 @@ function renderFormerEmployees() {
                 <td>${esc(employee.login)}</td>
                 <td>${esc(employee.process)}</td>
                 <td>${esc(employee.brigade)}</td>
-                <td><div class="employee-skills">${employeeSkills(employee).map(skill => `<span class="skill-badge">${esc(skill)}</span>`).join("") || `<span class="muted">—</span>`}</div></td>
+                <td><div class="employee-skills">${employeeQualifications(employee).map(value => `<span class="qualification-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}</div></td><td><div class="employee-skills">${employeeProcessSkills(employee).map(value => `<span class="skill-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}</div></td>
                 <td>${esc(employee.startDate || "—")}</td>
                 <td>${esc(employee.endDate || "—")}</td>
                 <td>${esc(employee.reason || "—")}</td>
                 ${canManageEmployees() ? `<td>${employeeActionButton(employee, "active")}</td>` : ""}
             </tr>
         `).join("") ||
-        `<tr><td colspan="${canManageEmployees() ? 8 : 7}"><div class="empty">No former employees.</div></td></tr>`;
+        `<tr><td colspan="${canManageEmployees() ? 10 : 9}"><div class="empty">No former employees.</div></td></tr>`;
 }
 
 function openEmployeeStatusModal(login, status) {
@@ -2521,7 +2630,9 @@ async function saveEmployeeStatus() {
                 startDate: updated.start_date || "",
                 endDate: updated.end_date || "",
                 reason: updated.reason || "",
-                status: updated.status || "Active"
+                status: updated.status || "Active",
+                qualifications: Array.isArray(updated.qualifications) ? updated.qualifications : [],
+                skills: Array.isArray(updated.skills) ? updated.skills : []
             };
         }
     }
@@ -2552,7 +2663,9 @@ function initEmployeeStatusActions() {
         const action = button.dataset.employeeAction;
         const login = button.dataset.employeeLogin;
 
-        if (action === "former") {
+        if (action === "edit-capabilities") {
+            openEmployeeCapabilitiesModal(login);
+        } else if (action === "former") {
             openEmployeeStatusModal(login, "Former");
         } else if (action === "active") {
             openEmployeeStatusModal(login, "Active");
@@ -3549,9 +3662,11 @@ async function confirmHoursDay(employee, date) {
         status: "Confirmed",
         // Keep Terminated even when actual hours equal planned hours.
         // Other reasons may still be cleared when the day exactly matches plan.
-        reason: current.reason === "Terminated"
+        reason: (employee.status === "Former" && employee.endDate && String(date) >= String(employee.endDate))
             ? "Terminated"
-            : Math.abs(actual - planned) < 0.001
+            : current.reason === "Terminated"
+                ? "Terminated"
+                : Math.abs(actual - planned) < 0.001
                 ? ""
                 : (ALLOWED_ATTENDANCE_REASONS.includes(current.reason) ? current.reason : ""),
         confirmedAt: new Date().toISOString(),
@@ -3997,7 +4112,8 @@ function initEvents() {
         $("employeeSearch").value="";
         setMultiFilterValues("employeeProcessFilter", []);
         setMultiFilterValues("employeeBrigadeFilter", []);
-        setMultiFilterValues("employeeSkillsFilter", []);
+        setMultiFilterValues("employeeQualificationFilter", []);
+        setMultiFilterValues("employeeProcessSkillFilter", []);
         renderEmployeeDatabase();
     });
 
@@ -4607,8 +4723,8 @@ function buildShiftEmployeesXlsx(people) {
             data.confirmed ? Number(data.actualHours || 0).toFixed(2) : "0.00",
             data.confirmed ? Number(data.breakMinutes || 0) : 0,
             data.confirmed ? (data.status || "Confirmed") : "Not confirmed",
-            data.confirmedByLogin || "",
-            data.lastChangedByLogin || "",
+            data.confirmedByName || "",
+            data.lastChangedByName || "",
             data.note || ""
         ]);
     }
@@ -4659,7 +4775,7 @@ function exportShiftEmployees() {
         return;
     }
 
-    const people = activeEmployees().filter(employee => getSchedule(employee, overviewDate).shift === overviewShift);
+    const people = employeesAvailableOnDate(overviewDate).filter(employee => getSchedule(employee, overviewDate).shift === overviewShift);
     if (!people.length) { toast("There are no employees scheduled for this shift."); return; }
     const xlsx = buildShiftEmployeesXlsx(people);
     const date = dateKey(overviewDate);

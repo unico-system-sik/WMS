@@ -268,9 +268,13 @@
                     <button type="button" class="multi-filter-button" data-multi-toggle="employeeBrigadeFilter">All brigades ▾</button>
                     <div class="multi-filter-menu" data-multi-menu="employeeBrigadeFilter"></div>
                 </div>
-                <div class="multi-filter" id="employeeSkillsFilter">
-                    <button type="button" class="multi-filter-button" data-multi-toggle="employeeSkillsFilter">All skills ▾</button>
-                    <div class="multi-filter-menu" data-multi-menu="employeeSkillsFilter"></div>
+                <div class="multi-filter" id="employeeQualificationFilter">
+                    <button type="button" class="multi-filter-button" data-multi-toggle="employeeQualificationFilter">All qualifications ▾</button>
+                    <div class="multi-filter-menu" data-multi-menu="employeeQualificationFilter"></div>
+                </div>
+                <div class="multi-filter" id="employeeProcessSkillFilter">
+                    <button type="button" class="multi-filter-button" data-multi-toggle="employeeProcessSkillFilter">All secondary processes ▾</button>
+                    <div class="multi-filter-menu" data-multi-menu="employeeProcessSkillFilter"></div>
                 </div>
                 <button id="applyEmployeeFilters" type="button" class="primary filter-search-btn">Search</button>
                 <button id="clearEmployeeFilters" type="button" class="secondary">Clear filters</button>
@@ -283,7 +287,7 @@
                             <th><button type="button" class="table-sort" data-employee-sort="login" data-employee-label="Login">Login</button></th>
                             <th><button type="button" class="table-sort" data-employee-sort="process" data-employee-label="Process">Process</button></th>
                             <th><button type="button" class="table-sort" data-employee-sort="brigade" data-employee-label="Brigade">Brigade</button></th>
-                            <th><button type="button" class="table-sort" data-employee-sort="skills" data-employee-label="Skills">Skills</button></th>
+                            <th><button type="button" class="table-sort" data-employee-sort="qualifications" data-employee-label="Qualifications">Qualifications</button></th><th><button type="button" class="table-sort" data-employee-sort="processSkills" data-employee-label="Secondary processes">Secondary processes</button></th>
                             <th><button type="button" class="table-sort" data-employee-sort="startDate" data-employee-label="Start date">Start date</button></th>
                             <th class="employee-action-header">Action</th>
                         </tr>
@@ -311,7 +315,8 @@
                             <th>Login</th>
                             <th>Process</th>
                             <th>Brigade</th>
-                            <th>Skills</th>
+                            <th>Qualifications</th>
+                            <th>Secondary processes</th>
                             <th>Start date</th>
                             <th>End date</th>
                             <th>Reason</th>
@@ -709,6 +714,35 @@
             <div class="modal-actions">
                 <button type="button" id="cancelEmployeeStatus" class="secondary">Cancel</button>
                 <button type="submit" id="saveEmployeeStatus" class="primary">Confirm</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="employeeCapabilitiesModal" class="modal hidden">
+    <div class="modal-card employee-status-card">
+        <div class="panel-title">
+            <div>
+                <h3>Edit employee capabilities</h3>
+                <p id="employeeCapabilitiesEmployee" class="modal-subtitle"></p>
+            </div>
+            <button id="closeEmployeeCapabilitiesModal" class="icon-btn" type="button">×</button>
+        </div>
+        <form id="employeeCapabilitiesForm">
+            <input id="employeeCapabilitiesLogin" type="hidden">
+            <label>
+                Special qualifications
+                <input id="employeeQualifications" placeholder="Instructor, Yard Coordinator, Forklift operator">
+                <small class="muted">Special training/authorization. Separate values with commas.</small>
+            </label>
+            <label>
+                Secondary process skills
+                <input id="employeeProcessSkills" placeholder="Putaway, Pick, Abnormal">
+                <small class="muted">Processes the employee can also perform besides the primary process.</small>
+            </label>
+            <div class="modal-actions">
+                <button type="button" id="cancelEmployeeCapabilities" class="secondary">Cancel</button>
+                <button type="submit" class="primary">Save</button>
             </div>
         </form>
     </div>
