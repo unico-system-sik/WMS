@@ -74,8 +74,8 @@
         <button class="nav-btn active" data-page="overviewPage">📊 <span>Shift Overview</span></button>
         <button class="nav-btn" data-page="employeesPage">👥 <span>Employees</span></button>
         <button class="nav-btn" data-page="schedulingPage">📅 <span>Shift Scheduling</span></button>
-        <button class="nav-btn" data-page="hoursAttendancePage">⏱️ <span>Hours Attendance</span>
-</button>
+        <button class="nav-btn" data-page="hoursAttendancePage">⏱️ <span>Hours Attendance</span></button>
+        <button class="nav-btn" data-page="feedbackTrackerPage">📝 <span>Feedback Tracker</span></button>
     </nav>
 </aside>
 
@@ -555,6 +555,70 @@
 
 
 
+<section id="feedbackTrackerPage" class="page">
+    <header class="page-header">
+        <div>
+            <h2>Feedback Tracker</h2>
+            <p>Record daily employee errors and keep a monthly count. The daily cells show the number of feedback entries for that day.</p>
+        </div>
+        <div class="toolbar">
+            <button id="feedbackMonthPrev" class="secondary" type="button">←</button>
+            <strong id="feedbackMonthLabel" class="month-label"></strong>
+            <button id="feedbackMonthNext" class="secondary" type="button">→</button>
+        </div>
+    </header>
+
+    <section class="panel feedback-controls-panel">
+        <div class="filters">
+            <input id="feedbackSearch" placeholder="Search employee by login or name">
+            <div class="multi-filter" id="feedbackBrigadeFilter">
+                <button type="button" class="multi-filter-button" data-multi-toggle="feedbackBrigadeFilter">All brigades ▾</button>
+                <div class="multi-filter-menu" data-multi-menu="feedbackBrigadeFilter"></div>
+            </div>
+            <div class="multi-filter" id="feedbackProcessFilter">
+                <button type="button" class="multi-filter-button" data-multi-toggle="feedbackProcessFilter">All processes ▾</button>
+                <div class="multi-filter-menu" data-multi-menu="feedbackProcessFilter"></div>
+            </div>
+            <button id="applyFeedbackFilters" type="button" class="primary filter-search-btn">Search</button>
+            <button id="clearFeedbackFilters" type="button" class="secondary">Clear</button>
+        </div>
+        <div class="feedback-legend">
+            <span>Monthly total:</span><span class="feedback-total-chip low">0–2</span><span class="feedback-total-chip medium">3–5</span><span class="feedback-total-chip high">6+</span>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-title">
+            <div>
+                <h3>Monthly Feedback</h3>
+                <p id="feedbackMeta">0 employees</p>
+            </div>
+        </div>
+        <div class="table-wrap feedback-table-wrap">
+            <table class="feedback-table">
+                <thead id="feedbackTableHead"></thead>
+                <tbody id="feedbackTableBody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-title">
+            <div>
+                <h3>Feedback History</h3>
+                <p>Each entry records who confirmed the feedback and when.</p>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Date</th><th>Employee</th><th>Error type</th><th>Note</th><th>Confirmed by</th></tr></thead>
+                <tbody id="feedbackHistoryTable"></tbody>
+            </table>
+        </div>
+    </section>
+</section>
+
+
 
 <section id="hoursAttendancePage" class="page">
     <header class="page-header">
@@ -730,16 +794,16 @@
         </div>
         <form id="employeeCapabilitiesForm">
             <input id="employeeCapabilitiesLogin" type="hidden">
-            <label>
-                Special qualifications
-                <input id="employeeQualifications" placeholder="Instructor, Yard Coordinator, Forklift operator">
-                <small class="muted">Special training/authorization. Separate values with commas.</small>
-            </label>
-            <label>
-                Secondary process skills
-                <input id="employeeProcessSkills" placeholder="Putaway, Pick, Abnormal">
-                <small class="muted">Processes the employee can also perform besides the primary process.</small>
-            </label>
+            <div class="capability-group">
+                <label>Special qualifications</label>
+                <div id="employeeQualifications" class="checkbox-grid capability-checkbox-grid"></div>
+                <small class="muted">These require special training/authorization.</small>
+            </div>
+            <div class="capability-group">
+                <label>Secondary process skills</label>
+                <div id="employeeProcessSkills" class="checkbox-grid capability-checkbox-grid"></div>
+                <small class="muted">Additional processes the employee can perform besides the primary process.</small>
+            </div>
             <div class="modal-actions">
                 <button type="button" id="cancelEmployeeCapabilities" class="secondary">Cancel</button>
                 <button type="submit" class="primary">Save</button>

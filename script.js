@@ -421,6 +421,7 @@ async function logout() {
     }
     if (employeesRealtimeChannel) { await supabaseClient.removeChannel(employeesRealtimeChannel); employeesRealtimeChannel=null; }
     if (auditRealtimeChannel) { await supabaseClient.removeChannel(auditRealtimeChannel); auditRealtimeChannel=null; }
+    if (feedbackRealtimeChannel) { await supabaseClient.removeChannel(feedbackRealtimeChannel); feedbackRealtimeChannel=null; }
 
     currentUser = null;
     window.__warehouseAppInitialized = false;
@@ -888,6 +889,184 @@ let hoursAttendanceMonth = new Date(
 let hoursAttendanceEmployeeLogin = "";
 let hoursModalSource = "hours";
 
+// =========================================================
+// FEEDBACK TRACKER
+// =========================================================
+const FEEDBACK_ERROR_TYPES = [
+    "Wrong item",
+    "Wrong quantity",
+    "Wrong location",
+    "Wrong scan",
+    "Damaged item",
+    "Procedure error",
+    "Safety rule",
+    "Other"
+];
+let feedbackMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12);
+let feedbackEntries = [];
+let feedbackRealtimeChannel = null;
+let feedbackLoaded = false;
+
+function feedbackMonthKey() {
+    return `${feedbackMonth.getFullYear()}-${String(feedbackMonth.getMonth()+1).padStart(2,"0")}`;
+}
+
+function feedbackDays() {
+    return new Date(feedbackMonth.getFullYear(), feedbackMonth.getMonth()+1, 0).getDate();
+}
+
+function feedbackEntryEmployee(login) {
+    return employeeByLogin(login) || EMPLOYEES.find(e => e.login === login);
+}
+
+async function loadFeedbackFromSupabase() {
+    const first = `${feedbackMonthKey()}-01`;
+    const last = `${feedbackMonthKey()}-${String(feedbackDays()).padStart(2,"0")}`;
+    const { data, error } = await supabaseClient
+        .from("feedback_entries")
+        .select("id, work_date, employee_login, error_type, note, confirmed_by, confirmed_by_login, confirmed_by_name, confirmed_at, created_at")
+        .gte("work_date", first)
+        .lte("work_date", last)
+        .order("work_date", { ascending: true })
+        .order("created_at", { ascending: true });
+    if (error) {
+        console.error("Feedback load error:", error);
+        feedbackEntries = [];
+        feedbackLoaded = false;
+        return false;
+    }
+    feedbackEntries = Array.isArray(data) ? data : [];
+    feedbackLoaded = true;
+    return true;
+}
+
+function fillFeedbackFilters() {
+    fillMultiFilter("feedbackBrigadeFilter", BRIGADES, "brigades", Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
+    fillMultiFilter("feedbackProcessFilter", PROCESSES, "processes");
+    updateAllMultiFilterLabels();
+}
+
+function feedbackFilteredEmployees() {
+    const search = $("feedbackSearch")?.value.trim().toLowerCase() || "";
+    const brigades = selectedMultiValues("feedbackBrigadeFilter");
+    const processes = selectedMultiValues("feedbackProcessFilter");
+    return activeEmployees().filter(employee => {
+        const text = `${employee.login} ${employee.name} ${employee.process} ${employee.brigade}`.toLowerCase();
+        if (search && !text.includes(search)) return false;
+        if (brigades.length && !brigades.includes(employee.brigade)) return false;
+        if (processes.length && !processes.includes(employee.process)) return false;
+        return true;
+    }).sort((a,b) => a.name.localeCompare(b.name));
+}
+
+function feedbackEntriesFor(login, day) {
+    const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
+    return feedbackEntries.filter(entry => entry.employee_login === login && entry.work_date === date);
+}
+
+function feedbackTotalFor(login) {
+    return feedbackEntries.filter(entry => entry.employee_login === login).length;
+}
+
+function feedbackTotalClass(total) {
+    if (total >= 6) return "high";
+    if (total >= 3) return "medium";
+    return "low";
+}
+
+function feedbackActor(entry) {
+    const name = String(entry.confirmed_by_name || entry.confirmed_by_login || "—").trim() || "—";
+    const time = entry.confirmed_at ? new Date(entry.confirmed_at).toLocaleString("en-GB", {day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "";
+    return time ? `${name} · ${time}` : name;
+}
+
+function openFeedbackModal(login) {
+    const employee = feedbackEntryEmployee(login);
+    if (!employee) return;
+    $("feedbackEmployeeLogin").value = login;
+    $("feedbackEmployeeLabel").textContent = `${employee.name} · ${employee.login}`;
+    $("feedbackDate").value = `${feedbackMonthKey()}-${String(Math.min(new Date().getDate(), feedbackDays())).padStart(2,"0")}`;
+    $("feedbackErrorType").value = "";
+    $("feedbackNote").value = "";
+    $("feedbackConfirmedBy").textContent = currentUser?.name || currentUser?.login || "—";
+    $("feedbackModal").classList.remove("hidden");
+}
+
+function closeFeedbackModal() { $("feedbackModal")?.classList.add("hidden"); }
+
+async function saveFeedbackEntry(event) {
+    event.preventDefault();
+    const login = $("feedbackEmployeeLogin").value;
+    const date = $("feedbackDate").value;
+    const errorType = $("feedbackErrorType").value;
+    const note = $("feedbackNote").value.trim();
+    const employee = feedbackEntryEmployee(login);
+    if (!employee || !date || !errorType) { toast("Select a date and error type."); return; }
+    if (date.slice(0,7) !== feedbackMonthKey()) { toast("Select a date from the displayed month."); return; }
+    if (date > dateKey(new Date())) { toast("Feedback cannot be recorded for a future date."); return; }
+    if (!currentUser?.id) { toast("Current user is not available. Please sign in again."); return; }
+
+    const payload = {
+        work_date: date,
+        employee_login: login,
+        error_type: errorType,
+        note: note || null,
+        confirmed_by: currentUser.id,
+        confirmed_by_login: currentUser.login || "",
+        confirmed_by_name: currentUser.name || currentUser.login || "",
+        confirmed_at: new Date().toISOString()
+    };
+    const { data, error } = await supabaseClient.from("feedback_entries").insert(payload).select("id, work_date, employee_login, error_type, note, confirmed_by, confirmed_by_login, confirmed_by_name, confirmed_at, created_at").single();
+    if (error) { console.error("Feedback save error:", error); toast(`Could not save feedback: ${error.message}`); return; }
+    feedbackEntries.push(data);
+    closeFeedbackModal();
+    renderFeedbackTracker();
+    toast(`${employee.name}: feedback recorded.`);
+}
+
+function renderFeedbackTracker() {
+    const days = feedbackDays();
+    const employees = feedbackFilteredEmployees();
+    $("feedbackMonthLabel").textContent = feedbackMonth.toLocaleDateString("en-GB", {month:"long", year:"numeric"});
+    $("feedbackMeta").textContent = `${employees.length} employee${employees.length===1?"":"s"} · ${feedbackEntries.length} feedback entr${feedbackEntries.length===1?"y":"ies"}`;
+    const head = ["<tr><th class=\"feedback-employee-col\">Employee</th><th class=\"feedback-total-col\">Month total</th>"];
+    for (let day=1; day<=days; day++) head.push(`<th class="feedback-day-col">${day}</th>`);
+    head.push(`<th class="feedback-add-col">Add</th></tr>`);
+    $("feedbackTableHead").innerHTML = head.join("");
+
+    $("feedbackTableBody").innerHTML = employees.map(employee => {
+        const total = feedbackTotalFor(employee.login);
+        const cells = [];
+        for (let day=1; day<=days; day++) {
+            const entries = feedbackEntriesFor(employee.login, day);
+            const count = entries.length;
+            const title = entries.length ? entries.map(e => `${e.error_type}${e.note ? ` — ${e.note}` : ""} — ${feedbackActor(e)}`).join("\n") : "No feedback";
+            cells.push(`<td class="feedback-day-cell" title="${esc(title)}">${count ? `<span class="feedback-count">${count}</span>` : ""}</td>`);
+        }
+        return `<tr><td class="feedback-employee"><strong>${esc(employee.login)}</strong><br><span>${esc(employee.name)}</span><small>${esc(employee.brigade)} · ${esc(employee.process)}</small></td><td class="feedback-total-cell"><span class="feedback-total-chip ${feedbackTotalClass(total)}">${total}</span></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
+    }).join("") || `<tr><td colspan="${days+3}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+
+    const history = [...feedbackEntries].sort((a,b) => String(b.created_at||"").localeCompare(String(a.created_at||""))).slice(0,200);
+    $("feedbackHistoryTable").innerHTML = history.map(entry => {
+        const employee = feedbackEntryEmployee(entry.employee_login);
+        return `<tr><td>${esc(entry.work_date)}</td><td><strong>${esc(employee?.login || entry.employee_login)}</strong><br>${esc(employee?.name || "")}</td><td>${esc(entry.error_type)}</td><td>${esc(entry.note || "—")}</td><td>${formatActionActor(entry.confirmed_by_name, entry.confirmed_at)}</td></tr>`;
+    }).join("") || `<tr><td colspan="5"><div class="empty">No feedback entries for this month.</div></td></tr>`;
+
+    document.querySelectorAll("[data-feedback-add]").forEach(button => button.addEventListener("click", () => openFeedbackModal(button.dataset.feedbackAdd)));
+}
+
+function subscribeToFeedbackRealtime() {
+    if (feedbackRealtimeChannel || !currentUser) return;
+    feedbackRealtimeChannel = supabaseClient.channel("warehouse-feedback")
+        .on("postgres_changes", {event:"*", schema:"public", table:"feedback_entries"}, async payload => {
+            console.info("Feedback realtime update:", payload.eventType);
+            await loadFeedbackFromSupabase();
+            renderFeedbackTracker();
+        })
+        .subscribe(status => console.info("Feedback realtime status:", status));
+}
+
+
 function $(id) {
     return document.getElementById(id);
 }
@@ -938,7 +1117,7 @@ function subscribeToEmployeesRealtime() {
         .on("postgres_changes", { event: "*", schema: "public", table: "employees" }, async payload => {
             console.info("Employees realtime update:", payload.eventType);
             const loaded = await loadEmployeesFromSupabase();
-            if (loaded) { fillOverviewFilters(); fillEmployeeFilters(); renderEmployeeDatabase(); renderFormerEmployees(); renderStatistics(); renderAllHoursAttendance(); renderOverview(); }
+            if (loaded) { fillOverviewFilters(); fillEmployeeFilters(); fillFeedbackFilters(); renderEmployeeDatabase(); renderFormerEmployees(); renderStatistics(); renderAllHoursAttendance(); renderOverview(); renderFeedbackTracker(); }
         })
         .subscribe(status => console.info("Employees realtime status:", status));
 }
@@ -1344,6 +1523,7 @@ function attendanceRowFromLocal(employee, date, data) {
         break_minutes: Number(data?.breakMinutes || 0),
         status: data?.status || "Pending",
         reason: data?.reason || "",
+        terminated_record: data?.terminatedRecord === true || data?.reason === "Terminated",
         note: data?.note || "",
         confirmed: Boolean(data?.confirmed),
         confirmed_by: data?.confirmedById || (data?.confirmed ? (currentUser?.id || null) : null),
@@ -1366,6 +1546,7 @@ function localAttendanceFromRemote(row) {
         breakMinutes: Number(row.break_minutes || 0),
         status: row.status || "Pending",
         reason: row.reason || "",
+        terminatedRecord: Boolean(row.terminated_record),
         note: row.note || "",
         confirmedAt: row.confirmed_at || "",
         confirmedById: row.confirmed_by || "",
@@ -1395,7 +1576,7 @@ async function loadAttendanceFromSupabase() {
             .select(`
                 id, work_date, employee_login, shift, planned_hours, actual_hours,
                 actual_start, actual_end, break_minutes, status, reason, note, confirmed,
-                confirmed_by, confirmed_by_login, confirmed_by_name, confirmed_at, last_changed_by, last_changed_by_login, last_changed_by_name, last_changed_at, created_at, updated_at
+                confirmed_by, confirmed_by_login, confirmed_by_name, confirmed_at, terminated_record, last_changed_by, last_changed_by_login, last_changed_by_name, last_changed_at, created_at, updated_at
             `)
             .order("work_date", { ascending: true })
             .range(from, from + pageSize - 1);
@@ -1703,7 +1884,7 @@ function updateMultiFilterLabel(id, allLabel) {
     button.textContent=vals.length ? `${vals.length} ${allLabel} selected ▾` : `All ${allLabel} ▾`;
 }
 function updateAllMultiFilterLabels() {
-    const labels={employeeProcessFilter:'processes',employeeBrigadeFilter:'brigades',employeeQualificationFilter:'qualifications',employeeProcessSkillFilter:'secondary processes',overviewBrigadeFilter:'brigades',overviewProcessFilter:'processes',overviewAttendanceFilter:'attendance',overviewExceptionFilter:'exceptions',extraDaysTypeFilter:'types',scheduleHistoryType:'types',hoursAllBrigade:'brigades',hoursAllProcess:'processes',hoursAllStatus:'statuses'};
+    const labels={feedbackBrigadeFilter:"brigades",feedbackProcessFilter:"processes",employeeProcessFilter:'processes',employeeBrigadeFilter:'brigades',employeeQualificationFilter:'qualifications',employeeProcessSkillFilter:'secondary processes',overviewBrigadeFilter:'brigades',overviewProcessFilter:'processes',overviewAttendanceFilter:'attendance',overviewExceptionFilter:'exceptions',extraDaysTypeFilter:'types',scheduleHistoryType:'types',hoursAllBrigade:'brigades',hoursAllProcess:'processes',hoursAllStatus:'statuses'};
     Object.entries(labels).forEach(([id,label])=>updateMultiFilterLabel(id,label));
 }
 function updateEmployeeMultiFilterLabels() {
@@ -1992,11 +2173,14 @@ async function confirmSelectedHours() {
             confirmedById: currentUser?.id || "",
             confirmedByLogin: currentUser?.login || "",
             confirmedByName: currentUser?.name || currentUser?.login || "",
+            terminatedRecord: current.reason === "Terminated",
             lastChangedById: currentUser?.id || "",
             lastChangedByLogin: currentUser?.login || "",
             lastChangedByName: currentUser?.name || currentUser?.login || "",
             lastChangedAt: new Date().toISOString(),
-            reason: (planned > 0 && Math.abs(confirmedActualHours - planned) < 0.001) ? "" : (current.reason || "")
+            reason: (current.reason === "Terminated" || current.terminatedRecord === true)
+                ? "Terminated"
+                : ((planned > 0 && Math.abs(confirmedActualHours - planned) < 0.001) ? "" : (current.reason || ""))
         };
 
         rowsToSave.push({
@@ -2272,7 +2456,8 @@ async function saveHoursEdit(event) {
             lastChangedById: currentUser?.id || "",
             lastChangedByLogin: currentUser?.login || "",
             lastChangedByName: currentUser?.name || currentUser?.login || "",
-            lastChangedAt: new Date().toISOString()
+            lastChangedAt: new Date().toISOString(),
+            terminatedRecord: current.reason === "Terminated" || current.terminatedRecord === true
         };
 
         const saved = attendanceRemoteReady
@@ -2378,13 +2563,29 @@ function employeeActionButton(employee, action) {
 }
 
 
+function renderCapabilityCheckboxes(containerId, values, selected = []) {
+    const root = $(containerId);
+    if (!root) return;
+    const selectedSet = new Set(selected);
+    root.innerHTML = values.map(value => `
+        <label class="capability-checkbox">
+            <input type="checkbox" value="${esc(value)}" ${selectedSet.has(value) ? "checked" : ""}>
+            <span>${esc(value)}</span>
+        </label>
+    `).join("");
+}
+
+function checkedCapabilityValues(containerId) {
+    return Array.from($(containerId)?.querySelectorAll('input[type="checkbox"]:checked') || []).map(input => input.value);
+}
+
 function openEmployeeCapabilitiesModal(login) {
     const employee = employeeByLogin(login);
     if (!employee || !canManageEmployees()) return;
     $("employeeCapabilitiesLogin").value = employee.login;
     $("employeeCapabilitiesEmployee").textContent = `${employee.name} · ${employee.login}`;
-    $("employeeQualifications").value = employeeQualifications(employee).join(", ");
-    $("employeeProcessSkills").value = employeeProcessSkills(employee).join(", ");
+    renderCapabilityCheckboxes("employeeQualifications", EMPLOYEE_QUALIFICATIONS, employeeQualifications(employee));
+    renderCapabilityCheckboxes("employeeProcessSkills", EMPLOYEE_PROCESS_SKILLS, employeeProcessSkills(employee));
     $("employeeCapabilitiesModal").classList.remove("hidden");
 }
 
@@ -2398,11 +2599,8 @@ async function saveEmployeeCapabilities() {
     const employee = employeeByLogin(login);
     if (!employee) return;
 
-    const parseList = value => [...new Set(String(value || "").split(",").map(x => x.trim()).filter(Boolean))];
-    const qualifications = parseList($("employeeQualifications").value)
-        .filter(x => EMPLOYEE_QUALIFICATIONS.includes(x));
-    const skills = parseList($("employeeProcessSkills").value)
-        .filter(x => EMPLOYEE_PROCESS_SKILLS.includes(x));
+    const qualifications = checkedCapabilityValues("employeeQualifications").filter(x => EMPLOYEE_QUALIFICATIONS.includes(x));
+    const skills = checkedCapabilityValues("employeeProcessSkills").filter(x => EMPLOYEE_PROCESS_SKILLS.includes(x));
 
     const { data, error } = await supabaseClient.rpc("update_employee_capabilities", {
         p_login: login,
@@ -2429,9 +2627,11 @@ async function saveEmployeeCapabilities() {
 
     closeEmployeeCapabilitiesModal();
     fillEmployeeFilters();
+    fillFeedbackFilters();
     renderEmployeeDatabase();
     renderFormerEmployees();
     renderStatistics();
+    renderFeedbackTracker();
     toast(`${employee.name}: qualifications and process skills updated.`);
 }
 
@@ -3955,6 +4155,10 @@ function switchPage(pageId) {
     if (pageId === "hoursAttendancePage") {
         renderHoursAttendance();
     }
+
+    if (pageId === "feedbackTrackerPage") {
+        renderFeedbackTracker();
+    }
 }
 
 function initEvents() {
@@ -4116,6 +4320,39 @@ function initEvents() {
         setMultiFilterValues("employeeProcessSkillFilter", []);
         renderEmployeeDatabase();
     });
+
+    $("employeeCapabilitiesForm")?.addEventListener("submit", async event => {
+        event.preventDefault();
+        await saveEmployeeCapabilities();
+    });
+    $("closeEmployeeCapabilitiesModal")?.addEventListener("click", closeEmployeeCapabilitiesModal);
+    $("cancelEmployeeCapabilities")?.addEventListener("click", closeEmployeeCapabilitiesModal);
+
+    // Feedback Tracker
+    $("feedbackMonthPrev")?.addEventListener("click", async () => {
+        feedbackMonth = new Date(feedbackMonth.getFullYear(), feedbackMonth.getMonth()-1, 1, 12);
+        await loadFeedbackFromSupabase();
+        renderFeedbackTracker();
+    });
+    $("feedbackMonthNext")?.addEventListener("click", async () => {
+        feedbackMonth = new Date(feedbackMonth.getFullYear(), feedbackMonth.getMonth()+1, 1, 12);
+        await loadFeedbackFromSupabase();
+        renderFeedbackTracker();
+    });
+    $("applyFeedbackFilters")?.addEventListener("click", renderFeedbackTracker);
+    $("clearFeedbackFilters")?.addEventListener("click", () => {
+        $("feedbackSearch").value = "";
+        setMultiFilterValues("feedbackBrigadeFilter", []);
+        setMultiFilterValues("feedbackProcessFilter", []);
+        renderFeedbackTracker();
+    });
+    $("feedbackSearch")?.addEventListener("keydown", event => {
+        if (event.key === "Enter") { event.preventDefault(); renderFeedbackTracker(); }
+    });
+    $("feedbackForm")?.addEventListener("submit", saveFeedbackEntry);
+    $("closeFeedbackModal")?.addEventListener("click", closeFeedbackModal);
+    $("cancelFeedback")?.addEventListener("click", closeFeedbackModal);
+    $("feedbackModal")?.addEventListener("click", event => { if (event.target.id === "feedbackModal") closeFeedbackModal(); });
 
 
 
@@ -4368,6 +4605,7 @@ async function initApp() {
     await loadIndividualSchedulesFromSupabase();
     await loadExtraDaysFromSupabase();
     await loadAttendanceFromSupabase();
+    await loadFeedbackFromSupabase();
 
     subscribeToScheduleRealtime();
     subscribeToIndividualScheduleRealtime();
@@ -4375,13 +4613,16 @@ async function initApp() {
     subscribeToAttendanceRealtime();
     subscribeToHistoryRealtime();
     subscribeToEmployeesRealtime();
+    subscribeToFeedbackRealtime();
 
     updateLiveDateTime();
     setInterval(updateLiveDateTime, 1000);
     fillOverviewFilters();
     fillEmployeeFilters();
     fillAdditionalMultiFilters();
+    fillFeedbackFilters();
     renderAllHoursAttendance();
+    renderFeedbackTracker();
 
     $("overviewDate").value =
         dateKey(overviewDate);
