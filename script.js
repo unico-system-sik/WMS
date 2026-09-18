@@ -1111,11 +1111,28 @@ function exportFeedbackTrackerCSV() {
             return row;
         });
 
+        const detailRows = filtered.map(entry => {
+            const employee = feedbackEntryEmployee(entry.employee_login);
+            return {
+                Date: entry.work_date,
+                Login: employee?.login || entry.employee_login,
+                Name: employee?.name || "",
+                Brigade: employee?.brigade || "",
+                "Primary process": employee?.process || "",
+                "Error type": entry.error_type || "",
+                Note: entry.note || "",
+                "Confirmed by": entry.confirmed_by_name || entry.confirmed_by_login || "",
+                "Confirmed at": entry.confirmed_at ? new Date(entry.confirmed_at).toLocaleString("en-GB") : ""
+            };
+        });
+
         const wb = XLSX.utils.book_new();
         const ws1 = XLSX.utils.json_to_sheet(monthlyRows);
         const ws2 = XLSX.utils.json_to_sheet(statRows);
+        const ws3 = XLSX.utils.json_to_sheet(detailRows);
         XLSX.utils.book_append_sheet(wb, ws1, "Monthly Feedback");
         XLSX.utils.book_append_sheet(wb, ws2, "Error Statistics");
+        XLSX.utils.book_append_sheet(wb, ws3, "Feedback Details");
         XLSX.writeFile(wb, `Feedback_Tracker_${feedbackMonthKey()}.xlsx`);
         toast("Feedback Tracker exported to Excel.");
         return;
@@ -1593,6 +1610,9 @@ function normalizeAttendanceData(data = {}) {
         "Left early": "Other"
     };
     if (!reason && legacyReasonMap[legacyStatus]) reason = legacyReasonMap[legacyStatus];
+    // Terminated is a persistent business state. If the DB has captured the
+    // terminated flag, never let a full-hours confirmation clear the reason.
+    if (data.terminatedRecord === true) reason = "Terminated";
 
     return {
         ...data,
@@ -2584,7 +2604,9 @@ async function saveHoursEdit(event) {
             lastChangedByLogin: currentUser?.login || "",
             lastChangedByName: currentUser?.name || currentUser?.login || "",
             lastChangedAt: new Date().toISOString(),
-            terminatedRecord: current.reason === "Terminated" || current.terminatedRecord === true
+            terminatedRecord: current.reason === "Terminated"
+                || current.terminatedRecord === true
+                || isTerminatedOnDate(employee, date)
         };
 
         const saved = attendanceRemoteReady
@@ -2628,6 +2650,9 @@ async function saveHoursEdit(event) {
                             ? $("editReason").value
                             : ""))),
         note: $("editNote").value.trim(),
+        terminatedRecord: current.reason === "Terminated"
+            || current.terminatedRecord === true
+            || isTerminatedOnDate(employee, date),
         confirmedAt: current.confirmedAt || "",
         confirmedById: current.confirmedById || "",
         confirmedByLogin: current.confirmedByLogin || "",
