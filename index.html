@@ -593,6 +593,7 @@
                 <h3>Monthly Feedback</h3>
                 <p id="feedbackMeta">0 employees</p>
             </div>
+            <button id="exportFeedbackTracker" class="secondary" type="button" title="Coordinator/Admin only">Export</button>
         </div>
         <div class="table-wrap feedback-table-wrap">
             <table class="feedback-table">
@@ -691,37 +692,6 @@
             </div>
         </section>
 
-        <section class="panel hours-history-panel">
-            <div class="panel-title">
-                <div>
-                    <h3>Hours History</h3>
-                    <p>Confirmed and edited hours for this employee. Stored centrally in Supabase.</p>
-                </div>
-            </div>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Created at</th>
-                            <th>Action</th>
-                            <th>Work date</th>
-                            <th>Shift</th>
-                            <th>Planned</th>
-                            <th>Actual</th>
-                            <th>Break</th>
-                            <th>Status</th>
-                            <th>Changed by</th>
-                            <th>Note</th>
-                        </tr>
-                    </thead>
-                    <tbody id="hoursHistoryTable"></tbody>
-                </table>
-            </div>
-        </section>
-    </section>
-
-    
-
     <section id="hoursAllEmployeesPanel" class="panel hours-all-panel">
         <div class="panel-title hours-all-title">
             <div><h3>All employees</h3><p>All active employees for the selected month. Use the filters above to narrow the list.</p></div>
@@ -807,6 +777,52 @@
             <div class="modal-actions">
                 <button type="button" id="cancelEmployeeCapabilities" class="secondary">Cancel</button>
                 <button type="submit" class="primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<div id="feedbackModal" class="modal hidden">
+    <div class="modal-card feedback-modal-card">
+        <div class="panel-title">
+            <div>
+                <h3>Add Feedback</h3>
+                <p id="feedbackEmployeeLabel" class="modal-subtitle"></p>
+            </div>
+            <button id="closeFeedbackModal" class="icon-btn" type="button">×</button>
+        </div>
+        <form id="feedbackForm">
+            <input id="feedbackEmployeeLogin" type="hidden">
+            <label>
+                Error date
+                <input id="feedbackDate" type="date" required>
+            </label>
+            <label>
+                Error type
+                <select id="feedbackErrorType" required>
+                    <option value="">Select error type</option>
+                    <option value="Wrong item">Wrong item</option>
+                    <option value="Wrong quantity">Wrong quantity</option>
+                    <option value="Wrong location">Wrong location</option>
+                    <option value="Wrong scan">Wrong scan</option>
+                    <option value="Damaged item">Damaged item</option>
+                    <option value="Procedure error">Procedure error</option>
+                    <option value="Safety rule">Safety rule</option>
+                    <option value="Other">Other</option>
+                </select>
+            </label>
+            <label>
+                Note
+                <textarea id="feedbackNote" rows="3" maxlength="500" placeholder="Optional note"></textarea>
+            </label>
+            <label>
+                Confirmed by
+                <input id="feedbackConfirmedBy" type="text" readonly>
+            </label>
+            <div class="modal-actions">
+                <button type="button" id="cancelFeedback" class="secondary">Cancel</button>
+                <button type="submit" class="primary">Confirm feedback</button>
             </div>
         </form>
     </div>

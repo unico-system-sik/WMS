@@ -415,10 +415,6 @@ async function logout() {
         await supabaseClient.removeChannel(scheduleHistoryRealtimeChannel);
         scheduleHistoryRealtimeChannel = null;
     }
-    if (attendanceHistoryRealtimeChannel) {
-        await supabaseClient.removeChannel(attendanceHistoryRealtimeChannel);
-        attendanceHistoryRealtimeChannel = null;
-    }
     if (employeesRealtimeChannel) { await supabaseClient.removeChannel(employeesRealtimeChannel); employeesRealtimeChannel=null; }
     if (auditRealtimeChannel) { await supabaseClient.removeChannel(auditRealtimeChannel); auditRealtimeChannel=null; }
     if (feedbackRealtimeChannel) { await supabaseClient.removeChannel(feedbackRealtimeChannel); feedbackRealtimeChannel=null; }
@@ -865,7 +861,6 @@ let individualScheduleRemoteLoaded = false;
 let individualScheduleSaveInProgress = false;
 let scheduleSaveInProgress = false;
 let scheduleHistoryRealtimeChannel = null;
-let attendanceHistoryRealtimeChannel = null;
 let employeesRealtimeChannel = null;
 let auditRealtimeChannel = null;
 
@@ -1024,6 +1019,41 @@ async function saveFeedbackEntry(event) {
     toast(`${employee.name}: feedback recorded.`);
 }
 
+function exportFeedbackTrackerCSV() {
+    if (!canExportData()) {
+        toast("Only Coordinator or Admin can export.");
+        return;
+    }
+
+    const days = feedbackDays();
+    const employees = feedbackFilteredEmployees();
+    const header = ["Login", "Name", "Brigade", "Primary process", "Month total", ...Array.from({length: days}, (_, i) => String(i + 1))];
+    const lines = [header.map(csvCell).join(",")];
+
+    employees.forEach(employee => {
+        const row = [
+            employee.login,
+            employee.name,
+            employee.brigade,
+            employee.process,
+            feedbackTotalFor(employee.login),
+            ...Array.from({length: days}, (_, i) => feedbackEntriesFor(employee.login, i + 1).length)
+        ];
+        lines.push(row.map(csvCell).join(","));
+    });
+
+    const blob = new Blob(["\uFEFF" + lines.join("\n")], {type: "text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Feedback_Tracker_${feedbackMonthKey()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast("Feedback Tracker exported.");
+}
+
 function renderFeedbackTracker() {
     const days = feedbackDays();
     const employees = feedbackFilteredEmployees();
@@ -1041,7 +1071,7 @@ function renderFeedbackTracker() {
             const entries = feedbackEntriesFor(employee.login, day);
             const count = entries.length;
             const title = entries.length ? entries.map(e => `${e.error_type}${e.note ? ` — ${e.note}` : ""} — ${feedbackActor(e)}`).join("\n") : "No feedback";
-            cells.push(`<td class="feedback-day-cell" title="${esc(title)}">${count ? `<span class="feedback-count">${count}</span>` : ""}</td>`);
+            cells.push(`<td class="feedback-day-cell" title="${esc(title)}"><span class="feedback-count">${count}</span></td>`);
         }
         return `<tr><td class="feedback-employee"><strong>${esc(employee.login)}</strong><br><span>${esc(employee.name)}</span><small>${esc(employee.brigade)} · ${esc(employee.process)}</small></td><td class="feedback-total-cell"><span class="feedback-total-chip ${feedbackTotalClass(total)}">${total}</span></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
     }).join("") || `<tr><td colspan="${days+3}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
@@ -1815,9 +1845,9 @@ async function loadSystemUsers() {
             <td><input class="system-user-name-input" data-system-user-name="${esc(user.login)}" value="${esc(user.full_name || "")}" placeholder="First name Last name"></td>
             <td>
                 <select data-system-user-role="${esc(user.login)}">
-                    <option value="Leader" ${user.role === "Leader" ? "selected" : ""}>Leader</option>
-                    <option value="Coordinator" ${user.role === "Coordinator" ? "selected" : ""}>Coordinator</option>
-                    <option value="Admin" ${user.role === "Admin" ? "selected" : ""}>Admin</option>
+                    <option value="Leader" ${String(user.role || "").toLowerCase() === "leader" ? "selected" : ""}>Leader</option>
+                    <option value="Coordinator" ${String(user.role || "").toLowerCase() === "coordinator" ? "selected" : ""}>Coordinator</option>
+                    <option value="Admin" ${String(user.role || "").toLowerCase() === "admin" ? "selected" : ""}>Admin</option>
                 </select>
             </td>
             <td><label class="system-user-active"><input type="checkbox" data-system-user-active="${esc(user.login)}" ${user.active ? "checked" : ""}> Active</label></td>
@@ -4004,8 +4034,6 @@ function renderHoursAttendance() {
     $("hoursAttendanceTable").innerHTML = rows.join("") ||
         `<tr><td colspan="12"><div class="empty">No days in this month.</div></td></tr>`;
 
-    renderHoursHistory(employee);
-
     $("hoursAttendanceTable")
         .querySelectorAll("[data-ha-confirm]")
         .forEach(button => {
@@ -4023,47 +4051,6 @@ function renderHoursAttendance() {
                 openHoursModal(employee, date);
             });
         });
-}
-
-async function renderHoursHistory(employee) {
-    const table = $("hoursHistoryTable");
-    if (!table || !employee || !currentUser) return;
-
-    const pageSize = 1000;
-    let from = 0;
-    const rows = [];
-    while (true) {
-        const { data, error } = await supabaseClient
-            .from("attendance_history")
-            .select("id, action, work_date, shift, planned_hours, actual_hours, break_minutes, status, reason, note, changed_by_login, changed_by_name, created_at")
-            .eq("employee_login", employee.login)
-            .order("created_at", { ascending: false })
-            .range(from, from + pageSize - 1);
-        if (error) {
-            console.error("Hours history load error:", error);
-            table.innerHTML = `<tr><td colspan="10"><div class="empty">Hours history could not be loaded.<br><small>${esc(error.message)}</small></div></td></tr>`;
-            return;
-        }
-        const page = Array.isArray(data) ? data : [];
-        rows.push(...page);
-        if (page.length < pageSize) break;
-        from += pageSize;
-    }
-
-    table.innerHTML = rows.map(item => `
-        <tr>
-            <td>${new Date(item.created_at).toLocaleString("en-GB")}</td>
-            <td><strong>${esc(item.action)}</strong></td>
-            <td>${esc(item.work_date)}</td>
-            <td>${esc(String(item.shift || "").toUpperCase())}</td>
-            <td>${Number(item.planned_hours || 0).toFixed(2)}h</td>
-            <td><strong>${Number(item.actual_hours || 0).toFixed(2)}h</strong></td>
-            <td>${Number(item.break_minutes || 0) ? "45 min" : "—"}</td>
-            <td>${esc(item.status || "")}</td>
-            <td>${esc(item.reason || "—")}</td>
-            <td>${esc(actorDisplay(item.changed_by_name, item.changed_by_login))}</td>
-            <td class="hours-note" title="${esc(item.note || "")}">${esc(notePreview(item.note, 8))}</td>
-        </tr>`).join("") || `<tr><td colspan="11"><div class="empty">No confirmed or edited hours yet.</div></td></tr>`;
 }
 
 function subscribeToHistoryRealtime() {
@@ -4088,15 +4075,6 @@ function subscribeToHistoryRealtime() {
             .subscribe(status => console.info("Audit realtime status:", status));
     }
 
-    if (!attendanceHistoryRealtimeChannel) {
-        attendanceHistoryRealtimeChannel = supabaseClient
-            .channel("warehouse-attendance-history")
-            .on("postgres_changes", { event: "*", schema: "public", table: "attendance_history" }, () => {
-                const employee = employeeByLogin(hoursAttendanceEmployeeLogin);
-                if (employee) renderHoursHistory(employee);
-            })
-            .subscribe();
-    }
 }
 
 function findHoursAttendanceEmployee() {
@@ -4278,6 +4256,10 @@ function initEvents() {
                                 button.dataset.employeesTab
                             );
                         });
+
+                    if (button.dataset.employeesTab === "systemUsersTab") {
+                        loadSystemUsers();
+                    }
                 }
             );
         });
@@ -4350,6 +4332,7 @@ function initEvents() {
         if (event.key === "Enter") { event.preventDefault(); renderFeedbackTracker(); }
     });
     $("feedbackForm")?.addEventListener("submit", saveFeedbackEntry);
+    $("exportFeedbackTracker")?.addEventListener("click", exportFeedbackTrackerCSV);
     $("closeFeedbackModal")?.addEventListener("click", closeFeedbackModal);
     $("cancelFeedback")?.addEventListener("click", closeFeedbackModal);
     $("feedbackModal")?.addEventListener("click", event => { if (event.target.id === "feedbackModal") closeFeedbackModal(); });
