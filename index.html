@@ -247,6 +247,9 @@
             <p>Employee database, skills and brigade statistics.</p>
             <div class="employee-count-badge"><strong id="employeeTotalCount">0</strong><span>active employees</span><small id="employeeFilteredCount">0 shown</small></div>
         </div>
+        <div class="toolbar">
+            <button id="exportEmployees" class="secondary" type="button" title="Coordinator/Admin only">Export Excel</button>
+        </div>
     </header>
 
     <div class="subtabs">
@@ -579,6 +582,10 @@
                 <button type="button" class="multi-filter-button" data-multi-toggle="feedbackProcessFilter">All processes ▾</button>
                 <div class="multi-filter-menu" data-multi-menu="feedbackProcessFilter"></div>
             </div>
+            <div class="multi-filter" id="feedbackErrorTypeFilter">
+                <button type="button" class="multi-filter-button" data-multi-toggle="feedbackErrorTypeFilter">All error types ▾</button>
+                <div class="multi-filter-menu" data-multi-menu="feedbackErrorTypeFilter"></div>
+            </div>
             <button id="applyFeedbackFilters" type="button" class="primary filter-search-btn">Search</button>
             <button id="clearFeedbackFilters" type="button" class="secondary">Clear</button>
         </div>
@@ -599,6 +606,21 @@
             <table class="feedback-table">
                 <thead id="feedbackTableHead"></thead>
                 <tbody id="feedbackTableBody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel feedback-statistics-panel">
+        <div class="panel-title">
+            <div>
+                <h3>Error Statistics by Day</h3>
+                <p>Shows how many errors of each type were recorded on each day. Use the error-type filter above to focus on selected errors.</p>
+            </div>
+        </div>
+        <div class="table-wrap feedback-table-wrap">
+            <table class="feedback-table feedback-stats-table">
+                <thead id="feedbackStatsHead"></thead>
+                <tbody id="feedbackStatsBody"></tbody>
             </table>
         </div>
     </section>
@@ -914,6 +936,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="script.js"></script>
 
 </body>

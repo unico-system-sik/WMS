@@ -1762,3 +1762,12 @@ th {
     .feedback-employee-col, .feedback-employee { min-width:155px; }
     .feedback-total-col, .feedback-total-cell { left:155px; }
 }
+
+/* V26.3 Feedback statistics */
+.feedback-controls-panel .filters { align-items: end; }
+.feedback-stats-table th:first-child,
+.feedback-stats-table td:first-child { position: sticky; left: 0; background: #fff; z-index: 2; min-width: 150px; }
+.feedback-stats-table .feedback-stats-total-row td { font-weight: 700; }
+.feedback-stats-total-row { border-top: 2px solid #d5dce7; }
+.feedback-stats-table td, .feedback-stats-table th { text-align: center; white-space: nowrap; }
+.feedback-stats-table td:first-child, .feedback-stats-table th:first-child { text-align: left; }

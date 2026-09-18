@@ -328,7 +328,7 @@ function canDeleteExtraDays() {
 function updateRoleBasedControls() {
     const canExport = canExportData();
 
-    ["exportShiftEmployees", "exportSchedule"].forEach(id => {
+    ["exportShiftEmployees", "exportSchedule", "exportEmployees"].forEach(id => {
         const button = $(id);
         if (button) button.hidden = !canExport;
     });
@@ -938,6 +938,7 @@ async function loadFeedbackFromSupabase() {
 function fillFeedbackFilters() {
     fillMultiFilter("feedbackBrigadeFilter", BRIGADES, "brigades", Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
     fillMultiFilter("feedbackProcessFilter", PROCESSES, "processes");
+    fillMultiFilter("feedbackErrorTypeFilter", FEEDBACK_ERROR_TYPES, "error-types");
     updateAllMultiFilterLabels();
 }
 
@@ -952,15 +953,6 @@ function feedbackFilteredEmployees() {
         if (processes.length && !processes.includes(employee.process)) return false;
         return true;
     }).sort((a,b) => a.name.localeCompare(b.name));
-}
-
-function feedbackEntriesFor(login, day) {
-    const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
-    return feedbackEntries.filter(entry => entry.employee_login === login && entry.work_date === date);
-}
-
-function feedbackTotalFor(login) {
-    return feedbackEntries.filter(entry => entry.employee_login === login).length;
 }
 
 function feedbackTotalClass(total) {
@@ -1019,6 +1011,66 @@ async function saveFeedbackEntry(event) {
     toast(`${employee.name}: feedback recorded.`);
 }
 
+function feedbackErrorTypesForMonth() {
+    return [...new Set(feedbackEntries.map(entry => String(entry.error_type || "Other").trim()).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+}
+
+function selectedFeedbackErrorTypes() {
+    return selectedMultiValues("feedbackErrorTypeFilter");
+}
+
+function feedbackEntriesFilteredForView() {
+    const types = selectedFeedbackErrorTypes();
+    if (!types.length) return feedbackEntries;
+    return feedbackEntries.filter(entry => types.includes(entry.error_type));
+}
+
+function feedbackEntriesFor(login, day) {
+    const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
+    return feedbackEntriesFilteredForView().filter(entry => entry.employee_login === login && entry.work_date === date);
+}
+
+function feedbackTotalFor(login) {
+    return feedbackEntriesFilteredForView().filter(entry => entry.employee_login === login).length;
+}
+
+function renderFeedbackErrorStats() {
+    const days = feedbackDays();
+    const source = feedbackEntriesFilteredForView();
+    const types = [...new Set(source.map(e => e.error_type).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+    const counts = new Map();
+    source.forEach(entry => {
+        const key = `${entry.error_type}__${entry.work_date}`;
+        counts.set(key, (counts.get(key) || 0) + 1);
+    });
+
+    const head = ["<tr><th>Error type</th>"];
+    for (let day=1; day<=days; day++) head.push(`<th>${day}</th>`);
+    head.push("<th>Total</th></tr>");
+    $("feedbackStatsHead").innerHTML = head.join("");
+
+    const rows = types.map(type => {
+        let total = 0;
+        const cells = [];
+        for (let day=1; day<=days; day++) {
+            const count = counts.get(`${type}__${feedbackMonthKey()}-${String(day).padStart(2,"0")}`) || 0;
+            total += count;
+            cells.push(`<td>${count}</td>`);
+        }
+        return `<tr><td><strong>${esc(type)}</strong></td>${cells.join("")}<td><strong>${total}</strong></td></tr>`;
+    });
+
+    const dailyTotals = [];
+    let monthTotal = 0;
+    for (let day=1; day<=days; day++) {
+        const count = source.filter(e => e.work_date === `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`).length;
+        monthTotal += count;
+        dailyTotals.push(`<td><strong>${count}</strong></td>`);
+    }
+    rows.push(`<tr class="feedback-stats-total-row"><td><strong>All errors</strong></td>${dailyTotals.join("")}<td><strong>${monthTotal}</strong></td></tr>`);
+    $("feedbackStatsBody").innerHTML = rows.join("") || `<tr><td colspan="${days+2}"><div class="empty">No feedback statistics for the selected filters.</div></td></tr>`;
+}
+
 function exportFeedbackTrackerCSV() {
     if (!canExportData()) {
         toast("Only Coordinator or Admin can export.");
@@ -1027,38 +1079,72 @@ function exportFeedbackTrackerCSV() {
 
     const days = feedbackDays();
     const employees = feedbackFilteredEmployees();
+    const filtered = feedbackEntriesFilteredForView();
+
+    // Prefer a real XLSX workbook when SheetJS is loaded. Every day is a separate cell.
+    if (window.XLSX) {
+        const monthlyRows = employees.map(employee => {
+            const row = {
+                Login: employee.login,
+                Name: employee.name,
+                Brigade: employee.brigade,
+                "Primary process": employee.process,
+                "Month total": filtered.filter(e => e.employee_login === employee.login).length
+            };
+            for (let day=1; day<=days; day++) {
+                const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
+                row[String(day)] = filtered.filter(e => e.employee_login === employee.login && e.work_date === date).length;
+            }
+            return row;
+        });
+
+        const statTypes = [...new Set(filtered.map(e => e.error_type).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+        const statRows = statTypes.map(type => {
+            const row = {"Error type": type};
+            let total = 0;
+            for (let day=1; day<=days; day++) {
+                const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
+                const count = filtered.filter(e => e.error_type === type && e.work_date === date).length;
+                row[String(day)] = count; total += count;
+            }
+            row.Total = total;
+            return row;
+        });
+
+        const wb = XLSX.utils.book_new();
+        const ws1 = XLSX.utils.json_to_sheet(monthlyRows);
+        const ws2 = XLSX.utils.json_to_sheet(statRows);
+        XLSX.utils.book_append_sheet(wb, ws1, "Monthly Feedback");
+        XLSX.utils.book_append_sheet(wb, ws2, "Error Statistics");
+        XLSX.writeFile(wb, `Feedback_Tracker_${feedbackMonthKey()}.xlsx`);
+        toast("Feedback Tracker exported to Excel.");
+        return;
+    }
+
+    // Fallback CSV: each day is still an independent spreadsheet cell/column.
     const header = ["Login", "Name", "Brigade", "Primary process", "Month total", ...Array.from({length: days}, (_, i) => String(i + 1))];
     const lines = [header.map(csvCell).join(",")];
-
     employees.forEach(employee => {
-        const row = [
-            employee.login,
-            employee.name,
-            employee.brigade,
-            employee.process,
-            feedbackTotalFor(employee.login),
-            ...Array.from({length: days}, (_, i) => feedbackEntriesFor(employee.login, i + 1).length)
-        ];
+        const row = [employee.login, employee.name, employee.brigade, employee.process, filtered.filter(e => e.employee_login === employee.login).length];
+        for (let day=1; day<=days; day++) {
+            const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
+            row.push(filtered.filter(e => e.employee_login === employee.login && e.work_date === date).length);
+        }
         lines.push(row.map(csvCell).join(","));
     });
-
     const blob = new Blob(["\uFEFF" + lines.join("\n")], {type: "text/csv;charset=utf-8;"});
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `Feedback_Tracker_${feedbackMonthKey()}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    const a = document.createElement("a"); a.href=url; a.download=`Feedback_Tracker_${feedbackMonthKey()}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     toast("Feedback Tracker exported.");
 }
 
 function renderFeedbackTracker() {
     const days = feedbackDays();
     const employees = feedbackFilteredEmployees();
+    const filtered = feedbackEntriesFilteredForView();
     $("feedbackMonthLabel").textContent = feedbackMonth.toLocaleDateString("en-GB", {month:"long", year:"numeric"});
-    $("feedbackMeta").textContent = `${employees.length} employee${employees.length===1?"":"s"} · ${feedbackEntries.length} feedback entr${feedbackEntries.length===1?"y":"ies"}`;
+    $("feedbackMeta").textContent = `${employees.length} employee${employees.length===1?"":"s"} · ${filtered.length} feedback entr${filtered.length===1?"y":"ies"}`;
     const head = ["<tr><th class=\"feedback-employee-col\">Employee</th><th class=\"feedback-total-col\">Month total</th>"];
     for (let day=1; day<=days; day++) head.push(`<th class="feedback-day-col">${day}</th>`);
     head.push(`<th class="feedback-add-col">Add</th></tr>`);
@@ -1076,12 +1162,13 @@ function renderFeedbackTracker() {
         return `<tr><td class="feedback-employee"><strong>${esc(employee.login)}</strong><br><span>${esc(employee.name)}</span><small>${esc(employee.brigade)} · ${esc(employee.process)}</small></td><td class="feedback-total-cell"><span class="feedback-total-chip ${feedbackTotalClass(total)}">${total}</span></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
     }).join("") || `<tr><td colspan="${days+3}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
 
-    const history = [...feedbackEntries].sort((a,b) => String(b.created_at||"").localeCompare(String(a.created_at||""))).slice(0,200);
+    const history = [...filtered].sort((a,b) => String(b.created_at||"").localeCompare(String(a.created_at||""))).slice(0,200);
     $("feedbackHistoryTable").innerHTML = history.map(entry => {
         const employee = feedbackEntryEmployee(entry.employee_login);
         return `<tr><td>${esc(entry.work_date)}</td><td><strong>${esc(employee?.login || entry.employee_login)}</strong><br>${esc(employee?.name || "")}</td><td>${esc(entry.error_type)}</td><td>${esc(entry.note || "—")}</td><td>${formatActionActor(entry.confirmed_by_name, entry.confirmed_at)}</td></tr>`;
     }).join("") || `<tr><td colspan="5"><div class="empty">No feedback entries for this month.</div></td></tr>`;
 
+    renderFeedbackErrorStats();
     document.querySelectorAll("[data-feedback-add]").forEach(button => button.addEventListener("click", () => openFeedbackModal(button.dataset.feedbackAdd)));
 }
 
@@ -1519,6 +1606,11 @@ function normalizeAttendanceData(data = {}) {
     };
 }
 
+function isTerminatedOnDate(employee, date) {
+    if (!employee || employee.status !== "Former" || !employee.endDate) return false;
+    return String(dateKey(date)) >= String(employee.endDate);
+}
+
 function getAttendance(employee, date) {
     const existing = attendance[attendanceKey(date, employee.login)];
     return normalizeAttendanceData(existing || {
@@ -1528,7 +1620,8 @@ function getAttendance(employee, date) {
         actualEnd: "",
         breakMinutes: 0,
         status: "Pending",
-        reason: "",
+        reason: isTerminatedOnDate(employee, date) ? "Terminated" : "",
+        terminatedRecord: isTerminatedOnDate(employee, date),
         note: ""
     });
 }
@@ -2106,7 +2199,9 @@ function renderShiftEmployees(people) {
                     ${visibleReason ? `<span class="reason-pill">${esc(visibleReason)}</span>` : `<span class="muted">—</span>`}
                 </td>
                 <td>
-                    <button type="button" class="mini-btn" data-shift-edit="${esc(employee.login)}">Edit</button>
+                    ${data.confirmed
+                        ? `<button type="button" class="mini-btn" data-shift-edit="${esc(employee.login)}">Edit</button>`
+                        : "—"}
                 </td>
             </tr>`;
     }).join("") || `<tr><td colspan="10"><div class="empty">No employees match the selected filters.</div></td></tr>`;
@@ -2203,12 +2298,12 @@ async function confirmSelectedHours() {
             confirmedById: currentUser?.id || "",
             confirmedByLogin: currentUser?.login || "",
             confirmedByName: currentUser?.name || currentUser?.login || "",
-            terminatedRecord: current.reason === "Terminated",
+            terminatedRecord: current.terminatedRecord === true || current.reason === "Terminated" || isTerminatedOnDate(employee, overviewDate),
             lastChangedById: currentUser?.id || "",
             lastChangedByLogin: currentUser?.login || "",
             lastChangedByName: currentUser?.name || currentUser?.login || "",
             lastChangedAt: new Date().toISOString(),
-            reason: (current.reason === "Terminated" || current.terminatedRecord === true)
+            reason: (current.reason === "Terminated" || current.terminatedRecord === true || isTerminatedOnDate(employee, overviewDate))
                 ? "Terminated"
                 : ((planned > 0 && Math.abs(confirmedActualHours - planned) < 0.001) ? "" : (current.reason || ""))
         };
@@ -2373,7 +2468,9 @@ function openHoursModal(employee, date = overviewDate, source = "hours") {
         ? (data.status === "Absent" ? "Absent" : "Confirmed")
         : "Pending";
 
-    $("editReason").value = data.reason || "";
+    $("editReason").value = (data.reason === "Terminated" || data.terminatedRecord === true || isTerminatedOnDate(employee, date))
+        ? "Terminated"
+        : (data.reason || "");
     $("editNote").value = data.note || "";
 
     if ($("editActualHours")) {
@@ -2668,6 +2765,37 @@ async function saveEmployeeCapabilities() {
 function employeeEditButton(employee) {
     if (!canManageEmployees()) return "";
     return `<button class="secondary employee-action-btn" type="button" data-employee-action="edit-capabilities" data-employee-login="${esc(employee.login)}">Edit skills</button>`;
+}
+
+function exportEmployeesExcel() {
+    if (!canExportData()) {
+        toast("Only Coordinator or Admin can export.");
+        return;
+    }
+    const list = activeEmployees().slice().sort((a,b) => a.name.localeCompare(b.name));
+    const rows = list.map(employee => ({
+        Login: employee.login,
+        Name: employee.name,
+        Process: employee.process,
+        Brigade: employee.brigade,
+        Qualifications: employeeQualifications(employee).join(", "),
+        "Secondary process skills": employeeProcessSkills(employee).join(", "),
+        "Start date": employee.startDate || "",
+        Status: employee.status || "Active"
+    }));
+    if (window.XLSX) {
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(rows);
+        XLSX.utils.book_append_sheet(wb, ws, "Employees");
+        XLSX.writeFile(wb, `Employees_${dateKey(new Date())}.xlsx`);
+    } else {
+        const headers = Object.keys(rows[0] || {Login:"",Name:"",Process:"",Brigade:"",Qualifications:"","Secondary process skills":"","Start date":"",Status:""});
+        const lines = [headers.map(csvCell).join(","), ...rows.map(row => headers.map(h => csvCell(row[h])).join(","))];
+        const blob = new Blob(["\uFEFF" + lines.join("\n")], {type:"text/csv;charset=utf-8;"});
+        const url = URL.createObjectURL(blob); const a = document.createElement("a");
+        a.href=url; a.download=`Employees_${dateKey(new Date())}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    }
+    toast("Employee database exported.");
 }
 
 function renderEmployeeDatabase() {
@@ -4171,6 +4299,7 @@ function initEvents() {
     );
 
     $("exportShiftEmployees")?.addEventListener("click", exportShiftEmployees);
+    $("exportEmployees")?.addEventListener("click", exportEmployeesExcel);
 
     $("markSelectedAbsent").addEventListener(
         "click",
@@ -4326,6 +4455,7 @@ function initEvents() {
         $("feedbackSearch").value = "";
         setMultiFilterValues("feedbackBrigadeFilter", []);
         setMultiFilterValues("feedbackProcessFilter", []);
+        setMultiFilterValues("feedbackErrorTypeFilter", []);
         renderFeedbackTracker();
     });
     $("feedbackSearch")?.addEventListener("keydown", event => {
