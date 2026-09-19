@@ -1276,7 +1276,7 @@ function renderFeedbackAdditionalStats(source) {
 }
 
 function activateFeedbackSubtab(name) {
-    document.querySelectorAll(".feedback-subtab").forEach(button => button.classList.toggle("active", button.dataset.feedbackSubtab === name));
+    document.querySelectorAll("[data-feedback-subtab]").forEach(button => button.classList.toggle("active", button.dataset.feedbackSubtab === name));
     document.querySelectorAll(".feedback-subtab-panel").forEach(panel => panel.classList.remove("active"));
     const target = $(name === "tracker" ? "feedbackTrackerSubpage" : name === "statistics" ? "feedbackStatisticsSubpage" : "feedbackHistorySubpage");
     target?.classList.add("active");
@@ -2720,14 +2720,13 @@ async function saveHoursEdit(event) {
             status,
             reason: ALLOWED_ATTENDANCE_REASONS.includes($("editReason").value)
                 ? $("editReason").value
-                : (current.reason || (current.terminatedRecord ? "Terminated" : "")),
+                : "",
             note: $("editNote").value.trim(),
             lastChangedById: currentUser?.id || "",
             lastChangedByLogin: currentUser?.login || "",
             lastChangedByName: currentUser?.name || currentUser?.login || "",
             lastChangedAt: new Date().toISOString(),
-            terminatedRecord: current.reason === "Terminated"
-                || current.terminatedRecord === true
+            terminatedRecord: $("editReason").value === "Terminated"
                 || isTerminatedOnDate(employee, date)
         };
 
@@ -2764,10 +2763,9 @@ async function saveHoursEdit(event) {
         status,
         reason: ALLOWED_ATTENDANCE_REASONS.includes($("editReason").value)
                 ? $("editReason").value
-                : (current.reason || (current.terminatedRecord ? "Terminated" : "")),
+                : "",
         note: $("editNote").value.trim(),
-        terminatedRecord: current.reason === "Terminated"
-            || current.terminatedRecord === true
+        terminatedRecord: $("editReason").value === "Terminated"
             || isTerminatedOnDate(employee, date),
         confirmedAt: current.confirmedAt || "",
         confirmedById: current.confirmedById || "",
@@ -2914,23 +2912,36 @@ function exportEmployeesExcel() {
         return;
     }
     const list = activeEmployees().slice().sort((a,b) => a.name.localeCompare(b.name));
-    const rows = list.map(employee => ({
-        Login: employee.login,
-        Name: employee.name,
-        Process: employee.process,
-        Brigade: employee.brigade,
-        Qualifications: employeeQualifications(employee).join(", "),
-        "Secondary process skills": employeeProcessSkills(employee).join(", "),
-        "Start date": employee.startDate || "",
-        Status: employee.status || "Active"
-    }));
+    const processColumns = EMPLOYEE_PROCESS_SKILLS;
+    const qualificationColumns = EMPLOYEE_QUALIFICATIONS;
+    const rows = list.map(employee => {
+        const skills = employeeProcessSkills(employee);
+        const qualifications = employeeQualifications(employee);
+        const row = {
+            Login: employee.login,
+            Name: employee.name,
+            "Primary process": employee.process,
+            Brigade: employee.brigade,
+            "Start date": employee.startDate || "",
+            Status: employee.status || "Active"
+        };
+        // One process/skill per spreadsheet cell/column.
+        processColumns.forEach(process => {
+            row[process] = skills.includes(process) || employee.process === process ? "✓" : "";
+        });
+        // One qualification per spreadsheet cell/column.
+        qualificationColumns.forEach(qualification => {
+            row[qualification] = qualifications.includes(qualification) ? "✓" : "";
+        });
+        return row;
+    });
     if (window.XLSX) {
         const wb = XLSX.utils.book_new();
         const ws = XLSX.utils.json_to_sheet(rows);
         XLSX.utils.book_append_sheet(wb, ws, "Employees");
         XLSX.writeFile(wb, `Employees_${dateKey(new Date())}.xlsx`);
     } else {
-        const headers = Object.keys(rows[0] || {Login:"",Name:"",Process:"",Brigade:"",Qualifications:"","Secondary process skills":"","Start date":"",Status:""});
+        const headers = Object.keys(rows[0] || {Login:"",Name:"","Primary process":"",Brigade:"","Start date":"",Status:"",Pick:"",Putaway:"",Abnormal:"",Consolidation:"",Leader:"",Instructor:"","Yard Coordinator":"","Forklift operator":""});
         const lines = [headers.map(csvCell).join(","), ...rows.map(row => headers.map(h => csvCell(row[h])).join(","))];
         const blob = new Blob(["\uFEFF" + lines.join("\n")], {type:"text/csv;charset=utf-8;"});
         const url = URL.createObjectURL(blob); const a = document.createElement("a");
@@ -4166,10 +4177,11 @@ async function confirmHoursDay(employee, date) {
         confirmedById: currentUser.id || "",
         confirmedByLogin: currentUser.login || "",
         confirmedByName: currentUser.name || currentUser.login || "",
-        lastChangedById: currentUser.id || "",
-        lastChangedByLogin: currentUser.login || "",
-        lastChangedByName: currentUser.name || currentUser.login || "",
-        lastChangedAt: new Date().toISOString()
+        // Confirm is not an edit. Edit by stays blank until Save is used in Edit.
+        lastChangedById: current.lastChangedById || "",
+        lastChangedByLogin: current.lastChangedByLogin || "",
+        lastChangedByName: current.lastChangedByName || "",
+        lastChangedAt: current.lastChangedAt || ""
     };
 
     const saved = attendanceRemoteReady
@@ -4394,6 +4406,9 @@ function switchPage(pageId) {
     }
 
     if (pageId === "hoursAttendancePage") {
+        // Open Hours Attendance on the All employees view every time.
+        hoursAttendanceEmployeeLogin = "";
+        if ($("hoursEmployeeLogin")) $("hoursEmployeeLogin").value = "";
         renderHoursAttendance();
     }
 
@@ -4942,9 +4957,26 @@ function renderAllHoursAttendance() {
     if (!body) return;
     updateHoursExportVisibility();
     const employees = hoursAllFilterEmployees(false);
+    let planned = 0, confirmed = 0, pending = 0, difference = 0;
+    employees.forEach(e => {
+        const s = getHoursEmployeeSummary(e);
+        planned += s.planned;
+        confirmed += s.confirmed;
+        pending += s.pending;
+        difference += s.difference;
+    });
+    if ($("hoursAllTotal")) $("hoursAllTotal").textContent = String(employees.length);
+    if ($("hoursAllPlanned")) $("hoursAllPlanned").textContent = `${planned.toFixed(2)}h`;
+    if ($("hoursAllConfirmed")) $("hoursAllConfirmed").textContent = `${confirmed.toFixed(2)}h`;
+    if ($("hoursAllPending")) $("hoursAllPending").textContent = String(pending);
+    if ($("hoursAllDifference")) $("hoursAllDifference").textContent = `${difference >= 0 ? "+" : ""}${difference.toFixed(2)}h`;
     if (meta) meta.textContent = `${employees.length} employee${employees.length === 1 ? "" : "s"}`;
-    body.innerHTML = employees.map(e => { const s=getHoursEmployeeSummary(e); return `<tr><td><strong>${esc(e.login)}</strong></td><td>${esc(e.name)}</td><td>${esc(e.brigade)}</td><td>${esc(e.process)}</td><td>${s.planned.toFixed(2)}h</td><td>${s.confirmed.toFixed(2)}h</td><td>${s.difference >= 0 ? "+" : ""}${s.difference.toFixed(2)}h</td><td>${s.pending}</td></tr>`; }).join("") || `<tr><td colspan="9"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+    body.innerHTML = employees.map(e => {
+        const s=getHoursEmployeeSummary(e);
+        return `<tr><td><strong>${esc(e.login)}</strong></td><td>${esc(e.name)}</td><td>${esc(e.brigade)}</td><td>${esc(e.process)}</td><td>${s.planned.toFixed(2)}h</td><td>${s.confirmed.toFixed(2)}h</td><td>${s.difference >= 0 ? "+" : ""}${s.difference.toFixed(2)}h</td><td>${s.pending}</td></tr>`;
+    }).join("") || `<tr><td colspan="8"><div class="empty">No employees match the selected filters.</div></td></tr>`;
 }
+
 function hoursExportRows(ignoreFilters) {
     const employees = hoursAllFilterEmployees(ignoreFilters), rows=[];
     for (const employee of employees) for (let day=1; day<=monthDays(hoursAttendanceMonth); day++) {

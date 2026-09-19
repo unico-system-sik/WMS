@@ -1798,3 +1798,12 @@ th {
 @media(max-width:1000px){.feedback-extra-grid{grid-template-columns:1fr;}.feedback-subtabs{width:100%;}.feedback-subtab{flex:1;}}
 .feedback-stat-kpis{margin:16px 0;}
 .feedback-stat-kpis .card strong{font-size:22px;word-break:break-word;}
+
+
+/* V26.7 — consistent tabs and Hours Attendance overview summary */
+.hours-all-summary-cards { margin: 14px 0 16px; }
+.hours-all-summary-cards .card strong { font-size: 21px; }
+.feedback-subtabs { margin-bottom: 16px; }
+@media (max-width: 1100px) {
+    .hours-all-summary-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -232,6 +232,9 @@
                         <th>Actual</th>
                         <th>Status</th>
                         <th>Reason</th>
+                        <th>Confirmed by</th>
+                        <th>Edit by</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody id="overviewEmployeeTable"></tbody>
@@ -571,10 +574,10 @@
         </div>
     </header>
 
-    <div class="feedback-subtabs">
-        <button type="button" class="feedback-subtab active" data-feedback-subtab="tracker">Tracker</button>
-        <button type="button" class="feedback-subtab" data-feedback-subtab="statistics">Detailed Statistics</button>
-        <button type="button" class="feedback-subtab" data-feedback-subtab="history">History</button>
+    <div class="subtabs feedback-subtabs">
+        <button type="button" class="subtab active" data-feedback-subtab="tracker">Tracker</button>
+        <button type="button" class="subtab" data-feedback-subtab="statistics">Detailed Statistics</button>
+        <button type="button" class="subtab" data-feedback-subtab="history">History</button>
     </div>
 
     <div id="feedbackTrackerSubpage" class="feedback-subtab-panel active">
@@ -723,6 +726,13 @@
                 <button type="button" id="hoursExportFilteredBtn" class="secondary">Export Filtered Excel</button>
             </div>
 <div class="hours-export-hint">Excel: Login and Name on the left, each day of the selected month across the top. Unconfirmed hours = 0.</div>
+        </div>
+        <div class="cards five hours-all-summary-cards">
+            <div class="card"><span>Employees</span><strong id="hoursAllTotal">0</strong><small>matching current filters</small></div>
+            <div class="card"><span>Planned</span><strong id="hoursAllPlanned">0.00h</strong><small>scheduled net hours</small></div>
+            <div class="card"><span>Confirmed</span><strong id="hoursAllConfirmed">0.00h</strong><small>confirmed actual hours</small></div>
+            <div class="card"><span>Difference</span><strong id="hoursAllDifference">0.00h</strong><small>confirmed minus planned</small></div>
+            <div class="card"><span>Pending</span><strong id="hoursAllPending">0</strong><small>working days waiting</small></div>
         </div>
         <div class="hours-all-filters">
             <div><label class="control-label" for="hoursAllSearch">Search</label><input id="hoursAllSearch" type="search" placeholder="Login or name" autocomplete="off"></div>
@@ -979,7 +989,7 @@
                             <th>Status</th>
                             <th>Reason</th>
                             <th>Confirmed by</th>
-                            <th>Last changed by</th>
+                            <th>Edit by</th>
                             <th>Note</th>
                             <th>Action</th>
                         </tr>
