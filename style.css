@@ -1771,3 +1771,16 @@ th {
 .feedback-stats-total-row { border-top: 2px solid #d5dce7; }
 .feedback-stats-table td, .feedback-stats-table th { text-align: center; white-space: nowrap; }
 .feedback-stats-table td:first-child, .feedback-stats-table th:first-child { text-align: left; }
+
+
+/* V26.5 — detailed Feedback Tracker statistics */
+.feedback-statistics-panel h4 { margin: 18px 0 10px; font-size: 14px; color: #14233b; }
+.feedback-stats-summary-wrap, .feedback-stats-matrix-wrap, .feedback-daily-summary-wrap { margin-top: 4px; }
+.feedback-stats-summary-table td:nth-child(2), .feedback-stats-summary-table td:nth-child(3),
+.feedback-daily-summary-table td:nth-child(1), .feedback-daily-summary-table td:nth-child(3), .feedback-daily-summary-table td:nth-child(4) { text-align: center; }
+.feedback-stats-percent-row td { font-size: 11px; color: #667085; background: #f8fafc; }
+.feedback-stats-table th, .feedback-stats-table td { min-width: 42px; text-align: center; }
+.feedback-stats-table th:first-child, .feedback-stats-table td:first-child { min-width: 150px; text-align: left; position: sticky; left: 0; background: #fff; z-index: 2; }
+.feedback-stats-table th:last-child, .feedback-stats-table td:last-child { min-width: 72px; }
+.shift-reason-display { min-width: 120px; }
+@media (max-width: 900px) { .feedback-stats-table th:first-child, .feedback-stats-table td:first-child { position: static; } }

@@ -1037,39 +1037,68 @@ function feedbackTotalFor(login) {
 function renderFeedbackErrorStats() {
     const days = feedbackDays();
     const source = feedbackEntriesFilteredForView();
-    const types = [...new Set(source.map(e => e.error_type).filter(Boolean))].sort((a,b) => a.localeCompare(b));
-    const counts = new Map();
-    source.forEach(entry => {
-        const key = `${entry.error_type}__${entry.work_date}`;
-        counts.set(key, (counts.get(key) || 0) + 1);
-    });
+    const types = [...new Set(source.map(e => String(e.error_type || "Other").trim()).filter(Boolean))]
+        .sort((a,b) => a.localeCompare(b));
+    const monthTotal = source.length;
+    const countFor = (type, day) => source.filter(e =>
+        e.error_type === type && e.work_date === `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`
+    ).length;
 
+    // Summary by error type: count and percentage of all feedback.
+    const summaryRows = types.map(type => {
+        const count = source.filter(e => e.error_type === type).length;
+        const pct = monthTotal ? (count / monthTotal * 100) : 0;
+        return `<tr><td><strong>${esc(type)}</strong></td><td>${count}</td><td>${pct.toFixed(1)}%</td></tr>`;
+    });
+    if (monthTotal) {
+        summaryRows.push(`<tr class="feedback-stats-total-row"><td><strong>All errors</strong></td><td><strong>${monthTotal}</strong></td><td><strong>100.0%</strong></td></tr>`);
+    }
+    const summaryBody = $("feedbackStatsSummaryBody");
+    if (summaryBody) {
+        summaryBody.innerHTML = summaryRows.join("") || `<tr><td colspan="3"><div class="empty">No feedback statistics for the selected filters.</div></td></tr>`;
+    }
+
+    // Detailed matrix: every error type, every day, monthly total and share.
     const head = ["<tr><th>Error type</th>"];
     for (let day=1; day<=days; day++) head.push(`<th>${day}</th>`);
-    head.push("<th>Total</th></tr>");
-    $("feedbackStatsHead").innerHTML = head.join("");
-
-    const rows = types.map(type => {
+    head.push("<th>Total</th><th>%</th></tr>");
+    const matrixRows = types.map(type => {
         let total = 0;
         const cells = [];
         for (let day=1; day<=days; day++) {
-            const count = counts.get(`${type}__${feedbackMonthKey()}-${String(day).padStart(2,"0")}`) || 0;
+            const count = countFor(type, day);
             total += count;
             cells.push(`<td>${count}</td>`);
         }
-        return `<tr><td><strong>${esc(type)}</strong></td>${cells.join("")}<td><strong>${total}</strong></td></tr>`;
+        const pct = monthTotal ? (total / monthTotal * 100) : 0;
+        return `<tr><td><strong>${esc(type)}</strong></td>${cells.join("")}<td><strong>${total}</strong></td><td><strong>${pct.toFixed(1)}%</strong></td></tr>`;
     });
-
     const dailyTotals = [];
-    let monthTotal = 0;
+    const dailyPcts = [];
     for (let day=1; day<=days; day++) {
         const count = source.filter(e => e.work_date === `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`).length;
-        monthTotal += count;
         dailyTotals.push(`<td><strong>${count}</strong></td>`);
+        dailyPcts.push(`<td>${monthTotal ? (count / monthTotal * 100).toFixed(1) : "0.0"}%</td>`);
     }
-    rows.push(`<tr class="feedback-stats-total-row"><td><strong>All errors</strong></td>${dailyTotals.join("")}<td><strong>${monthTotal}</strong></td></tr>`);
-    $("feedbackStatsBody").innerHTML = rows.join("") || `<tr><td colspan="${days+2}"><div class="empty">No feedback statistics for the selected filters.</div></td></tr>`;
+    if (monthTotal) {
+        matrixRows.push(`<tr class="feedback-stats-total-row"><td><strong>All errors</strong></td>${dailyTotals.join("")}<td><strong>${monthTotal}</strong></td><td><strong>100.0%</strong></td></tr>`);
+        matrixRows.push(`<tr class="feedback-stats-percent-row"><td><strong>Daily share</strong></td>${dailyPcts.join("")}<td><strong>100.0%</strong></td><td><strong>100.0%</strong></td></tr>`);
+    }
+    $("feedbackStatsHead").innerHTML = head.join("");
+    $("feedbackStatsBody").innerHTML = matrixRows.join("") || `<tr><td colspan="${days+3}"><div class="empty">No feedback statistics for the selected filters.</div></td></tr>`;
+
+    // Daily overview: useful for spotting high-error days at a glance.
+    const dailyRows = [];
+    for (let day=1; day<=days; day++) {
+        const count = source.filter(e => e.work_date === `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`).length;
+        const pct = monthTotal ? count / monthTotal * 100 : 0;
+        dailyRows.push(`<tr><td>${day}</td><td>${feedbackMonthKey()}-${String(day).padStart(2,"0")}</td><td><strong>${count}</strong></td><td>${pct.toFixed(1)}%</td></tr>`);
+    }
+    const dailyBody = $("feedbackDailyStatsBody");
+    if (dailyBody) dailyBody.innerHTML = dailyRows.join("");
 }
+
+function monthTotalForExport(entries) { return Array.isArray(entries) ? entries.length : 0; }
 
 function exportFeedbackTrackerCSV() {
     if (!canExportData()) {
@@ -1111,6 +1140,21 @@ function exportFeedbackTrackerCSV() {
             return row;
         });
 
+        const errorSummaryRows = statTypes.map(type => {
+            const count = filtered.filter(e => e.error_type === type).length;
+            return {
+                "Error type": type,
+                Count: count,
+                "Percentage": monthTotalForExport(filtered) ? Number((count / monthTotalForExport(filtered) * 100).toFixed(1)) : 0
+            };
+        });
+        const dailySummaryRows = Array.from({length: days}, (_, i) => {
+            const day = i + 1;
+            const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
+            const count = filtered.filter(e => e.work_date === date).length;
+            return { Day: day, Date: date, Count: count, Percentage: monthTotalForExport(filtered) ? Number((count / monthTotalForExport(filtered) * 100).toFixed(1)) : 0 };
+        });
+
         const detailRows = filtered.map(entry => {
             const employee = feedbackEntryEmployee(entry.employee_login);
             return {
@@ -1132,7 +1176,11 @@ function exportFeedbackTrackerCSV() {
         const ws3 = XLSX.utils.json_to_sheet(detailRows);
         XLSX.utils.book_append_sheet(wb, ws1, "Monthly Feedback");
         XLSX.utils.book_append_sheet(wb, ws2, "Error Statistics");
+        const ws4 = XLSX.utils.json_to_sheet(errorSummaryRows);
+        const ws5 = XLSX.utils.json_to_sheet(dailySummaryRows);
         XLSX.utils.book_append_sheet(wb, ws3, "Feedback Details");
+        XLSX.utils.book_append_sheet(wb, ws4, "Error Summary");
+        XLSX.utils.book_append_sheet(wb, ws5, "Daily Summary");
         XLSX.writeFile(wb, `Feedback_Tracker_${feedbackMonthKey()}.xlsx`);
         toast("Feedback Tracker exported to Excel.");
         return;
@@ -2198,7 +2246,7 @@ function renderShiftEmployees(people) {
         const planned = plannedHours(employee, overviewDate);
         const actual = Number(data.actualHours || 0);
         const fullConfirmed = Boolean(data.confirmed) && Math.abs(actual - planned) < 0.001;
-        const visibleReason = fullConfirmed ? "" : (data.reason || "");
+        const visibleReason = data.reason || (data.terminatedRecord ? "Terminated" : "");
         const statusClass = shiftStatusClass(data.status, data.confirmed);
 
         return `
@@ -2218,13 +2266,15 @@ function renderShiftEmployees(people) {
                 <td class="shift-reason-display">
                     ${visibleReason ? `<span class="reason-pill">${esc(visibleReason)}</span>` : `<span class="muted">—</span>`}
                 </td>
+                <td>${data.confirmed ? formatActionActor(data.confirmedByName, data.confirmedAt) : "—"}</td>
+                <td>${data.lastChangedAt ? formatActionActor(data.lastChangedByName, data.lastChangedAt) : "—"}</td>
                 <td>
                     ${data.confirmed
                         ? `<button type="button" class="mini-btn" data-shift-edit="${esc(employee.login)}">Edit</button>`
                         : "—"}
                 </td>
             </tr>`;
-    }).join("") || `<tr><td colspan="10"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+    }).join("") || `<tr><td colspan="13"><div class="empty">No employees match the selected filters.</div></td></tr>`;
 
     updateSelectionUI();
 
@@ -2590,15 +2640,9 @@ async function saveHoursEdit(event) {
             breakMinutes,
             confirmed: Boolean(current.confirmed),
             status,
-            reason: $("editReason").value === "Terminated"
-                ? "Terminated"
-                : (current.reason === "Terminated"
-                    ? "Terminated"
-                    : ((current.confirmed && Math.abs(actual - planned) < 0.001)
-                        ? ""
-                        : (ALLOWED_ATTENDANCE_REASONS.includes($("editReason").value)
-                            ? $("editReason").value
-                            : ""))),
+            reason: ALLOWED_ATTENDANCE_REASONS.includes($("editReason").value)
+                ? $("editReason").value
+                : (current.reason || (current.terminatedRecord ? "Terminated" : "")),
             note: $("editNote").value.trim(),
             lastChangedById: currentUser?.id || "",
             lastChangedByLogin: currentUser?.login || "",
@@ -2640,15 +2684,9 @@ async function saveHoursEdit(event) {
         actualEnd: zeroHours ? "" : $("editEnd").value,
         breakMinutes,
         status,
-        reason: $("editReason").value === "Terminated"
-                ? "Terminated"
-                : (current.reason === "Terminated"
-                    ? "Terminated"
-                    : ((current.confirmed && Math.abs(actual - planned) < 0.001)
-                        ? ""
-                        : (ALLOWED_ATTENDANCE_REASONS.includes($("editReason").value)
-                            ? $("editReason").value
-                            : ""))),
+        reason: ALLOWED_ATTENDANCE_REASONS.includes($("editReason").value)
+                ? $("editReason").value
+                : (current.reason || (current.terminatedRecord ? "Terminated" : "")),
         note: $("editNote").value.trim(),
         terminatedRecord: current.reason === "Terminated"
             || current.terminatedRecord === true

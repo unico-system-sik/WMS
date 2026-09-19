@@ -613,15 +613,36 @@
     <section class="panel feedback-statistics-panel">
         <div class="panel-title">
             <div>
-                <h3>Error Statistics by Day</h3>
-                <p>Shows how many errors of each type were recorded on each day. Use the error-type filter above to focus on selected errors.</p>
+                <h3>Detailed Feedback Statistics</h3>
+                <p>Counts and percentages by error type, by day, with the same filters as the main tracker.</p>
             </div>
         </div>
-        <div class="table-wrap feedback-table-wrap">
-            <table class="feedback-table feedback-stats-table">
-                <thead id="feedbackStatsHead"></thead>
-                <tbody id="feedbackStatsBody"></tbody>
-            </table>
+        <div class="feedback-stats-summary-wrap">
+            <h4>Error type summary</h4>
+            <div class="table-wrap feedback-table-wrap">
+                <table class="feedback-table feedback-stats-summary-table">
+                    <thead><tr><th>Error type</th><th>Count</th><th>% of all errors</th></tr></thead>
+                    <tbody id="feedbackStatsSummaryBody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="feedback-stats-matrix-wrap">
+            <h4>Error type by day</h4>
+            <div class="table-wrap feedback-table-wrap">
+                <table class="feedback-table feedback-stats-table">
+                    <thead id="feedbackStatsHead"></thead>
+                    <tbody id="feedbackStatsBody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="feedback-daily-summary-wrap">
+            <h4>Daily summary</h4>
+            <div class="table-wrap feedback-table-wrap">
+                <table class="feedback-table feedback-daily-summary-table">
+                    <thead><tr><th>Day</th><th>Date</th><th>Feedback count</th><th>% of monthly errors</th></tr></thead>
+                    <tbody id="feedbackDailyStatsBody"></tbody>
+                </table>
+            </div>
         </div>
     </section>
 
