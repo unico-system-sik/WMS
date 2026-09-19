@@ -1784,3 +1784,17 @@ th {
 .feedback-stats-table th:last-child, .feedback-stats-table td:last-child { min-width: 72px; }
 .shift-reason-display { min-width: 120px; }
 @media (max-width: 900px) { .feedback-stats-table th:first-child, .feedback-stats-table td:first-child { position: static; } }
+
+/* V26.6 — Feedback Tracker subtabs and detailed analytics */
+.feedback-subtabs{display:flex;gap:8px;margin:0 0 14px;padding:5px;background:#eef2f8;border:1px solid #dbe2ec;border-radius:10px;width:max-content;max-width:100%;}
+.feedback-subtab{border:0;background:transparent;padding:10px 16px;border-radius:7px;font-weight:700;color:#52627a;cursor:pointer;}
+.feedback-subtab:hover{background:#fff;}
+.feedback-subtab.active{background:#fff;color:#1f5fc4;box-shadow:0 1px 3px rgba(23,32,51,.08);}
+.feedback-subtab-panel{display:none;}
+.feedback-subtab-panel.active{display:block;}
+.feedback-extra-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;}
+.feedback-extra-grid h4{margin:0 0 8px;}
+.feedback-statistics-extra-panel{margin-top:16px;}
+@media(max-width:1000px){.feedback-extra-grid{grid-template-columns:1fr;}.feedback-subtabs{width:100%;}.feedback-subtab{flex:1;}}
+.feedback-stat-kpis{margin:16px 0;}
+.feedback-stat-kpis .card strong{font-size:22px;word-break:break-word;}

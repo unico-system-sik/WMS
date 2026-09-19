@@ -571,6 +571,13 @@
         </div>
     </header>
 
+    <div class="feedback-subtabs">
+        <button type="button" class="feedback-subtab active" data-feedback-subtab="tracker">Tracker</button>
+        <button type="button" class="feedback-subtab" data-feedback-subtab="statistics">Detailed Statistics</button>
+        <button type="button" class="feedback-subtab" data-feedback-subtab="history">History</button>
+    </div>
+
+    <div id="feedbackTrackerSubpage" class="feedback-subtab-panel active">
     <section class="panel feedback-controls-panel">
         <div class="filters">
             <input id="feedbackSearch" placeholder="Search employee by login or name">
@@ -609,13 +616,22 @@
             </table>
         </div>
     </section>
+    </div>
 
+    <div id="feedbackStatisticsSubpage" class="feedback-subtab-panel">
     <section class="panel feedback-statistics-panel">
         <div class="panel-title">
             <div>
                 <h3>Detailed Feedback Statistics</h3>
                 <p>Counts and percentages by error type, by day, with the same filters as the main tracker.</p>
             </div>
+        </div>
+        <div class="cards five feedback-stat-kpis">
+            <div class="card"><span>Total feedback</span><strong id="feedbackKpiTotal">0</strong><small>selected month / filters</small></div>
+            <div class="card"><span>Employees affected</span><strong id="feedbackKpiEmployees">0</strong><small>employees with ≥1 feedback</small></div>
+            <div class="card"><span>Average / employee</span><strong id="feedbackKpiAverage">0.0</strong><small>feedback per affected employee</small></div>
+            <div class="card"><span>Top error</span><strong id="feedbackKpiTopError">—</strong><small id="feedbackKpiTopErrorCount">0 feedback</small></div>
+            <div class="card"><span>Top brigade</span><strong id="feedbackKpiTopBrigade">—</strong><small id="feedbackKpiTopBrigadeCount">0 feedback</small></div>
         </div>
         <div class="feedback-stats-summary-wrap">
             <h4>Error type summary</h4>
@@ -645,7 +661,17 @@
             </div>
         </div>
     </section>
+    <section class="panel feedback-statistics-extra-panel">
+        <div class="panel-title"><div><h3>Additional breakdown</h3><p>Distribution by brigade, primary process and employee.</p></div></div>
+        <div class="feedback-extra-grid">
+            <div><h4>By brigade</h4><div class="table-wrap"><table class="feedback-table"><thead><tr><th>Brigade</th><th>Count</th><th>%</th></tr></thead><tbody id="feedbackStatsBrigadeBody"></tbody></table></div></div>
+            <div><h4>By primary process</h4><div class="table-wrap"><table class="feedback-table"><thead><tr><th>Process</th><th>Count</th><th>%</th></tr></thead><tbody id="feedbackStatsProcessBody"></tbody></table></div></div>
+            <div><h4>Employees with feedback</h4><div class="table-wrap"><table class="feedback-table"><thead><tr><th>Employee</th><th>Count</th><th>%</th></tr></thead><tbody id="feedbackStatsEmployeeBody"></tbody></table></div></div>
+        </div>
+    </section>
+    </div>
 
+    <div id="feedbackHistorySubpage" class="feedback-subtab-panel">
     <section class="panel">
         <div class="panel-title">
             <div>
@@ -660,6 +686,7 @@
             </table>
         </div>
     </section>
+    </div>
 </section>
 
 
@@ -687,53 +714,6 @@
             <button id="hoursFindEmployee" class="primary" type="button">Find employee</button>
         </div>
     </section>
-
-<section id="hoursEmployeeSummary" class="hidden-section">
-        <div class="hours-employee-header panel">
-            <div>
-                <span class="muted">Selected employee</span>
-                <h3 id="hoursEmployeeName">—</h3>
-                <p id="hoursEmployeeMeta">—</p>
-            </div>
-            <button id="hoursClearEmployee" class="secondary" type="button">Clear</button>
-        </div>
-
-        <div class="cards four hours-summary-cards">
-            <div class="card"><span>Planned</span><strong id="haPlanned">0.0h</strong><small>scheduled net hours</small></div>
-            <div class="card"><span>Confirmed</span><strong id="haConfirmed">0.0h</strong><small>confirmed actual hours</small></div>
-            <div class="card"><span>Difference</span><strong id="haDifference">0.0h</strong><small>actual minus planned</small></div>
-            <div class="card"><span>Pending</span><strong id="haPending">0</strong><small>working days waiting</small></div>
-        </div>
-
-        <section class="panel">
-            <div class="panel-title">
-                <div>
-                    <h3>Monthly hours</h3>
-                    <p>Edit any day if the employee arrived late, left early, was absent or worked different hours.</p>
-                </div>
-            </div>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Day</th>
-                            <th>Shift</th>
-                            <th>Planned</th>
-                            <th>Actual</th>
-                            <th>Break</th>
-                            <th>Status</th>
-                            <th>Reason</th>
-                            <th>Confirmed by</th>
-                            <th>Last changed by</th>
-                            <th>Note</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="hoursAttendanceTable"></tbody>
-                </table>
-            </div>
-        </section>
 
     <section id="hoursAllEmployeesPanel" class="panel hours-all-panel">
         <div class="panel-title hours-all-title">
@@ -962,3 +942,51 @@
 
 </body>
 </html>
+<section id="hoursEmployeeSummary" class="hidden-section">
+        <div class="hours-employee-header panel">
+            <div>
+                <span class="muted">Selected employee</span>
+                <h3 id="hoursEmployeeName">—</h3>
+                <p id="hoursEmployeeMeta">—</p>
+            </div>
+            <button id="hoursClearEmployee" class="secondary" type="button">Clear</button>
+        </div>
+
+        <div class="cards four hours-summary-cards">
+            <div class="card"><span>Planned</span><strong id="haPlanned">0.0h</strong><small>scheduled net hours</small></div>
+            <div class="card"><span>Confirmed</span><strong id="haConfirmed">0.0h</strong><small>confirmed actual hours</small></div>
+            <div class="card"><span>Difference</span><strong id="haDifference">0.0h</strong><small>actual minus planned</small></div>
+            <div class="card"><span>Pending</span><strong id="haPending">0</strong><small>working days waiting</small></div>
+        </div>
+
+        <section class="panel">
+            <div class="panel-title">
+                <div>
+                    <h3>Monthly hours</h3>
+                    <p>Edit any day if the employee arrived late, left early, was absent or worked different hours.</p>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Day</th>
+                            <th>Shift</th>
+                            <th>Planned</th>
+                            <th>Actual</th>
+                            <th>Break</th>
+                            <th>Status</th>
+                            <th>Reason</th>
+                            <th>Confirmed by</th>
+                            <th>Last changed by</th>
+                            <th>Note</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="hoursAttendanceTable"></tbody>
+                </table>
+            </div>
+        </section>
+
+

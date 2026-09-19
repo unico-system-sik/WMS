@@ -1148,6 +1148,22 @@ function exportFeedbackTrackerCSV() {
                 "Percentage": monthTotalForExport(filtered) ? Number((count / monthTotalForExport(filtered) * 100).toFixed(1)) : 0
             };
         });
+        const brigadeCounts = {};
+        const processCounts = {};
+        const employeeCounts = {};
+        filtered.forEach(entry => {
+            const employee = feedbackEntryEmployee(entry.employee_login);
+            const brigade = employee?.brigade || "Unknown";
+            const process = employee?.process || "Unknown";
+            brigadeCounts[brigade] = (brigadeCounts[brigade] || 0) + 1;
+            processCounts[process] = (processCounts[process] || 0) + 1;
+            employeeCounts[entry.employee_login] = (employeeCounts[entry.employee_login] || 0) + 1;
+        });
+        const extraRows = (map, keyName, nameFn = x => x) => Object.entries(map).sort((a,b)=>b[1]-a[1]).map(([key,count]) => ({[keyName]:nameFn(key), Count:count, Percentage:monthTotalForExport(filtered)?Number((count/monthTotalForExport(filtered)*100).toFixed(1)):0}));
+        const brigadeRows = extraRows(brigadeCounts, "Brigade");
+        const processRows = extraRows(processCounts, "Process");
+        const employeeRows = extraRows(employeeCounts, "Login", login => feedbackEntryEmployee(login)?.name ? `${feedbackEntryEmployee(login).name} (${login})` : login);
+
         const dailySummaryRows = Array.from({length: days}, (_, i) => {
             const day = i + 1;
             const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
@@ -1181,6 +1197,9 @@ function exportFeedbackTrackerCSV() {
         XLSX.utils.book_append_sheet(wb, ws3, "Feedback Details");
         XLSX.utils.book_append_sheet(wb, ws4, "Error Summary");
         XLSX.utils.book_append_sheet(wb, ws5, "Daily Summary");
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(brigadeRows), "By Brigade");
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(processRows), "By Process");
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(employeeRows), "By Employee");
         XLSX.writeFile(wb, `Feedback_Tracker_${feedbackMonthKey()}.xlsx`);
         toast("Feedback Tracker exported to Excel.");
         return;
@@ -1202,6 +1221,65 @@ function exportFeedbackTrackerCSV() {
     const a = document.createElement("a"); a.href=url; a.download=`Feedback_Tracker_${feedbackMonthKey()}.csv`;
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     toast("Feedback Tracker exported.");
+}
+
+function renderFeedbackAdditionalStats(source) {
+    const total = source.length;
+    const employeeCounts = new Map();
+    const brigadeCounts = new Map();
+    const processCounts = new Map();
+    const typeCounts = new Map();
+    source.forEach(entry => {
+        const employee = feedbackEntryEmployee(entry.employee_login);
+        employeeCounts.set(entry.employee_login, (employeeCounts.get(entry.employee_login) || 0) + 1);
+        const brigade = employee?.brigade || "Unknown";
+        const process = employee?.process || "Unknown";
+        const type = entry.error_type || "Other";
+        brigadeCounts.set(brigade, (brigadeCounts.get(brigade) || 0) + 1);
+        processCounts.set(process, (processCounts.get(process) || 0) + 1);
+        typeCounts.set(type, (typeCounts.get(type) || 0) + 1);
+    });
+    const topFromMap = map => [...map.entries()].sort((a,b)=>b[1]-a[1] || String(a[0]).localeCompare(String(b[0])))[0];
+    const topType = topFromMap(typeCounts);
+    const topBrigade = topFromMap(brigadeCounts);
+    if ($("feedbackKpiTotal")) $("feedbackKpiTotal").textContent = String(total);
+    if ($("feedbackKpiEmployees")) $("feedbackKpiEmployees").textContent = String(employeeCounts.size);
+    if ($("feedbackKpiAverage")) $("feedbackKpiAverage").textContent = employeeCounts.size ? (total / employeeCounts.size).toFixed(1) : "0.0";
+    if ($("feedbackKpiTopError")) $("feedbackKpiTopError").textContent = topType?.[0] || "—";
+    if ($("feedbackKpiTopErrorCount")) $("feedbackKpiTopErrorCount").textContent = `${topType?.[1] || 0} feedback`;
+    if ($("feedbackKpiTopBrigade")) $("feedbackKpiTopBrigade").textContent = topBrigade?.[0] || "—";
+    if ($("feedbackKpiTopBrigadeCount")) $("feedbackKpiTopBrigadeCount").textContent = `${topBrigade?.[1] || 0} feedback`;
+
+    const pct = count => total ? (count / total * 100).toFixed(1) : "0.0";
+    const employeeMap = employeeCounts;
+    const brigadeMap = brigadeCounts;
+    const processMap = processCounts;
+    const renderRows = (map, labelFn) => [...map.entries()]
+        .sort((a,b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+        .map(([key,count]) => `<tr><td><strong>${esc(labelFn(key))}</strong></td><td>${count}</td><td>${pct(count)}%</td></tr>`)
+        .join("") || `<tr><td colspan="3"><div class="empty">No data.</div></td></tr>`;
+
+    const brigadeBody = $("feedbackStatsBrigadeBody");
+    const processBody = $("feedbackStatsProcessBody");
+    const employeeBody = $("feedbackStatsEmployeeBody");
+    if (brigadeBody) brigadeBody.innerHTML = renderRows(brigadeMap, key => key);
+    if (processBody) processBody.innerHTML = renderRows(processMap, key => key);
+    if (employeeBody) {
+        const rows = [...employeeMap.entries()]
+            .sort((a,b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+            .map(([login,count]) => {
+                const e = feedbackEntryEmployee(login);
+                return `<tr><td><strong>${esc(e?.name || login)}</strong><br><small>${esc(login)}</small></td><td>${count}</td><td>${pct(count)}%</td></tr>`;
+            }).join("");
+        employeeBody.innerHTML = rows || `<tr><td colspan="3"><div class="empty">No employees with feedback.</div></td></tr>`;
+    }
+}
+
+function activateFeedbackSubtab(name) {
+    document.querySelectorAll(".feedback-subtab").forEach(button => button.classList.toggle("active", button.dataset.feedbackSubtab === name));
+    document.querySelectorAll(".feedback-subtab-panel").forEach(panel => panel.classList.remove("active"));
+    const target = $(name === "tracker" ? "feedbackTrackerSubpage" : name === "statistics" ? "feedbackStatisticsSubpage" : "feedbackHistorySubpage");
+    target?.classList.add("active");
 }
 
 function renderFeedbackTracker() {
@@ -1234,6 +1312,7 @@ function renderFeedbackTracker() {
     }).join("") || `<tr><td colspan="5"><div class="empty">No feedback entries for this month.</div></td></tr>`;
 
     renderFeedbackErrorStats();
+    renderFeedbackAdditionalStats(filtered);
     document.querySelectorAll("[data-feedback-add]").forEach(button => button.addEventListener("click", () => openFeedbackModal(button.dataset.feedbackAdd)));
 }
 
@@ -1714,6 +1793,7 @@ function attendanceRowFromLocal(employee, date, data) {
         break_minutes: Number(data?.breakMinutes || 0),
         status: data?.status || "Pending",
         reason: data?.reason || "",
+        reason_record: data?.reason || "",
         terminated_record: data?.terminatedRecord === true || data?.reason === "Terminated",
         note: data?.note || "",
         confirmed: Boolean(data?.confirmed),
@@ -1736,7 +1816,7 @@ function localAttendanceFromRemote(row) {
         actualEnd: row.actual_end ? String(row.actual_end).slice(0, 5) : "",
         breakMinutes: Number(row.break_minutes || 0),
         status: row.status || "Pending",
-        reason: row.reason || "",
+        reason: row.reason || row.reason_record || "",
         terminatedRecord: Boolean(row.terminated_record),
         note: row.note || "",
         confirmedAt: row.confirmed_at || "",
@@ -1766,7 +1846,7 @@ async function loadAttendanceFromSupabase() {
             .from("attendance")
             .select(`
                 id, work_date, employee_login, shift, planned_hours, actual_hours,
-                actual_start, actual_end, break_minutes, status, reason, note, confirmed,
+                actual_start, actual_end, break_minutes, status, reason, reason_record, note, confirmed,
                 confirmed_by, confirmed_by_login, confirmed_by_name, confirmed_at, terminated_record, last_changed_by, last_changed_by_login, last_changed_by_name, last_changed_at, created_at, updated_at
             `)
             .order("work_date", { ascending: true })
@@ -2373,9 +2453,7 @@ async function confirmSelectedHours() {
             lastChangedByLogin: currentUser?.login || "",
             lastChangedByName: currentUser?.name || currentUser?.login || "",
             lastChangedAt: new Date().toISOString(),
-            reason: (current.reason === "Terminated" || current.terminatedRecord === true || isTerminatedOnDate(employee, overviewDate))
-                ? "Terminated"
-                : ((planned > 0 && Math.abs(confirmedActualHours - planned) < 0.001) ? "" : (current.reason || ""))
+            reason: current.reason || (current.terminatedRecord === true || isTerminatedOnDate(employee, overviewDate) ? "Terminated" : "")
         };
 
         rowsToSave.push({
@@ -4081,15 +4159,9 @@ async function confirmHoursDay(employee, date) {
         actualEnd: current.actualEnd || (SHIFTS[schedule.shift]?.end || ""),
         breakMinutes: current.breakMinutes ?? (planned > 0 ? 45 : 0),
         status: "Confirmed",
-        // Keep Terminated even when actual hours equal planned hours.
-        // Other reasons may still be cleared when the day exactly matches plan.
-        reason: (employee.status === "Former" && employee.endDate && String(date) >= String(employee.endDate))
-            ? "Terminated"
-            : current.reason === "Terminated"
-                ? "Terminated"
-                : Math.abs(actual - planned) < 0.001
-                ? ""
-                : (ALLOWED_ATTENDANCE_REASONS.includes(current.reason) ? current.reason : ""),
+        // Preserve the reason selected/stored for this day. A reason is an explicit
+        // business decision and must not disappear just because actual = planned.
+        reason: current.reason || ((employee.status === "Former" && employee.endDate && String(date) >= String(employee.endDate)) ? "Terminated" : ""),
         confirmedAt: new Date().toISOString(),
         confirmedById: currentUser.id || "",
         confirmedByLogin: currentUser.login || "",
@@ -4501,6 +4573,10 @@ function initEvents() {
     });
     $("closeEmployeeCapabilitiesModal")?.addEventListener("click", closeEmployeeCapabilitiesModal);
     $("cancelEmployeeCapabilities")?.addEventListener("click", closeEmployeeCapabilitiesModal);
+
+    document.querySelectorAll("[data-feedback-subtab]").forEach(button => {
+        button.addEventListener("click", () => activateFeedbackSubtab(button.dataset.feedbackSubtab));
+    });
 
     // Feedback Tracker
     $("feedbackMonthPrev")?.addEventListener("click", async () => {
