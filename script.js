@@ -1801,10 +1801,12 @@ function attendanceRowFromLocal(employee, date, data) {
         confirmed_by_login: data?.confirmedByLogin || (data?.confirmed ? (currentUser?.login || "") : ""),
         confirmed_by_name: data?.confirmedByName || (data?.confirmed ? (currentUser?.name || currentUser?.login || "") : ""),
         confirmed_at: data?.confirmedAt || (data?.confirmed ? new Date().toISOString() : null),
-        last_changed_by: currentUser?.id || null,
-        last_changed_by_login: currentUser?.login || "",
-        last_changed_by_name: currentUser?.name || currentUser?.login || "",
-        last_changed_at: new Date().toISOString()
+        // Edit by is server-authoritative. A normal Confirm must NOT populate it.
+        // Keep any existing edit actor only when the row was actually edited.
+        last_changed_by: data?.lastChangedById || null,
+        last_changed_by_login: data?.lastChangedByLogin || "",
+        last_changed_by_name: data?.lastChangedByName || "",
+        last_changed_at: data?.lastChangedAt || null
     };
 }
 
@@ -2449,10 +2451,11 @@ async function confirmSelectedHours() {
             confirmedByLogin: currentUser?.login || "",
             confirmedByName: currentUser?.name || currentUser?.login || "",
             terminatedRecord: current.terminatedRecord === true || current.reason === "Terminated" || isTerminatedOnDate(employee, overviewDate),
-            lastChangedById: currentUser?.id || "",
-            lastChangedByLogin: currentUser?.login || "",
-            lastChangedByName: currentUser?.name || currentUser?.login || "",
-            lastChangedAt: new Date().toISOString(),
+            // Confirm is not an edit. Edit by remains empty until a real Edit -> Save.
+            lastChangedById: current.lastChangedById || "",
+            lastChangedByLogin: current.lastChangedByLogin || "",
+            lastChangedByName: current.lastChangedByName || "",
+            lastChangedAt: current.lastChangedAt || "",
             reason: current.reason || (current.terminatedRecord === true || isTerminatedOnDate(employee, overviewDate) ? "Terminated" : "")
         };
 
@@ -2522,7 +2525,14 @@ async function markSelectedAbsent() {
             breakMinutes: 0,
             status: "Absent",
             note: current.note || "",
-            confirmedAt: new Date().toISOString()
+            confirmedAt: new Date().toISOString(),
+            confirmedById: currentUser?.id || "",
+            confirmedByLogin: currentUser?.login || "",
+            confirmedByName: currentUser?.name || currentUser?.login || "",
+            lastChangedById: current.lastChangedById || "",
+            lastChangedByLogin: current.lastChangedByLogin || "",
+            lastChangedByName: current.lastChangedByName || "",
+            lastChangedAt: current.lastChangedAt || ""
         };
 
         rowsToSave.push({
