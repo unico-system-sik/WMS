@@ -5324,34 +5324,160 @@ function exportShiftEmployees() {
     toast("Shift employees exported to Excel.");
 }
 
+function buildHoursAttendanceWorkbook(employees) {
+    const year = hoursAttendanceMonth.getFullYear();
+    const month = hoursAttendanceMonth.getMonth();
+    const totalDays = monthDays(hoursAttendanceMonth);
+    const dayHeaders = [];
+
+    for (let day = 1; day <= totalDays; day++) {
+        const date = new Date(year, month, day, 12);
+        const weekday = date.toLocaleDateString("en-US", { weekday: "short" });
+        dayHeaders.push(`${String(day).padStart(2, "0")} ${weekday}`);
+    }
+
+    const dailyRows = [];
+    const summaryRows = [];
+    const detailRows = [];
+
+    for (const employee of employees) {
+        const daily = [];
+        let plannedTotal = 0;
+        let confirmedTotal = 0;
+        let pending = 0;
+
+        for (let day = 1; day <= totalDays; day++) {
+            const date = new Date(year, month, day, 12);
+            const schedule = getSchedule(employee, date);
+            const data = getAttendance(employee, date);
+            const planned = Number(plannedHours(employee, date) || 0);
+            const actual = data.confirmed ? Number(data.actualHours || 0) : 0;
+            const safeActual = Number.isFinite(actual) ? actual : 0;
+            const difference = safeActual - planned;
+            const status = data.confirmed
+                ? (data.status || "Confirmed")
+                : (planned > 0 ? "Pending" : "OFF");
+
+            plannedTotal += planned;
+            confirmedTotal += safeActual;
+            if (planned > 0 && !data.confirmed) pending++;
+            daily.push(Number(safeActual.toFixed(2)));
+
+            detailRows.push([
+                date.toISOString().slice(0, 10),
+                date.toLocaleDateString("en-US", { weekday: "long" }),
+                employee.login,
+                employee.name,
+                employee.brigade,
+                employee.process,
+                schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "R" : "OFF",
+                Number(planned.toFixed(2)),
+                Number(safeActual.toFixed(2)),
+                Number(difference.toFixed(2)),
+                status,
+                data.reason || "",
+                data.confirmedByName || "",
+                data.confirmedAt || "",
+                data.lastChangedByName || "",
+                data.lastChangedAt || "",
+                data.note || ""
+            ]);
+        }
+
+        const differenceTotal = confirmedTotal - plannedTotal;
+        dailyRows.push([
+            employee.login,
+            employee.name,
+            employee.brigade,
+            employee.process,
+            ...daily,
+            Number(confirmedTotal.toFixed(2)),
+            Number(plannedTotal.toFixed(2)),
+            Number(differenceTotal.toFixed(2)),
+            pending
+        ]);
+
+        summaryRows.push([
+            employee.login,
+            employee.name,
+            employee.brigade,
+            employee.process,
+            Number(plannedTotal.toFixed(2)),
+            Number(confirmedTotal.toFixed(2)),
+            Number(differenceTotal.toFixed(2)),
+            pending
+        ]);
+    }
+
+    const wb = XLSX.utils.book_new();
+
+    // Sheet 1: the practical monthly matrix requested by the user.
+    const dailyHeader = [
+        "Login", "Name", "Brigade", "Process",
+        ...dayHeaders,
+        "Confirmed total", "Planned total", "Difference", "Pending days"
+    ];
+    const dailySheet = XLSX.utils.aoa_to_sheet([dailyHeader, ...dailyRows]);
+    dailySheet["!freeze"] = { xSplit: 4, ySplit: 1 };
+    dailySheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: dailyRows.length, c: dailyHeader.length - 1 } }) };
+    dailySheet["!cols"] = [
+        { wch: 14 }, { wch: 26 }, { wch: 10 }, { wch: 18 },
+        ...dayHeaders.map(() => ({ wch: 11 })),
+        { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 14 }
+    ];
+    XLSX.utils.book_append_sheet(wb, dailySheet, "Daily Hours");
+
+    // Sheet 2: one row per employee/day, designed for Excel filtering.
+    const detailHeader = [
+        "Date", "Day", "Login", "Name", "Brigade", "Process", "Shift",
+        "Planned hours", "Actual hours", "Difference", "Status", "Reason",
+        "Confirmed by", "Confirmed at", "Edit by", "Edited at", "Note"
+    ];
+    const detailSheet = XLSX.utils.aoa_to_sheet([detailHeader, ...detailRows]);
+    detailSheet["!freeze"] = { xSplit: 4, ySplit: 1 };
+    detailSheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: detailRows.length, c: detailHeader.length - 1 } }) };
+    detailSheet["!cols"] = [
+        { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 26 }, { wch: 10 }, { wch: 18 },
+        { wch: 10 }, { wch: 14 }, { wch: 13 }, { wch: 12 }, { wch: 16 }, { wch: 20 },
+        { wch: 24 }, { wch: 22 }, { wch: 24 }, { wch: 22 }, { wch: 35 }
+    ];
+    XLSX.utils.book_append_sheet(wb, detailSheet, "Daily Details");
+
+    // Sheet 3: compact employee-level totals.
+    const summaryHeader = ["Login", "Name", "Brigade", "Process", "Planned hours", "Confirmed hours", "Difference", "Pending days"];
+    const summarySheet = XLSX.utils.aoa_to_sheet([summaryHeader, ...summaryRows]);
+    summarySheet["!freeze"] = { xSplit: 4, ySplit: 1 };
+    summarySheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: summaryRows.length, c: summaryHeader.length - 1 } }) };
+    summarySheet["!cols"] = [
+        { wch: 14 }, { wch: 26 }, { wch: 10 }, { wch: 18 },
+        { wch: 16 }, { wch: 17 }, { wch: 12 }, { wch: 14 }
+    ];
+    XLSX.utils.book_append_sheet(wb, summarySheet, "Employee Summary");
+
+    return wb;
+}
+
 function exportHoursAttendanceCSV(ignoreFilters = true) {
     if (!hoursExportAllowed()) return;
 
     const employees = hoursAllFilterEmployees(!ignoreFilters ? false : true);
-
     if (!employees.length) {
         toast("There are no employees to export.");
         return;
     }
 
-    const xlsx = buildHoursAttendanceXlsx(employees);
+    if (typeof XLSX === "undefined") {
+        toast("Excel export library is not available.");
+        return;
+    }
+
+    const workbook = buildHoursAttendanceWorkbook(employees);
     const month = `${hoursAttendanceMonth.getFullYear()}-${String(hoursAttendanceMonth.getMonth() + 1).padStart(2, "0")}`;
     const suffix = ignoreFilters ? "" : "_Filtered";
-
-    const blob = new Blob([xlsx], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `Hours_Attendance_${month}${suffix}.xlsx`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-
-    toast(ignoreFilters ? "All hours exported to Excel." : "Filtered hours exported to Excel.");
+    XLSX.writeFile(workbook, `Hours_Attendance_${month}${suffix}.xlsx`);
+    toast(ignoreFilters
+        ? "All hours exported to Excel (3 filterable sheets)."
+        : "Filtered hours exported to Excel (3 filterable sheets).");
 }
 
 
@@ -5363,7 +5489,10 @@ document.addEventListener("click", (event) => {
     setTimeout(() => {
         const summary = document.getElementById("hoursEmployeeSummary");
         if (summary && !summary.classList.contains("hidden-section")) {
-            summary.scrollIntoView({ behavior: "smooth", block: "start" });
+            // The selected employee is deliberately placed before All Employees.
+            // Scroll to its top without letting the wide monthly table push the page sideways.
+            const top = summary.getBoundingClientRect().top + window.scrollY - 12;
+            window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
         }
     }, 80);
 });

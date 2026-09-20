@@ -1807,3 +1807,52 @@ th {
 @media (max-width: 1100px) {
     .hours-all-summary-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* V26.9 — Hours Attendance selected employee stays at the top and inside the page width */
+#hoursEmployeeSummary {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+    margin: 0 0 16px;
+}
+#hoursEmployeeSummary > .hours-employee-header,
+#hoursEmployeeSummary > .panel {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+#hoursEmployeeSummary .table-wrap {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+#hoursEmployeeSummary table {
+    min-width: 1050px;
+}
+.hours-employee-header {
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.hours-employee-header > div {
+    min-width: 0;
+    max-width: 100%;
+}
+.hours-all-panel .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.hours-all-panel table {
+    min-width: 760px;
+}
+.hours-export-toolbar {
+    flex: 0 0 auto;
+}
+@media (max-width: 700px) {
+    #hoursEmployeeSummary table { min-width: 900px; }
+    .hours-employee-header { align-items: flex-start; }
+    .hours-export-toolbar { width: 100%; }
+    .hours-export-toolbar button { flex: 1 1 180px; }
+}

@@ -718,6 +718,53 @@
         </div>
     </section>
 
+<section id="hoursEmployeeSummary" class="hidden-section">
+        <div class="hours-employee-header panel">
+            <div>
+                <span class="muted">Selected employee</span>
+                <h3 id="hoursEmployeeName">—</h3>
+                <p id="hoursEmployeeMeta">—</p>
+            </div>
+            <button id="hoursClearEmployee" class="secondary" type="button">Clear</button>
+        </div>
+
+        <div class="cards four hours-summary-cards">
+            <div class="card"><span>Planned</span><strong id="haPlanned">0.0h</strong><small>scheduled net hours</small></div>
+            <div class="card"><span>Confirmed</span><strong id="haConfirmed">0.0h</strong><small>confirmed actual hours</small></div>
+            <div class="card"><span>Difference</span><strong id="haDifference">0.0h</strong><small>actual minus planned</small></div>
+            <div class="card"><span>Pending</span><strong id="haPending">0</strong><small>working days waiting</small></div>
+        </div>
+
+        <section class="panel">
+            <div class="panel-title">
+                <div>
+                    <h3>Monthly hours</h3>
+                    <p>Edit any day if the employee arrived late, left early, was absent or worked different hours.</p>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Day</th>
+                            <th>Shift</th>
+                            <th>Planned</th>
+                            <th>Actual</th>
+                            <th>Break</th>
+                            <th>Status</th>
+                            <th>Reason</th>
+                            <th>Confirmed by</th>
+                            <th>Edit by</th>
+                            <th>Note</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="hoursAttendanceTable"></tbody>
+                </table>
+            </div>
+        </section>
+
     <section id="hoursAllEmployeesPanel" class="panel hours-all-panel">
         <div class="panel-title hours-all-title">
             <div><h3>All employees</h3><p>All active employees for the selected month. Use the filters above to narrow the list.</p></div>
@@ -952,51 +999,3 @@
 
 </body>
 </html>
-<section id="hoursEmployeeSummary" class="hidden-section">
-        <div class="hours-employee-header panel">
-            <div>
-                <span class="muted">Selected employee</span>
-                <h3 id="hoursEmployeeName">—</h3>
-                <p id="hoursEmployeeMeta">—</p>
-            </div>
-            <button id="hoursClearEmployee" class="secondary" type="button">Clear</button>
-        </div>
-
-        <div class="cards four hours-summary-cards">
-            <div class="card"><span>Planned</span><strong id="haPlanned">0.0h</strong><small>scheduled net hours</small></div>
-            <div class="card"><span>Confirmed</span><strong id="haConfirmed">0.0h</strong><small>confirmed actual hours</small></div>
-            <div class="card"><span>Difference</span><strong id="haDifference">0.0h</strong><small>actual minus planned</small></div>
-            <div class="card"><span>Pending</span><strong id="haPending">0</strong><small>working days waiting</small></div>
-        </div>
-
-        <section class="panel">
-            <div class="panel-title">
-                <div>
-                    <h3>Monthly hours</h3>
-                    <p>Edit any day if the employee arrived late, left early, was absent or worked different hours.</p>
-                </div>
-            </div>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Day</th>
-                            <th>Shift</th>
-                            <th>Planned</th>
-                            <th>Actual</th>
-                            <th>Break</th>
-                            <th>Status</th>
-                            <th>Reason</th>
-                            <th>Confirmed by</th>
-                            <th>Edit by</th>
-                            <th>Note</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="hoursAttendanceTable"></tbody>
-                </table>
-            </div>
-        </section>
-
-
