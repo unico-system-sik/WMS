@@ -685,7 +685,8 @@ const EMPLOYEE_PROCESS_SKILLS = [
     "Putaway",
     "Abnormal",
     "Consolidation",
-    "Leader"
+    "Leader",
+    "Floor Recovery (Spady)"
 ];
 
 let employeeSort = {
@@ -779,16 +780,16 @@ const SHIFTS = {
     day: {
         label: "DAY",
         start: "06:00",
-        end: "17:45",
-        presenceHours: 11.75,
-        netHours: 11
+        end: "16:45",
+        presenceHours: 10.75,
+        netHours: 10
     },
     night: {
         label: "NIGHT",
         start: "18:00",
-        end: "05:45",
-        presenceHours: 11.75,
-        netHours: 11
+        end: "04:45",
+        presenceHours: 10.75,
+        netHours: 10
     }
 };
 
@@ -888,14 +889,16 @@ let hoursModalSource = "hours";
 // FEEDBACK TRACKER
 // =========================================================
 const FEEDBACK_ERROR_TYPES = [
-    "Wrong item",
-    "Wrong quantity",
-    "Wrong location",
-    "Wrong scan",
-    "Damaged item",
-    "Procedure error",
-    "Safety rule",
-    "Other"
+    "False short-pick",
+    "full box",
+    "Duplicat",
+    "Extra pick",
+    "Missing pick",
+    "putback eror",
+    "Bin etykieta",
+    "Extra putaway",
+    "Missing putaway",
+    "BHP"
 ];
 let feedbackMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12);
 let feedbackEntries = [];
@@ -4220,7 +4223,9 @@ function renderHoursAttendance() {
 
     if (!employee) {
         summary.classList.remove("show");
-        empty.style.display = "block";
+        // All Employees is the default view; there is no need for an empty
+        // placeholder between the search panel and the employee table.
+        empty.style.display = "none";
         $("hoursAttendanceTable").innerHTML = "";
         return;
     }

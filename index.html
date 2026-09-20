@@ -698,7 +698,7 @@
     <header class="page-header">
         <div>
             <h2>Hours Attendance</h2>
-<p>Check and correct one employee's working hours for the whole month. Future hours cannot be confirmed. Former employees remain available for historical review.</p>
+<p>Review monthly hours for all employees, then open one employee for detailed daily confirmation and correction. Future hours cannot be confirmed. Former employees remain available for historical review.</p>
         </div>
         <div class="toolbar">
             <button id="hoursMonthPrev" class="secondary">←</button>
@@ -712,7 +712,7 @@
             <div class="attendance-search-field">
                 <label class="control-label">Employee login</label>
                 <input id="hoursEmployeeLogin" placeholder="e.g. 60010001" autocomplete="off">
-                <small id="hoursEmployeeHint" class="field-hint">Enter the exact employee login.</small>
+                <small id="hoursEmployeeHint" class="field-hint">Enter the exact employee login to open monthly details.</small>
             </div>
             <button id="hoursFindEmployee" class="primary" type="button">Find employee</button>
         </div>
@@ -764,6 +764,7 @@
                 </table>
             </div>
         </section>
+    </section>
 
     <section id="hoursAllEmployeesPanel" class="panel hours-all-panel">
         <div class="panel-title hours-all-title">
@@ -772,7 +773,7 @@
                 <button type="button" id="hoursExportAllBtn" class="primary">Export All Excel</button>
                 <button type="button" id="hoursExportFilteredBtn" class="secondary">Export Filtered Excel</button>
             </div>
-<div class="hours-export-hint">Excel: Login and Name on the left, each day of the selected month across the top. Unconfirmed hours = 0.</div>
+<div class="hours-export-hint">Excel: daily hours matrix + detailed day-by-day sheet + employee summary, all filterable in Excel.</div>
         </div>
         <div class="cards five hours-all-summary-cards">
             <div class="card"><span>Employees</span><strong id="hoursAllTotal">0</strong><small>matching current filters</small></div>
@@ -792,8 +793,8 @@
         <div class="hours-all-meta" id="hoursAllMeta">0 employees</div>
         <div class="table-wrap"><table id="hoursAllTable"><thead><tr><th>Login</th><th>Name</th><th>Brigade</th><th>Process</th><th>Planned</th><th>Confirmed</th><th>Difference</th><th>Pending</th></tr></thead><tbody id="hoursAllTableBody"></tbody></table></div>
     </section>
-<section id="hoursEmptyState" class="panel empty-state-panel">
-        <div class="empty">Search for an employee by login to see the monthly hours.</div>
+<section id="hoursEmptyState" class="panel empty-state-panel" style="display:none">
+        <div class="empty">Search for an employee by login to open the monthly details.</div>
     </section>
 </section>
 
