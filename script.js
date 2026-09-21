@@ -670,7 +670,8 @@ const PROCESSES = [
     "Pick",
     "Putaway",
     "Abnormal",
-    "Consolidation"
+    "Consolidation",
+    "Buffer"
 ];
 
 const EMPLOYEE_QUALIFICATIONS = [
@@ -686,13 +687,35 @@ const EMPLOYEE_PROCESS_SKILLS = [
     "Abnormal",
     "Consolidation",
     "Leader",
-    "Floor Recovery (Spady)"
+    "Buffer",
+    "Floor Recovery",
+    "Short-Pick"
 ];
 
 let employeeSort = {
     key: "name",
     direction: 1
 };
+
+function normalizeProcessName(value) {
+    const raw = String(value || "").trim();
+    const match = PROCESSES.find(process => process.toLowerCase() === raw.toLowerCase());
+    return match || raw;
+}
+
+function normalizeSecondaryProcess(value) {
+    const raw = String(value || "").trim();
+    const aliases = {
+        "floor recovery (spady)": "Floor Recovery",
+        "spady": "Floor Recovery",
+        "short pick": "Short-Pick",
+        "short-pick": "Short-Pick"
+    };
+    const alias = aliases[raw.toLowerCase()];
+    if (alias) return alias;
+    const match = EMPLOYEE_PROCESS_SKILLS.find(process => process.toLowerCase() === raw.toLowerCase());
+    return match || raw;
+}
 
 function employeeQualifications(employee) {
     return Array.isArray(employee?.qualifications)
@@ -824,14 +847,14 @@ async function loadEmployeesFromSupabase() {
     EMPLOYEES = data.map(employee => ({
         login: employee.login,
         name: employee.name,
-        process: employee.process,
+        process: normalizeProcessName(employee.process),
         brigade: employee.brigade,
         startDate: employee.start_date || "",
         endDate: employee.end_date || "",
         reason: employee.reason || "",
         status: employee.status || "Active",
         qualifications: Array.isArray(employee.qualifications) ? employee.qualifications : [],
-        skills: Array.isArray(employee.skills) ? employee.skills : []
+        skills: Array.isArray(employee.skills) ? employee.skills.map(normalizeSecondaryProcess).filter(Boolean) : []
     }));
 
     console.info(`Loaded ${EMPLOYEES.length} employees from Supabase.`);
@@ -889,17 +912,43 @@ let hoursModalSource = "hours";
 // FEEDBACK TRACKER
 // =========================================================
 const FEEDBACK_ERROR_TYPES = [
-    "False short-pick",
-    "full box",
-    "Duplicat",
-    "Extra pick",
-    "Missing pick",
-    "putback eror",
-    "Bin etykieta",
-    "Extra putaway",
-    "Missing putaway",
-    "BHP"
+    "False Short-Pick",
+    "Full Box",
+    "Duplicate",
+    "Extra Pick",
+    "Missing Pick",
+    "Putback Error",
+    "Bin Label",
+    "Extra Putaway",
+    "Missing Putaway",
+    "BHP",
+    "Machine Gunning",
+    "Productivity Below Target"
 ];
+
+const FEEDBACK_ERROR_ALIASES = {
+    "false short-pick": "False Short-Pick",
+    "false short pick": "False Short-Pick",
+    "full box": "Full Box",
+    "duplicat": "Duplicate",
+    "duplicate": "Duplicate",
+    "extra pick": "Extra Pick",
+    "missing pick": "Missing Pick",
+    "putback eror": "Putback Error",
+    "putback error": "Putback Error",
+    "bin etykieta": "Bin Label",
+    "bin label": "Bin Label",
+    "extra putaway": "Extra Putaway",
+    "missing putaway": "Missing Putaway",
+    "bhp": "BHP",
+    "machine gunning": "Machine Gunning",
+    "productivity below target": "Productivity Below Target"
+};
+
+function normalizeFeedbackErrorType(value) {
+    const raw = String(value || "").trim();
+    return FEEDBACK_ERROR_ALIASES[raw.toLowerCase()] || raw;
+}
 let feedbackMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12);
 let feedbackEntries = [];
 let feedbackRealtimeChannel = null;
@@ -933,7 +982,9 @@ async function loadFeedbackFromSupabase() {
         feedbackLoaded = false;
         return false;
     }
-    feedbackEntries = Array.isArray(data) ? data : [];
+    feedbackEntries = Array.isArray(data)
+        ? data.map(entry => ({ ...entry, error_type: normalizeFeedbackErrorType(entry.error_type) }))
+        : [];
     feedbackLoaded = true;
     return true;
 }
@@ -988,7 +1039,7 @@ async function saveFeedbackEntry(event) {
     event.preventDefault();
     const login = $("feedbackEmployeeLogin").value;
     const date = $("feedbackDate").value;
-    const errorType = $("feedbackErrorType").value;
+    const errorType = normalizeFeedbackErrorType($("feedbackErrorType").value);
     const note = $("feedbackNote").value.trim();
     const employee = feedbackEntryEmployee(login);
     if (!employee || !date || !errorType) { toast("Select a date and error type."); return; }
@@ -1099,131 +1150,6 @@ function renderFeedbackErrorStats() {
     }
     const dailyBody = $("feedbackDailyStatsBody");
     if (dailyBody) dailyBody.innerHTML = dailyRows.join("");
-}
-
-function monthTotalForExport(entries) { return Array.isArray(entries) ? entries.length : 0; }
-
-function exportFeedbackTrackerCSV() {
-    if (!canExportData()) {
-        toast("Only Coordinator or Admin can export.");
-        return;
-    }
-
-    const days = feedbackDays();
-    const employees = feedbackFilteredEmployees();
-    const filtered = feedbackEntriesFilteredForView();
-
-    // Prefer a real XLSX workbook when SheetJS is loaded. Every day is a separate cell.
-    if (window.XLSX) {
-        const monthlyRows = employees.map(employee => {
-            const row = {
-                Login: employee.login,
-                Name: employee.name,
-                Brigade: employee.brigade,
-                "Primary process": employee.process,
-                "Month total": filtered.filter(e => e.employee_login === employee.login).length
-            };
-            for (let day=1; day<=days; day++) {
-                const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
-                row[String(day)] = filtered.filter(e => e.employee_login === employee.login && e.work_date === date).length;
-            }
-            return row;
-        });
-
-        const statTypes = [...new Set(filtered.map(e => e.error_type).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
-        const statRows = statTypes.map(type => {
-            const row = {"Error type": type};
-            let total = 0;
-            for (let day=1; day<=days; day++) {
-                const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
-                const count = filtered.filter(e => e.error_type === type && e.work_date === date).length;
-                row[String(day)] = count; total += count;
-            }
-            row.Total = total;
-            return row;
-        });
-
-        const errorSummaryRows = statTypes.map(type => {
-            const count = filtered.filter(e => e.error_type === type).length;
-            return {
-                "Error type": type,
-                Count: count,
-                "Percentage": monthTotalForExport(filtered) ? Number((count / monthTotalForExport(filtered) * 100).toFixed(1)) : 0
-            };
-        });
-        const brigadeCounts = {};
-        const processCounts = {};
-        const employeeCounts = {};
-        filtered.forEach(entry => {
-            const employee = feedbackEntryEmployee(entry.employee_login);
-            const brigade = employee?.brigade || "Unknown";
-            const process = employee?.process || "Unknown";
-            brigadeCounts[brigade] = (brigadeCounts[brigade] || 0) + 1;
-            processCounts[process] = (processCounts[process] || 0) + 1;
-            employeeCounts[entry.employee_login] = (employeeCounts[entry.employee_login] || 0) + 1;
-        });
-        const extraRows = (map, keyName, nameFn = x => x) => Object.entries(map).sort((a,b)=>b[1]-a[1]).map(([key,count]) => ({[keyName]:nameFn(key), Count:count, Percentage:monthTotalForExport(filtered)?Number((count/monthTotalForExport(filtered)*100).toFixed(1)):0}));
-        const brigadeRows = extraRows(brigadeCounts, "Brigade");
-        const processRows = extraRows(processCounts, "Process");
-        const employeeRows = extraRows(employeeCounts, "Login", login => feedbackEntryEmployee(login)?.name ? `${feedbackEntryEmployee(login).name} (${login})` : login);
-
-        const dailySummaryRows = Array.from({length: days}, (_, i) => {
-            const day = i + 1;
-            const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
-            const count = filtered.filter(e => e.work_date === date).length;
-            return { Day: day, Date: date, Count: count, Percentage: monthTotalForExport(filtered) ? Number((count / monthTotalForExport(filtered) * 100).toFixed(1)) : 0 };
-        });
-
-        const detailRows = filtered.map(entry => {
-            const employee = feedbackEntryEmployee(entry.employee_login);
-            return {
-                Date: entry.work_date,
-                Login: employee?.login || entry.employee_login,
-                Name: employee?.name || "",
-                Brigade: employee?.brigade || "",
-                "Primary process": employee?.process || "",
-                "Error type": entry.error_type || "",
-                Note: entry.note || "",
-                "Confirmed by": entry.confirmed_by_name || entry.confirmed_by_login || "",
-                "Confirmed at": entry.confirmed_at ? new Date(entry.confirmed_at).toLocaleString("en-GB") : ""
-            };
-        });
-
-        const wb = XLSX.utils.book_new();
-        const ws1 = XLSX.utils.json_to_sheet(monthlyRows);
-        const ws2 = XLSX.utils.json_to_sheet(statRows);
-        const ws3 = XLSX.utils.json_to_sheet(detailRows);
-        XLSX.utils.book_append_sheet(wb, ws1, "Monthly Feedback");
-        XLSX.utils.book_append_sheet(wb, ws2, "Error Statistics");
-        const ws4 = XLSX.utils.json_to_sheet(errorSummaryRows);
-        const ws5 = XLSX.utils.json_to_sheet(dailySummaryRows);
-        XLSX.utils.book_append_sheet(wb, ws3, "Feedback Details");
-        XLSX.utils.book_append_sheet(wb, ws4, "Error Summary");
-        XLSX.utils.book_append_sheet(wb, ws5, "Daily Summary");
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(brigadeRows), "By Brigade");
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(processRows), "By Process");
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(employeeRows), "By Employee");
-        XLSX.writeFile(wb, `Feedback_Tracker_${feedbackMonthKey()}.xlsx`);
-        toast("Feedback Tracker exported to Excel.");
-        return;
-    }
-
-    // Fallback CSV: each day is still an independent spreadsheet cell/column.
-    const header = ["Login", "Name", "Brigade", "Primary process", "Month total", ...Array.from({length: days}, (_, i) => String(i + 1))];
-    const lines = [header.map(csvCell).join(",")];
-    employees.forEach(employee => {
-        const row = [employee.login, employee.name, employee.brigade, employee.process, filtered.filter(e => e.employee_login === employee.login).length];
-        for (let day=1; day<=days; day++) {
-            const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
-            row.push(filtered.filter(e => e.employee_login === employee.login && e.work_date === date).length);
-        }
-        lines.push(row.map(csvCell).join(","));
-    });
-    const blob = new Blob(["\uFEFF" + lines.join("\n")], {type: "text/csv;charset=utf-8;"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href=url; a.download=`Feedback_Tracker_${feedbackMonthKey()}.csv`;
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-    toast("Feedback Tracker exported.");
 }
 
 function renderFeedbackAdditionalStats(source) {
@@ -2067,6 +1993,7 @@ function fillMultiFilter(id, options, allLabel, labelMap = null) {
 function fillOverviewFilters() {
     fillMultiFilter('overviewBrigadeFilter', BRIGADES, 'brigades', Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
     fillMultiFilter('overviewProcessFilter', PROCESSES, 'processes');
+    fillMultiFilter('overviewSecondaryProcessFilter', EMPLOYEE_PROCESS_SKILLS, 'secondary processes');
     fillMultiFilter('overviewAttendanceFilter', ['confirmed', 'pending'], 'attendance', {confirmed:'Confirmed', pending:'Not confirmed'});
     fillMultiFilter('overviewExceptionFilter', ['private-leave','forced-leave','feeling-unwell','terminated','other','absent'], 'exceptions', {'private-leave':'Private leave','forced-leave':'Forced leave','feeling-unwell':'Feeling unwell',terminated:'Terminated',other:'Other',absent:'Absent'});
     updateAllMultiFilterLabels();
@@ -2160,7 +2087,7 @@ function updateMultiFilterLabel(id, allLabel) {
     button.textContent=vals.length ? `${vals.length} ${allLabel} selected ▾` : `All ${allLabel} ▾`;
 }
 function updateAllMultiFilterLabels() {
-    const labels={feedbackBrigadeFilter:"brigades",feedbackProcessFilter:"processes",employeeProcessFilter:'processes',employeeBrigadeFilter:'brigades',employeeQualificationFilter:'qualifications',employeeProcessSkillFilter:'secondary processes',overviewBrigadeFilter:'brigades',overviewProcessFilter:'processes',overviewAttendanceFilter:'attendance',overviewExceptionFilter:'exceptions',extraDaysTypeFilter:'types',scheduleHistoryType:'types',hoursAllBrigade:'brigades',hoursAllProcess:'processes',hoursAllStatus:'statuses'};
+    const labels={feedbackBrigadeFilter:"brigades",feedbackProcessFilter:"processes",employeeProcessFilter:'processes',employeeBrigadeFilter:'brigades',employeeQualificationFilter:'qualifications',employeeProcessSkillFilter:'secondary processes',overviewBrigadeFilter:'brigades',overviewProcessFilter:'processes',overviewSecondaryProcessFilter:'secondary processes',overviewAttendanceFilter:'attendance',overviewExceptionFilter:'exceptions',extraDaysTypeFilter:'types',scheduleHistoryType:'types',hoursAllBrigade:'brigades',hoursAllProcess:'processes',hoursAllStatus:'statuses'};
     Object.entries(labels).forEach(([id,label])=>updateMultiFilterLabel(id,label));
 }
 function updateEmployeeMultiFilterLabels() {
@@ -2205,7 +2132,14 @@ function renderOverviewExceptionStats(people) {
 
 function renderOverview() {
     $("overviewDate").value = dateKey(overviewDate);
-    $("overviewShiftTime").textContent = `${SHIFTS[overviewShift].start}–${SHIFTS[overviewShift].end}`;
+    const selectedShift = SHIFTS[overviewShift];
+    $("overviewShiftTime").textContent = `${selectedShift.start}–${selectedShift.end}`;
+    const overviewShiftMeta = $("overviewShiftMeta");
+    if (overviewShiftMeta) {
+        overviewShiftMeta.textContent = overviewShift === "rest"
+            ? "Rest day"
+            : `${selectedShift.presenceHours.toFixed(2)} presence · ${selectedShift.netHours.toFixed(2)} net work · 45 min break`;
+    }
     const people = employeesAvailableOnDate(overviewDate).filter(employee => getSchedule(employee, overviewDate).shift === overviewShift);
     let confirmed = 0;
     people.forEach(employee => { const data=getAttendance(employee,overviewDate); if(data.confirmed && data.status !== "Absent") confirmed++; });
@@ -2297,6 +2231,7 @@ function renderShiftEmployees(people) {
     const search = ($("overviewSearch")?.value || "").trim().toLowerCase();
     const brigades = selectedMultiValues("overviewBrigadeFilter");
     const processes = selectedMultiValues("overviewProcessFilter");
+    const secondaryProcesses = selectedMultiValues("overviewSecondaryProcessFilter");
     const attendanceFilters = selectedMultiValues("overviewAttendanceFilter");
     const exceptionFilters = selectedMultiValues("overviewExceptionFilter");
 
@@ -2305,6 +2240,7 @@ function renderShiftEmployees(people) {
         if (search && !text.includes(search)) return false;
         if (brigades.length && !brigades.includes(employee.brigade)) return false;
         if (processes.length && !processes.includes(employee.process)) return false;
+        if (secondaryProcesses.length && !secondaryProcesses.some(skill => employeeHasProcessSkill(employee, skill))) return false;
 
         const data = getAttendance(employee, overviewDate);
         if (attendanceFilters.includes("confirmed") && !data.confirmed) return false;
@@ -2340,6 +2276,7 @@ function renderShiftEmployees(people) {
                 <td><strong>${esc(employee.name)}</strong><br><small>${esc(employee.login)}</small></td>
                 <td>${esc(employee.brigade)}</td>
                 <td>${esc(employee.process)}</td>
+                <td><div class="employee-skills compact-skills">${employeeProcessSkills(employee).map(value => `<span class="skill-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}</div></td>
                 <td><span class="shift-pill ${schedule.shift}">${SHIFTS[schedule.shift].label}</span></td>
                 <td>${planned.toFixed(2)}h</td>
                 <td>${actual.toFixed(2)}h</td>
@@ -4421,9 +4358,11 @@ function switchPage(pageId) {
     }
 
     if (pageId === "hoursAttendancePage") {
-        // Open Hours Attendance on the All employees view every time.
+        // Hours Attendance always opens with the full employee list visible.
+        // Searching an employee adds the detailed monthly panel above it.
         hoursAttendanceEmployeeLogin = "";
         if ($("hoursEmployeeLogin")) $("hoursEmployeeLogin").value = "";
+        renderAllHoursAttendance();
         renderHoursAttendance();
     }
 
@@ -4631,7 +4570,6 @@ function initEvents() {
         if (event.key === "Enter") { event.preventDefault(); renderFeedbackTracker(); }
     });
     $("feedbackForm")?.addEventListener("submit", saveFeedbackEntry);
-    $("exportFeedbackTracker")?.addEventListener("click", exportFeedbackTrackerCSV);
     $("closeFeedbackModal")?.addEventListener("click", closeFeedbackModal);
     $("cancelFeedback")?.addEventListener("click", closeFeedbackModal);
     $("feedbackModal")?.addEventListener("click", event => { if (event.target.id === "feedbackModal") closeFeedbackModal(); });
@@ -5003,12 +4941,12 @@ function hoursExportRows(ignoreFilters) {
 }
 // csvCell is declared once above and reused by all CSV exports.
 
-/* V12.10 — real XLSX export for Hours Attendance
+/* Hours Attendance XLSX export
    Matrix layout:
    A = Login
    B = Name
    C+ = every calendar day of selected month
-   Unconfirmed = 0
+   Unconfirmed = 0 (confirmed-hours matrix; detailed sheet keeps status/reason)
 */
 function xlsxEscape(value) {
     return String(value ?? "")

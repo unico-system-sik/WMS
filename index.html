@@ -100,8 +100,8 @@
     <div class="shift-banner">
         <div>
             <span>Selected shift</span>
-            <strong id="overviewShiftTime">06:00–17:45</strong>
-            <small>11:45 presence · 11:00 net work · 45 min break</small>
+            <strong id="overviewShiftTime">06:00–16:45</strong>
+            <small id="overviewShiftMeta">10:45 presence · 10:00 net work · 45 min break</small>
         </div>
         <div>
             <span>Attendance</span>
@@ -192,6 +192,10 @@
                     <button type="button" class="multi-filter-button" data-multi-toggle="overviewProcessFilter">All processes ▾</button>
                     <div class="multi-filter-menu" data-multi-menu="overviewProcessFilter"></div>
                 </div>
+                <div class="multi-filter filter-control" id="overviewSecondaryProcessFilter">
+                    <button type="button" class="multi-filter-button" data-multi-toggle="overviewSecondaryProcessFilter">All secondary processes ▾</button>
+                    <div class="multi-filter-menu" data-multi-menu="overviewSecondaryProcessFilter"></div>
+                </div>
                 <div class="multi-filter filter-control" id="overviewAttendanceFilter">
                     <button type="button" class="multi-filter-button" data-multi-toggle="overviewAttendanceFilter">All attendance ▾</button>
                     <div class="multi-filter-menu" data-multi-menu="overviewAttendanceFilter"></div>
@@ -227,6 +231,7 @@
                         <th>Employee</th>
                         <th>Brigade</th>
                         <th>Process</th>
+                        <th>Secondary processes</th>
                         <th>Shift</th>
                         <th>Planned</th>
                         <th>Actual</th>
@@ -610,7 +615,7 @@
                 <h3>Monthly Feedback</h3>
                 <p id="feedbackMeta">0 employees</p>
             </div>
-            <button id="exportFeedbackTracker" class="secondary" type="button" title="Coordinator/Admin only">Export</button>
+
         </div>
         <div class="table-wrap feedback-table-wrap">
             <table class="feedback-table">
@@ -883,14 +888,18 @@
                 Error type
                 <select id="feedbackErrorType" required>
                     <option value="">Select error type</option>
-                    <option value="Wrong item">Wrong item</option>
-                    <option value="Wrong quantity">Wrong quantity</option>
-                    <option value="Wrong location">Wrong location</option>
-                    <option value="Wrong scan">Wrong scan</option>
-                    <option value="Damaged item">Damaged item</option>
-                    <option value="Procedure error">Procedure error</option>
-                    <option value="Safety rule">Safety rule</option>
-                    <option value="Other">Other</option>
+                    <option value="False Short-Pick">False Short-Pick</option>
+                    <option value="Full Box">Full Box</option>
+                    <option value="Duplicate">Duplicate</option>
+                    <option value="Extra Pick">Extra Pick</option>
+                    <option value="Missing Pick">Missing Pick</option>
+                    <option value="Putback Error">Putback Error</option>
+                    <option value="Bin Label">Bin Label</option>
+                    <option value="Extra Putaway">Extra Putaway</option>
+                    <option value="Missing Putaway">Missing Putaway</option>
+                    <option value="BHP">BHP</option>
+                    <option value="Machine Gunning">Machine Gunning</option>
+                    <option value="Productivity Below Target">Productivity Below Target</option>
                 </select>
             </label>
             <label>
