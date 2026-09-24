@@ -38,6 +38,7 @@ const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 10 * 60 * 1000;
 const LOGIN_SECURITY_KEY = "warehouse_login_security_v2";
 let loginCountdownTimer = null;
+let loginRequestInProgress = false;
 
 function getLoginSecurityStore() {
     try {
@@ -618,16 +619,39 @@ async function initAuth() {
             return;
         }
 
+        // Ignore a second submit (for example, pressing Enter repeatedly)
+        // while the first authentication request is still pending.
+        if (loginRequestInProgress) return;
+
         error.textContent = "";
 
         const button = loginForm.querySelector(".login-button");
         if (button) button.disabled = true;
 
-        const { data, error: signInError } =
-            await supabaseClient.auth.signInWithPassword({
+        loginRequestInProgress = true;
+        let signInResult;
+
+        try {
+            signInResult = await supabaseClient.auth.signInWithPassword({
                 email: loginEmail(login),
                 password
             });
+        } catch (requestError) {
+            console.error("Supabase authentication request failed:", requestError);
+            loginRequestInProgress = false;
+            error.textContent = "Could not connect to the authentication service. Check your connection and try again.";
+
+            const currentSecurityState = getLoginSecurityState();
+            if (currentSecurityState.lockedUntil > Date.now()) {
+                setLoginLockoutUI(currentSecurityState.lockedUntil);
+            } else if (button) {
+                button.disabled = false;
+            }
+            return;
+        }
+
+        loginRequestInProgress = false;
+        const { data, error: signInError } = signInResult;
 
         if (signInError) {
             console.error("Supabase login error:", signInError);
