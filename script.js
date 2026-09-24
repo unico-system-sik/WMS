@@ -386,8 +386,7 @@ async function logout() {
     }
 
     const { error } =
-        await clearWmsClientData();
-    supabaseClient.auth.signOut({ scope: "local" });
+        await supabaseClient.auth.signOut({ scope: "local" });
 
     if (error) {
         console.error("Logout error:", error);
@@ -1268,17 +1267,6 @@ function readStorage(key, fallback) {
         return value ? JSON.parse(value) : fallback;
     } catch {
         return fallback;
-    }
-}
-
-
-function clearWmsClientData() {
-    try {
-        Object.values(STORAGE || {}).forEach(key => localStorage.removeItem(key));
-        localStorage.removeItem("warehouse_v2_individual_schedules");
-        localStorage.removeItem("warehouse_v3_audit");
-    } catch (error) {
-        console.warn("Could not clear local WMS data:", error);
     }
 }
 
