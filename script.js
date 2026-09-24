@@ -152,6 +152,7 @@ function refreshLoginLockoutUI() {
 }
 
 let currentUser = null;
+let liveClockTimer = null;
 // Audit Log is stored centrally in Supabase.
 async function loadAuditHistory() {
     if (!currentUser || String(currentUser.role || "").trim().toLowerCase() !== "admin") {
@@ -207,10 +208,6 @@ async function loadCurrentUser(authUser) {
             .select("id, login, full_name, role, active")
             .eq("id", authUser.id)
             .maybeSingle();
-
-        if (error) {
-            console.error("Profile lookup error:", error);
-        }
 
         if (error) {
             console.error("Profile lookup failed. Access is blocked until the profile can be read:", error);
@@ -381,12 +378,21 @@ async function initAppOnce() {
 async function logout() {
     const user = getCurrentUser();
 
+    // Audit is best-effort. A temporary audit insert failure must never
+    // prevent the user from signing out of the browser session.
     if (user) {
-        await addAudit("Logout", "User signed out", "", user.login);
+        try {
+            await addAudit("Logout", "User signed out", "", user.login);
+        } catch (error) {
+            console.warn("Logout audit failed:", error);
+        }
     }
 
-    const { error } =
-        await supabaseClient.auth.signOut({ scope: "local" });
+    // Clear local operational WMS state. This function is synchronous.
+    clearWmsClientData();
+
+    // End the local Supabase session and wait for the result.
+    const { error } = await supabaseClient.auth.signOut({ scope: "local" });
 
     if (error) {
         console.error("Logout error:", error);
@@ -394,34 +400,69 @@ async function logout() {
         return;
     }
 
-    if (scheduleRealtimeChannel) {
-        await supabaseClient.removeChannel(scheduleRealtimeChannel);
-        scheduleRealtimeChannel = null;
-    }
-    if (individualScheduleRealtimeChannel) {
-        await supabaseClient.removeChannel(individualScheduleRealtimeChannel);
-        individualScheduleRealtimeChannel = null;
+    const channels = [
+        scheduleRealtimeChannel,
+        individualScheduleRealtimeChannel,
+        extraDaysRealtimeChannel,
+        attendanceRealtimeChannel,
+        scheduleHistoryRealtimeChannel,
+        employeesRealtimeChannel,
+        auditRealtimeChannel,
+        feedbackRealtimeChannel
+    ];
+
+    for (const channel of channels) {
+        if (channel) {
+            try {
+                await supabaseClient.removeChannel(channel);
+            } catch (removeError) {
+                console.warn("Could not remove realtime channel:", removeError);
+            }
+        }
     }
 
-    if (extraDaysRealtimeChannel) {
-        await supabaseClient.removeChannel(extraDaysRealtimeChannel);
-        extraDaysRealtimeChannel = null;
+    scheduleRealtimeChannel = null;
+    individualScheduleRealtimeChannel = null;
+    extraDaysRealtimeChannel = null;
+    attendanceRealtimeChannel = null;
+    scheduleHistoryRealtimeChannel = null;
+    employeesRealtimeChannel = null;
+    auditRealtimeChannel = null;
+    feedbackRealtimeChannel = null;
+
+    if (liveClockTimer) {
+        clearInterval(liveClockTimer);
+        liveClockTimer = null;
     }
-    if (attendanceRealtimeChannel) {
-        await supabaseClient.removeChannel(attendanceRealtimeChannel);
-        attendanceRealtimeChannel = null;
-    }
-    if (scheduleHistoryRealtimeChannel) {
-        await supabaseClient.removeChannel(scheduleHistoryRealtimeChannel);
-        scheduleHistoryRealtimeChannel = null;
-    }
-    if (employeesRealtimeChannel) { await supabaseClient.removeChannel(employeesRealtimeChannel); employeesRealtimeChannel=null; }
-    if (auditRealtimeChannel) { await supabaseClient.removeChannel(auditRealtimeChannel); auditRealtimeChannel=null; }
-    if (feedbackRealtimeChannel) { await supabaseClient.removeChannel(feedbackRealtimeChannel); feedbackRealtimeChannel=null; }
 
     currentUser = null;
     window.__warehouseAppInitialized = false;
     setAuthScreen(false);
+
+    // Reset the login form so a successful login cannot leave the button
+    // disabled for the next session.
+    const loginForm = document.getElementById("loginForm");
+    const loginButton = loginForm?.querySelector(".login-button");
+    const usernameInput = document.getElementById("loginUsername");
+    const passwordInput = document.getElementById("loginPassword");
+    const togglePassword = document.getElementById("togglePassword");
+    const loginError = document.getElementById("loginError");
+    const loginLockout = document.getElementById("loginLockout");
+
+    if (loginForm) loginForm.reset();
+    if (loginButton) loginButton.disabled = false;
+    if (usernameInput) usernameInput.disabled = false;
+    if (passwordInput) {
+        passwordInput.disabled = false;
+        passwordInput.type = "password";
+    }
+    if (togglePassword) {
+        togglePassword.setAttribute("aria-label", "Show password");
+        togglePassword.setAttribute("title", "Show password");
+    }
+    if (loginError) loginError.textContent = "";
+    if (loginLockout) loginLockout.classList.add("hidden");
+    stopLoginCountdown();
 }
 
 function auditDateKey(value) {
@@ -1270,6 +1311,17 @@ function readStorage(key, fallback) {
     }
 }
 
+
+function clearWmsClientData() {
+    try {
+        Object.values(STORAGE || {}).forEach(key => localStorage.removeItem(key));
+        localStorage.removeItem("warehouse_v2_individual_schedules");
+        localStorage.removeItem("warehouse_v3_audit");
+    } catch (error) {
+        console.warn("Could not clear local WMS data:", error);
+    }
+}
+
 function saveStorage() {
     localStorage.setItem(STORAGE.schedules, JSON.stringify(schedules));
     localStorage.setItem(STORAGE.attendance, JSON.stringify(attendance));
@@ -1678,7 +1730,17 @@ function normalizeAttendanceData(data = {}) {
         actualEnd: data.actualEnd || "",
         breakMinutes: Number(data.breakMinutes || 0),
         status: confirmed ? (legacyStatus === "Absent" ? "Absent" : "Confirmed") : "Pending",
-        reason
+        reason,
+        confirmedAt: data.confirmedAt || "",
+        confirmedById: data.confirmedById || "",
+        confirmedByLogin: data.confirmedByLogin || "",
+        confirmedByName: data.confirmedByName || "",
+        lastChangedById: data.lastChangedById || "",
+        lastChangedByLogin: data.lastChangedByLogin || "",
+        lastChangedByName: data.lastChangedByName || "",
+        lastChangedAt: data.lastChangedAt || "",
+        note: data.note || "",
+        terminatedRecord: data.terminatedRecord === true
     };
 }
 
@@ -1942,6 +2004,8 @@ function plannedHours(employee, date) {
     return SHIFTS[shift] ? SHIFTS[shift].netHours : 0;
 }
 
+let toastTimer = null;
+
 function toast(message) {
     const element = $("toast");
     if (!element) return;
@@ -1949,8 +2013,8 @@ function toast(message) {
     element.textContent = message;
     element.classList.add("show");
 
-    clearTimeout(toast.timer);
-    toast.timer = setTimeout(
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(
         () => element.classList.remove("show"),
         2200
     );
@@ -4372,6 +4436,9 @@ function switchPage(pageId) {
 }
 
 function initEvents() {
+    if (window.__warehouseEventsInitialized) return;
+    window.__warehouseEventsInitialized = true;
+
     document
         .querySelectorAll(".nav-btn")
         .forEach(button => {
@@ -4815,6 +4882,8 @@ $("saveSchedule").addEventListener(
             updateEditPreview();
         }
     );
+
+    $("reloadSystemUsers")?.addEventListener("click", loadSystemUsers);
 }
 
 
@@ -4836,7 +4905,9 @@ async function initApp() {
     subscribeToFeedbackRealtime();
 
     updateLiveDateTime();
-    setInterval(updateLiveDateTime, 1000);
+    if (!liveClockTimer) {
+        liveClockTimer = setInterval(updateLiveDateTime, 1000);
+    }
     fillOverviewFilters();
     fillEmployeeFilters();
     fillAdditionalMultiFilters();
@@ -4849,7 +4920,6 @@ async function initApp() {
 
     initEvents();
     initEmployeeStatusActions();
-    $("reloadSystemUsers")?.addEventListener("click", loadSystemUsers);
     await loadSystemUsers();
 
     switchPage("overviewPage");

@@ -1502,9 +1502,8 @@ th {
 }
 
 /* =========================================================
-   LOGIN SCREEN — WAREHOUSE PHOTO
-   The image is kept as a local asset so the login screen
-   also works without an external image URL.
+   LOGIN SCREEN
+   Self-contained background: no external/local image asset is required.
 ========================================================= */
 .login-screen{
     position:fixed !important;
@@ -1515,10 +1514,15 @@ th {
     justify-content:center;
     padding:24px;
     overflow:auto;
-    background-image:url("warehouse-login-bg.png");
-    background-size:cover;
-    background-position:center;
-    background-repeat:no-repeat;
+    /* Keep the login screen self-contained: the previous build referenced
+       a missing warehouse-login-bg.png asset, which caused a 404 on Pages. */
+    background-image:
+        linear-gradient(135deg, rgba(30,52,82,.98), rgba(8,18,31,.98)),
+        linear-gradient(45deg, rgba(255,255,255,.06) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.06) 75%);
+    background-size: cover, 64px 64px;
+    background-position: center, center;
+    background-repeat: no-repeat, repeat;
+    background-color:#0b1626;
 }
 .login-overlay{
     position:absolute;
