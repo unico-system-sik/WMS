@@ -1,3 +1,4 @@
+/* WMS BASELINE 2026-09-25 — canonical frontend baseline. */
 
 /* =========================================================
    AUTHENTICATION — SUPABASE
@@ -2781,6 +2782,13 @@ function canManageEmployees() {
     return role === "coordinator" || role === "admin";
 }
 
+// Leader may edit employee qualifications / secondary process skills.
+// Employee status changes remain Coordinator/Admin only.
+function canEditEmployeeSkills() {
+    const role = String(currentUser?.role || "").trim().toLowerCase();
+    return role === "leader" || role === "coordinator" || role === "admin";
+}
+
 function employeeActionButton(employee, action) {
     if (!canManageEmployees()) return "";
 
@@ -2828,7 +2836,7 @@ function checkedCapabilityValues(containerId) {
 
 function openEmployeeCapabilitiesModal(login) {
     const employee = employeeByLogin(login);
-    if (!employee || !canManageEmployees()) return;
+    if (!employee || !canEditEmployeeSkills()) return;
     $("employeeCapabilitiesLogin").value = employee.login;
     $("employeeCapabilitiesEmployee").textContent = `${employee.name} · ${employee.login}`;
     renderCapabilityCheckboxes("employeeQualifications", EMPLOYEE_QUALIFICATIONS, employeeQualifications(employee));
@@ -2841,7 +2849,7 @@ function closeEmployeeCapabilitiesModal() {
 }
 
 async function saveEmployeeCapabilities() {
-    if (!canManageEmployees()) return;
+    if (!canEditEmployeeSkills()) return;
     const login = $("employeeCapabilitiesLogin").value;
     const employee = employeeByLogin(login);
     if (!employee) return;
@@ -2883,7 +2891,7 @@ async function saveEmployeeCapabilities() {
 }
 
 function employeeEditButton(employee) {
-    if (!canManageEmployees()) return "";
+    if (!canEditEmployeeSkills()) return "";
     return `<button class="secondary employee-action-btn" type="button" data-employee-action="edit-capabilities" data-employee-login="${esc(employee.login)}">Edit skills</button>`;
 }
 
@@ -2991,10 +2999,10 @@ function renderEmployeeDatabase() {
                     </div>
                 </td>
                 <td>${esc(employee.startDate || "—")}</td>
-                ${canManageEmployees() ? `<td>${employeeEditButton(employee)} ${employeeActionButton(employee, "former")}</td>` : ""}
+                ${(canManageEmployees() || canEditEmployeeSkills()) ? `<td>${canEditEmployeeSkills() ? employeeEditButton(employee) : ""} ${canManageEmployees() ? employeeActionButton(employee, "former") : ""}</td>` : ""}
             </tr>
         `).join("") ||
-        `<tr><td colspan="${canManageEmployees() ? 8 : 7}"><div class="empty">No employees found.</div></td></tr>`;
+        `<tr><td colspan="${(canManageEmployees() || canEditEmployeeSkills()) ? 8 : 7}"><div class="empty">No employees found.</div></td></tr>`;
 
     // Make the active sort visible on the headers.
     document.querySelectorAll("[data-employee-sort]").forEach(button => {
@@ -3022,10 +3030,10 @@ function renderFormerEmployees() {
                 <td>${esc(employee.startDate || "—")}</td>
                 <td>${esc(employee.endDate || "—")}</td>
                 <td>${esc(employee.reason || "—")}</td>
-                ${canManageEmployees() ? `<td>${employeeActionButton(employee, "active")}</td>` : ""}
+                ${(canManageEmployees() || canEditEmployeeSkills()) ? `<td>${canEditEmployeeSkills() ? employeeEditButton(employee) : ""} ${canManageEmployees() ? employeeActionButton(employee, "active") : ""}</td>` : ""}
             </tr>
         `).join("") ||
-        `<tr><td colspan="${canManageEmployees() ? 10 : 9}"><div class="empty">No former employees.</div></td></tr>`;
+        `<tr><td colspan="${(canManageEmployees() || canEditEmployeeSkills()) ? 10 : 9}"><div class="empty">No former employees.</div></td></tr>`;
 }
 
 function openEmployeeStatusModal(login, status) {
