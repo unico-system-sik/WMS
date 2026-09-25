@@ -5404,13 +5404,79 @@ function hoursAllFilterEmployees(ignoreFilters = false) {
     }));
     return list;
 }
+function getHoursAttendanceDayCell(employee, date) {
+    const planned = Number(plannedHours(employee, date) || 0);
+    const data = getAttendance(employee, date);
+    const actual = Number(data.actualHours || 0);
+    const safeActual = Number.isFinite(actual) ? actual : 0;
+    const dateLabel = date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+    if (planned <= 0) {
+        return {
+            code: "—",
+            className: "off",
+            title: `${dateLabel}: No planned shift`
+        };
+    }
+
+    if (!data.confirmed) {
+        return {
+            code: "P",
+            className: "pending",
+            title: `${dateLabel}: Pending confirmation · Planned ${planned.toFixed(2)}h`
+        };
+    }
+
+    const isAbsent = String(data.status || "").trim().toLowerCase() === "absent";
+    if (isAbsent) {
+        return {
+            code: "A",
+            className: "absent",
+            title: `${dateLabel}: Absent${data.reason ? ` · ${data.reason}` : ""}`
+        };
+    }
+
+    const leftEarly = planned > 0 && safeActual + 0.001 < planned;
+    if (leftEarly) {
+        const missing = Math.max(0, planned - safeActual);
+        return {
+            code: "E",
+            className: "early",
+            title: `${dateLabel}: Left early · Planned ${planned.toFixed(2)}h · Actual ${safeActual.toFixed(2)}h · Underworked ${missing.toFixed(2)}h${data.reason ? ` · ${data.reason}` : ""}`
+        };
+    }
+
+    return {
+        code: "C",
+        className: "confirmed",
+        title: `${dateLabel}: Confirmed · ${safeActual.toFixed(2)}h${data.reason ? ` · ${data.reason}` : ""}`
+    };
+}
+
+function getHoursAttendanceDayHeaders(monthDate = hoursAttendanceMonth) {
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const headers = [];
+    for (let day = 1; day <= monthDays(monthDate); day++) {
+        const date = new Date(year, month, day, 12);
+        headers.push({
+            date,
+            key: dateKey(date),
+            label: date.toLocaleDateString("en-GB", { day: "2-digit", weekday: "short" }),
+            fullLabel: date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })
+        });
+    }
+    return headers;
+}
+
 function renderAllHoursAttendance() {
-    const body = $("hoursAllTableBody"), meta = $("hoursAllMeta");
+    const body = $("hoursAllTableBody"), meta = $("hoursAllMeta"), head = $("hoursAllTableHead");
     if (!body) return;
     updateHoursExportVisibility();
 
     const employees = hoursAllFilterEmployees(false);
     const visibleEmployees = employees.slice(0, hoursAllVisibleCount);
+    const dayHeaders = getHoursAttendanceDayHeaders(hoursAttendanceMonth);
 
     let plannedDays = 0, confirmedDays = 0, pending = 0;
     employees.forEach(employee => {
@@ -5428,16 +5494,38 @@ function renderAllHoursAttendance() {
     if ($("hoursAllDifference")) $("hoursAllDifference").textContent = `${differenceDays > 0 ? "+" : ""}${differenceDays}`;
 
     if (meta) {
-        meta.textContent = `${visibleEmployees.length} of ${employees.length} employee${employees.length === 1 ? "" : "s"} shown`;
+        meta.textContent = `${visibleEmployees.length} of ${employees.length} employee${employees.length === 1 ? "" : "s"} shown · click a row to open the full attendance record`;
     }
 
-    body.innerHTML = visibleEmployees.map(e => {
-        const summary = getHoursEmployeeSummary(e);
+    if (head) {
+        head.innerHTML = `<tr>
+            <th class="hours-matrix-employee-col">Employee</th>
+            <th class="hours-matrix-brigade-col">Brigade</th>
+            <th class="hours-matrix-process-col">Process</th>
+            ${dayHeaders.map(({label, fullLabel}) => `<th class="hours-matrix-day-col" title="${esc(fullLabel)}">${esc(label)}</th>`).join("")}
+            <th>Planned days</th>
+            <th>Worked days</th>
+            <th>Difference</th>
+            <th>Absent</th>
+            <th>Pending</th>
+            <th>Underworked</th>
+            <th>Attendance</th>
+        </tr>`;
+    }
+
+    body.innerHTML = visibleEmployees.map(employee => {
+        const summary = getHoursEmployeeSummary(employee);
         const difference = Number(summary.differenceDays || 0);
-        return `<tr class="hours-employee-row" data-hours-employee="${esc(e.login)}" tabindex="0" title="Open attendance record">
-            <td><strong>${esc(e.name)}</strong><br><small>${esc(e.login)}</small></td>
-            <td>${esc(e.brigade)}</td>
-            <td>${esc(e.process)}</td>
+        const dayCells = dayHeaders.map(({date}) => {
+            const cell = getHoursAttendanceDayCell(employee, date);
+            return `<td class="hours-matrix-day-cell ${cell.className}" title="${esc(cell.title)}">${esc(cell.code)}</td>`;
+        }).join("");
+
+        return `<tr class="hours-employee-row" data-hours-employee="${esc(employee.login)}" tabindex="0" title="Open attendance record">
+            <td class="hours-matrix-employee"><strong>${esc(employee.name)}</strong><br><small>${esc(employee.login)}</small></td>
+            <td class="hours-matrix-brigade">${esc(employee.brigade)}</td>
+            <td class="hours-matrix-process">${esc(employee.process)}</td>
+            ${dayCells}
             <td>${summary.plannedDays}</td>
             <td>${summary.workedDays}</td>
             <td>${difference > 0 ? "+" : ""}${difference}</td>
@@ -5446,7 +5534,7 @@ function renderAllHoursAttendance() {
             <td>${summary.underworked.toFixed(2)}h</td>
             <td>${summary.attendanceRate.toFixed(1)}%</td>
         </tr>`;
-    }).join("") || `<tr><td colspan="10"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+    }).join("") || `<tr><td colspan="${3 + dayHeaders.length + 7}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
 
     body.querySelectorAll("[data-hours-employee]").forEach(row => {
         const open = () => {
@@ -5455,7 +5543,12 @@ function renderAllHoursAttendance() {
             document.getElementById("hoursEmployeeSummary")?.scrollIntoView({ behavior: "smooth", block: "start" });
         };
         row.addEventListener("click", open);
-        row.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } });
+        row.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                open();
+            }
+        });
     });
 
     const moreWrap = $("hoursAllMoreWrap");
@@ -5831,11 +5924,13 @@ function buildHoursAttendanceWorkbook(employees) {
     }
 
     const dailyRows = [];
+    const matrixRows = [];
     const summaryRows = [];
     const detailRows = [];
 
     for (const employee of employees) {
         const daily = [];
+        const matrix = [];
         let plannedTotal = 0;
         let plannedDaysTotal = 0;
         let confirmedTotal = 0;
@@ -5866,6 +5961,8 @@ function buildHoursAttendanceWorkbook(employees) {
                 if (leftEarly) underworkedTotal += planned - safeActual;
             }
             if (planned > 0 && !data.confirmed) pending++;
+            const matrixCell = getHoursAttendanceDayCell(employee, date);
+            matrix.push(matrixCell.code);
             daily.push(Number(safeActual.toFixed(2)));
 
             detailRows.push([
@@ -5909,6 +6006,21 @@ function buildHoursAttendanceWorkbook(employees) {
         ]);
 
         const differenceDays = workedDaysTotal - plannedDaysTotal;
+        matrixRows.push([
+            employee.login,
+            employee.name,
+            employee.brigade,
+            employee.process,
+            ...matrix,
+            plannedDaysTotal,
+            workedDaysTotal,
+            differenceDays,
+            absentDays,
+            pending,
+            Number(underworkedTotal.toFixed(2)),
+            plannedDaysTotal > 0 ? Number(((workedDaysTotal / plannedDaysTotal) * 100).toFixed(1)) : 0
+        ]);
+
         summaryRows.push([
             employee.login,
             employee.name,
@@ -5928,7 +6040,35 @@ function buildHoursAttendanceWorkbook(employees) {
 
     const wb = XLSX.utils.book_new();
 
-    // Sheet 1: the practical monthly matrix requested by the user.
+    // Sheet 1: visual attendance matrix (schedule-style).
+    const matrixHeader = [
+        "Login", "Name", "Brigade", "Process",
+        ...dayHeaders,
+        "Planned days", "Worked days", "Difference days", "Absent days", "Pending days", "Underworked hours", "Attendance %"
+    ];
+    const matrixSheet = XLSX.utils.aoa_to_sheet([matrixHeader, ...matrixRows]);
+    matrixSheet["!freeze"] = { xSplit: 4, ySplit: 1 };
+    matrixSheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: matrixRows.length, c: matrixHeader.length - 1 } }) };
+    matrixSheet["!cols"] = [
+        { wch: 14 }, { wch: 26 }, { wch: 10 }, { wch: 18 },
+        ...dayHeaders.map(() => ({ wch: 8 })),
+        { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }
+    ];
+    XLSX.utils.book_append_sheet(wb, matrixSheet, "Attendance Matrix");
+
+    // Legend so the exported matrix remains self-explanatory.
+    const legendSheet = XLSX.utils.aoa_to_sheet([
+        ["Code", "Meaning"],
+        ["C", "Confirmed"],
+        ["E", "Left early"],
+        ["A", "Absent"],
+        ["P", "Pending confirmation"],
+        ["—", "No planned shift / OFF"]
+    ]);
+    legendSheet["!cols"] = [{ wch: 10 }, { wch: 28 }];
+    XLSX.utils.book_append_sheet(wb, legendSheet, "Legend");
+
+    // Sheet 3: daily actual-hour matrix.
     const dailyHeader = [
         "Login", "Name", "Brigade", "Process",
         ...dayHeaders,
@@ -5944,7 +6084,7 @@ function buildHoursAttendanceWorkbook(employees) {
     ];
     XLSX.utils.book_append_sheet(wb, dailySheet, "Daily Hours");
 
-    // Sheet 2: one row per employee/day, designed for Excel filtering.
+    // Sheet 3: one row per employee/day, designed for Excel filtering.
     const detailHeader = [
         "Date", "Day", "Login", "Name", "Brigade", "Process", "Shift",
         "Planned hours", "Actual hours", "Difference", "Status", "Actual start", "Actual end", "Underworked hours", "Reason",
@@ -5960,7 +6100,7 @@ function buildHoursAttendanceWorkbook(employees) {
     ];
     XLSX.utils.book_append_sheet(wb, detailSheet, "Daily Details");
 
-    // Sheet 3: compact employee-level totals.
+    // Sheet 4: compact employee-level totals.
     const summaryHeader = ["Login", "Name", "Brigade", "Process", "Planned days", "Worked days", "Difference days", "Absent days", "Pending days", "Underworked hours", "Attendance %", "Planned hours", "Confirmed hours"];
     const summarySheet = XLSX.utils.aoa_to_sheet([summaryHeader, ...summaryRows]);
     summarySheet["!freeze"] = { xSplit: 4, ySplit: 1 };

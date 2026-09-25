@@ -815,22 +815,16 @@
         </div>
 
         <div class="hours-all-meta" id="hoursAllMeta">0 employees</div>
-        <div class="table-wrap">
-            <table id="hoursAllTable">
-                <thead>
-                    <tr>
-                        <th>Employee</th>
-                        <th>Brigade</th>
-                        <th>Process</th>
-                        <th>Planned days</th>
-                        <th>Worked days</th>
-                        <th>Difference</th>
-                        <th>Absent</th>
-                        <th>Pending</th>
-                        <th>Underworked</th>
-                        <th>Attendance</th>
-                    </tr>
-                </thead>
+        <div class="hours-attendance-legend" aria-label="Attendance legend">
+            <span><strong class="attendance-code confirmed">C</strong> Confirmed</span>
+            <span><strong class="attendance-code early">E</strong> Left early</span>
+            <span><strong class="attendance-code absent">A</strong> Absent</span>
+            <span><strong class="attendance-code pending">P</strong> Pending</span>
+            <span><strong class="attendance-code off">—</strong> No planned shift</span>
+        </div>
+        <div class="table-wrap hours-attendance-matrix-wrap">
+            <table id="hoursAllTable" class="hours-attendance-matrix">
+                <thead id="hoursAllTableHead"></thead>
                 <tbody id="hoursAllTableBody"></tbody>
             </table>
         </div>
