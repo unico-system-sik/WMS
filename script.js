@@ -826,6 +826,51 @@ function employeeWorkedDays(employee) {
     return workedDates.size;
 }
 
+function employeeWorkedDaysForMonth(employee, monthDate) {
+    const login = typeof employee === "string" ? employee : employee?.login;
+    if (!login || !monthDate) return 0;
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const suffix = `_${login}`;
+    const workedDates = new Set();
+    Object.entries(attendance || {}).forEach(([key, data]) => {
+        if (!key.endsWith(suffix)) return;
+        const datePart = key.slice(0, -suffix.length);
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(datePart);
+        if (!match || Number(match[1]) !== year || Number(match[2]) !== month + 1) return;
+        const confirmed = Boolean(data?.confirmed);
+        const status = String(data?.status || "").trim().toLowerCase();
+        if (!confirmed || status === "absent") return;
+        workedDates.add(datePart);
+    });
+    return workedDates.size;
+}
+
+function getHoursAttendanceEmployeeMetrics(employee, monthDate = hoursAttendanceMonth) {
+    let planned = 0, confirmed = 0, pending = 0, absent = 0, underworked = 0, workedDays = 0;
+    const totalDays = monthDays(monthDate);
+    for (let day = 1; day <= totalDays; day++) {
+        const date = new Date(monthDate.getFullYear(), monthDate.getMonth(), day, 12);
+        const p = Number(plannedHours(employee, date) || 0);
+        const data = getAttendance(employee, date);
+        const actual = Number(data.actualHours || 0);
+        planned += p;
+        if (data.confirmed) {
+            if (String(data.status || "").trim().toLowerCase() === "absent") {
+                absent++;
+            } else {
+                confirmed += Number.isFinite(actual) ? actual : 0;
+                workedDays++;
+                if (p > 0 && actual < p) underworked += p - Math.max(0, actual);
+            }
+        } else if (p > 0) {
+            pending++;
+        }
+    }
+    const attendanceRate = planned > 0 ? Math.round((confirmed / planned) * 1000) / 10 : 0;
+    return { planned, confirmed, difference: confirmed - planned, pending, absent, underworked, workedDays, attendanceRate };
+}
+
 function employeeSortValue(employee, key) {
     if (key === "qualifications") {
         return employeeQualifications(employee).join(", ").toLowerCase();
@@ -2231,7 +2276,7 @@ function fillAdditionalMultiFilters() {
     fillMultiFilter('scheduleHistoryType', ['extra-off','extra-work-day','extra-work-night','removed'], 'types', {'extra-off':'Extra OFF','extra-work-day':'Extra DAY','extra-work-night':'Extra NIGHT',removed:'Removed'});
     fillMultiFilter('hoursAllBrigade', BRIGADES, 'brigades', Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
     fillMultiFilter('hoursAllProcess', PROCESSES, 'processes');
-    fillMultiFilter('hoursAllStatus', ['Complete','Pending','Has difference'], 'statuses');
+    fillMultiFilter('hoursAllStatus', ['Complete','Pending','Has difference','Has absent','Has early leave'], 'statuses');
     updateAllMultiFilterLabels();
 }
 function selectedMultiValues(id) {
@@ -2305,7 +2350,9 @@ function renderOverview() {
     let confirmed = 0;
     people.forEach(employee => { const data=getAttendance(employee,overviewDate); if(data.confirmed && data.status !== "Absent") confirmed++; });
     const pending=people.length-confirmed, rate=people.length?Math.round((confirmed/people.length)*100):0;
+    const overviewWorkedDays = people.reduce((sum, employee) => sum + employeeWorkedDaysForMonth(employee, overviewDate), 0);
     $("ovPlanned").textContent=people.length; $("ovPresent").textContent=confirmed; $("ovMissing").textContent=pending; $("ovRate").textContent=`${rate}%`; $("ovRateCard").textContent=`${rate}%`;
+    if ($("ovWorkedDays")) $("ovWorkedDays").textContent = String(overviewWorkedDays);
     renderOverviewExceptionStats(people);
     renderProcessSummary(people); renderBrigadeSummary(people); renderShiftEmployees(people);
 }
@@ -2429,6 +2476,7 @@ function renderShiftEmployees(people) {
         const actual = Number(data.actualHours || 0);
         const fullConfirmed = Boolean(data.confirmed) && Math.abs(actual - planned) < 0.001;
         const visibleReason = data.reason || (data.terminatedRecord ? "Terminated" : "");
+        const workedDays = employeeWorkedDaysForMonth(employee, overviewDate);
         const statusClass = shiftStatusClass(data.status, data.confirmed);
 
         return `
@@ -2441,6 +2489,7 @@ function renderShiftEmployees(people) {
                 <td><span class="shift-pill ${schedule.shift}">${SHIFTS[schedule.shift].label}</span></td>
                 <td>${planned.toFixed(2)}h</td>
                 <td>${actual.toFixed(2)}h</td>
+                <td><strong>${workedDays}</strong></td>
                 <td>
                     <span class="shift-status-select ${statusClass}" aria-label="Status for ${esc(employee.name)}">
                         ${data.confirmed ? "Confirmed" : "Not confirmed"}
@@ -2457,7 +2506,7 @@ function renderShiftEmployees(people) {
                         : "—"}
                 </td>
             </tr>`;
-    }).join("") || `<tr><td colspan="13"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+    }).join("") || `<tr><td colspan="14"><div class="empty">No employees match the selected filters.</div></td></tr>`;
 
     updateSelectionUI();
 
@@ -3012,6 +3061,7 @@ async function saveEmployeeCapabilities() {
     closeEmployeeCapabilitiesModal();
     fillEmployeeFilters();
     fillFeedbackFilters();
+    updateEmployeeManagementControls();
     renderEmployeeDatabase();
     renderFormerEmployees();
     renderStatistics();
@@ -3020,8 +3070,235 @@ async function saveEmployeeCapabilities() {
 }
 
 function employeeEditButton(employee) {
-    if (!canEditEmployeeSkills()) return "";
-    return `<button class="secondary employee-action-btn" type="button" data-employee-action="edit-capabilities" data-employee-login="${esc(employee.login)}">Edit skills</button>`;
+    if (canManageEmployees()) {
+        return `<button class="secondary employee-action-btn" type="button" data-employee-action="edit-employee" data-employee-login="${esc(employee.login)}">Edit</button>`;
+    }
+    if (canEditEmployeeSkills()) {
+        return `<button class="secondary employee-action-btn" type="button" data-employee-action="edit-capabilities" data-employee-login="${esc(employee.login)}">Edit skills</button>`;
+    }
+    return "";
+}
+
+function fillEmployeeEditOptions() {
+    const brigade = $("employeeEditBrigade");
+    const process = $("employeeEditProcess");
+    if (brigade) brigade.innerHTML = BRIGADES.map(value => `<option value="${esc(value)}">Brigade ${esc(value)}</option>`).join("");
+    if (process) process.innerHTML = PROCESSES.map(value => `<option value="${esc(value)}">${esc(value)}</option>`).join("");
+}
+
+function openEmployeeEditModal(login) {
+    const employee = employeeByLogin(login);
+    if (!employee || !canManageEmployees()) return;
+    fillEmployeeEditOptions();
+    $("employeeEditLogin").value = employee.login;
+    $("employeeEditEmployee").textContent = `${employee.name} · ${employee.login}`;
+    $("employeeEditName").value = employee.name || "";
+    $("employeeEditBrigade").value = employee.brigade || BRIGADES[0];
+    $("employeeEditProcess").value = employee.process || PROCESSES[0];
+    $("employeeEditStartDate").value = employee.startDate || "";
+    renderCapabilityCheckboxes("employeeEditQualifications", EMPLOYEE_QUALIFICATIONS, employeeQualifications(employee));
+    renderCapabilityCheckboxes("employeeEditProcessSkills", EMPLOYEE_PROCESS_SKILLS, employeeProcessSkills(employee));
+    $("employeeEditModal").classList.remove("hidden");
+}
+
+function closeEmployeeEditModal() {
+    $("employeeEditModal")?.classList.add("hidden");
+}
+
+async function saveEmployeeEdit() {
+    if (!canManageEmployees()) return;
+    const login = $("employeeEditLogin").value.trim();
+    const name = $("employeeEditName").value.trim();
+    const brigade = $("employeeEditBrigade").value;
+    const process = $("employeeEditProcess").value;
+    const startDate = $("employeeEditStartDate").value || null;
+    const qualifications = checkedCapabilityValues("employeeEditQualifications").filter(x => EMPLOYEE_QUALIFICATIONS.includes(x));
+    const skills = checkedCapabilityValues("employeeEditProcessSkills").filter(x => EMPLOYEE_PROCESS_SKILLS.includes(x));
+    if (!login || !name || !BRIGADES.includes(brigade) || !PROCESSES.includes(process)) {
+        toast("Complete the employee data correctly.");
+        return;
+    }
+    const button = $("employeeEditForm")?.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    const { data, error } = await supabaseClient.rpc("update_employee", {
+        p_login: login,
+        p_name: name,
+        p_brigade: brigade,
+        p_process: process,
+        p_start_date: startDate,
+        p_qualifications: qualifications,
+        p_skills: skills
+    });
+    if (button) button.disabled = false;
+    if (error) {
+        console.error("Employee update error:", error);
+        toast(error.message || "Could not update employee.");
+        return;
+    }
+    const updated = Array.isArray(data) ? data[0] : data;
+    if (updated) {
+        const index = EMPLOYEES.findIndex(item => item.login === login);
+        if (index !== -1) {
+            EMPLOYEES[index] = {
+                ...EMPLOYEES[index],
+                name: updated.name,
+                brigade: updated.brigade,
+                process: updated.process,
+                startDate: updated.start_date || "",
+                qualifications: Array.isArray(updated.qualifications) ? updated.qualifications : qualifications,
+                skills: Array.isArray(updated.skills) ? updated.skills : skills
+            };
+        }
+    }
+    closeEmployeeEditModal();
+    fillOverviewFilters();
+    fillEmployeeFilters();
+    fillFeedbackFilters();
+    renderEmployeeDatabase();
+    renderFormerEmployees();
+    renderStatistics();
+    renderOverview();
+    if ($("hoursAttendancePage")?.classList.contains("active-page")) renderAllHoursAttendance();
+    toast(`${name}: employee updated.`);
+}
+
+let employeeImportRows = [];
+
+function normalizeImportHeader(value) {
+    return String(value || "").trim().toLowerCase().replace(/[._-]+/g, " ").replace(/\\s+/g, " ");
+}
+
+function importValue(row, aliases) {
+    const map = new Map(Object.entries(row).map(([key, value]) => [normalizeImportHeader(key), value]));
+    for (const alias of aliases) {
+        const value = map.get(normalizeImportHeader(alias));
+        if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+    }
+    return "";
+}
+
+function parseImportList(value, allowed) {
+    const values = String(value || "").split(/[;,|]/).map(x => x.trim()).filter(Boolean);
+    return values.filter(x => allowed.includes(x));
+}
+
+function normalizeImportDate(value) {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return dateKey(value);
+    if (typeof value === "number" && window.XLSX?.SSF) {
+        const parsed = XLSX.SSF.parse_date_code(value);
+        if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2,"0")}-${String(parsed.d).padStart(2,"0")}`;
+    }
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const m = raw.match(/^(\\d{1,2})[.\\/-](\\d{1,2})[.\\/-](\\d{4})$/);
+    if (m) return `${m[3]}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;
+    if (/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) return raw;
+    return "";
+}
+
+function parseEmployeeImportRows(rawRows) {
+    const existing = new Set(EMPLOYEES.map(e => String(e.login)));
+    const seen = new Set();
+    return rawRows.map((row, index) => {
+        let login = String(importValue(row, ["Login", "Employee login", "Employee Login", "ID"]) || "").trim();
+        let name = String(importValue(row, ["Name", "Employee", "Full name", "Full Name"]) || "").trim();
+        const firstName = String(importValue(row, ["First name", "First Name"]) || "").trim();
+        const surname = String(importValue(row, ["Surname", "Last name", "Last Name"]) || "").trim();
+        if (!name && (firstName || surname)) name = `${firstName} ${surname}`.trim();
+        const brigade = String(importValue(row, ["Brigade"]) || "").trim();
+        const process = String(importValue(row, ["Process", "Primary process", "Primary Process"]) || "Pick").trim();
+        const startDate = normalizeImportDate(importValue(row, ["Start date", "Start Date", "Date of start"]));
+        const qualifications = parseImportList(importValue(row, ["Qualifications", "Qualification"]), EMPLOYEE_QUALIFICATIONS);
+        const skills = parseImportList(importValue(row, ["Secondary processes", "Secondary Processes", "Skills", "Process skills"]), EMPLOYEE_PROCESS_SKILLS);
+        const errors = [];
+        if (!login) errors.push("Missing login");
+        if (!name) errors.push("Missing name");
+        if (login && seen.has(login)) errors.push("Duplicate in file");
+        if (login && existing.has(login)) errors.push("Already exists");
+        if (brigade && !BRIGADES.includes(brigade)) errors.push("Invalid brigade");
+        if (!brigade) errors.push("Missing brigade");
+        if (!PROCESSES.includes(process)) errors.push("Invalid process");
+        if (startDate === "" && importValue(row, ["Start date", "Start Date", "Date of start"])) errors.push("Invalid start date");
+        if (login) seen.add(login);
+        return { rowNumber: index + 2, login, name, brigade, process, startDate, qualifications, skills, errors, importable: errors.length === 0 };
+    });
+}
+
+function renderEmployeeImportPreview() {
+    const summary = $("employeeImportSummary");
+    const preview = $("employeeImportPreview");
+    const confirm = $("confirmEmployeeImport");
+    const valid = employeeImportRows.filter(r => r.importable);
+    const errors = employeeImportRows.length - valid.length;
+    if (summary) summary.innerHTML = `<strong>${employeeImportRows.length}</strong> rows · <strong>${valid.length}</strong> ready to import · <strong>${errors}</strong> with errors`;
+    if (confirm) confirm.disabled = valid.length === 0;
+    if (!preview) return;
+    preview.innerHTML = employeeImportRows.length ? `<table><thead><tr><th>Row</th><th>Login</th><th>Name</th><th>Brigade</th><th>Process</th><th>Start date</th><th>Status</th></tr></thead><tbody>${employeeImportRows.map(r => `<tr><td>${r.rowNumber}</td><td>${esc(r.login)}</td><td>${esc(r.name)}</td><td>${esc(r.brigade)}</td><td>${esc(r.process)}</td><td>${esc(r.startDate || "—")}</td><td>${r.importable ? `<span class="import-ok">New</span>` : `<span class="import-error">${esc(r.errors.join(", "))}</span>`}</td></tr>`).join("")}</tbody></table>` : "";
+}
+
+async function handleEmployeeImportFile(file) {
+    employeeImportRows = [];
+    if (!file) { renderEmployeeImportPreview(); return; }
+    if (typeof XLSX === "undefined") { toast("Excel import library is not available."); return; }
+    try {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
+        employeeImportRows = parseEmployeeImportRows(rows);
+        renderEmployeeImportPreview();
+    } catch (error) {
+        console.error("Employee import parse error:", error);
+        toast("Could not read the employee file.");
+    }
+}
+
+function openEmployeeImportModal() {
+    if (!canManageEmployees()) return;
+    employeeImportRows = [];
+    if ($("employeeImportFile")) $("employeeImportFile").value = "";
+    if ($("employeeImportSummary")) $("employeeImportSummary").textContent = "Choose a file to preview.";
+    if ($("employeeImportPreview")) $("employeeImportPreview").innerHTML = "";
+    if ($("confirmEmployeeImport")) $("confirmEmployeeImport").disabled = true;
+    $("employeeImportModal")?.classList.remove("hidden");
+}
+
+function closeEmployeeImportModal() {
+    $("employeeImportModal")?.classList.add("hidden");
+}
+
+async function confirmEmployeeImportRows() {
+    if (!canManageEmployees()) return;
+    const rows = employeeImportRows.filter(r => r.importable).map(r => ({
+        login: r.login,
+        name: r.name,
+        brigade: r.brigade,
+        process: r.process,
+        start_date: r.startDate || null,
+        qualifications: r.qualifications,
+        skills: r.skills
+    }));
+    if (!rows.length) return;
+    const button = $("confirmEmployeeImport");
+    if (button) button.disabled = true;
+    const { data, error } = await supabaseClient.rpc("import_employees", { p_rows: rows });
+    if (error) {
+        console.error("Employee import error:", error);
+        if (button) button.disabled = false;
+        toast(error.message || "Could not import employees.");
+        return;
+    }
+    const result = Array.isArray(data) ? data[0] : data;
+    closeEmployeeImportModal();
+    await loadEmployeesFromSupabase();
+    fillOverviewFilters();
+    fillEmployeeFilters();
+    fillFeedbackFilters();
+    renderEmployeeDatabase();
+    renderFormerEmployees();
+    renderStatistics();
+    renderOverview();
+    toast(`Import complete: ${result?.inserted || 0} employees added.`);
 }
 
 function exportEmployeesExcel() {
@@ -3068,7 +3345,15 @@ function exportEmployeesExcel() {
     toast("Employee database exported.");
 }
 
+
+function updateEmployeeManagementControls() {
+    const allowed = canManageEmployees();
+    const importButton = $("importEmployees");
+    if (importButton) importButton.hidden = !allowed;
+}
+
 function renderEmployeeDatabase() {
+    updateEmployeeManagementControls();
     const search =
         $("employeeSearch").value.trim().toLowerCase();
 
@@ -3305,7 +3590,9 @@ function initEmployeeStatusActions() {
         const action = button.dataset.employeeAction;
         const login = button.dataset.employeeLogin;
 
-        if (action === "edit-capabilities") {
+        if (action === "edit-employee") {
+            openEmployeeEditModal(login);
+        } else if (action === "edit-capabilities") {
             openEmployeeCapabilitiesModal(login);
         } else if (action === "former") {
             openEmployeeStatusModal(login, "Former");
@@ -4364,6 +4651,9 @@ function renderHoursAttendance() {
     let planned = 0;
     let confirmed = 0;
     let pending = 0;
+    let absent = 0;
+    let underworked = 0;
+    let workedDays = 0;
 
     const rows = [];
     const totalDays = monthDays(hoursAttendanceMonth);
@@ -4388,7 +4678,14 @@ function renderHoursAttendance() {
         // Previously this was nested inside `if (p > 0)`, which incorrectly
         // showed 0.00h in the Confirmed tile for confirmed hours on OFF days.
         if (data.confirmed) {
-            confirmed += a;
+            const isAbsent = String(data.status || "").trim().toLowerCase() === "absent";
+            if (isAbsent) {
+                absent++;
+            } else {
+                confirmed += a;
+                workedDays++;
+                if (p > 0 && a < p) underworked += p - Math.max(0, a);
+            }
         }
 
         // Pending means a scheduled working day that still has not been confirmed.
@@ -4396,10 +4693,16 @@ function renderHoursAttendance() {
             pending++;
         }
 
+        const isAbsent = String(data.status || "").trim().toLowerCase() === "absent";
+        const leftEarly = Boolean(data.confirmed) && !isAbsent && p > 0 && a + 0.001 < p;
         const statusClass =
-            data.status === "Absent" ? "hours-status-absent" :
+            isAbsent ? "hours-status-absent" :
             data.confirmed ? "hours-status-confirmed" :
             "hours-status-pending";
+        const actualTime = data.confirmed && (data.actualStart || data.actualEnd)
+            ? `${esc(data.actualStart || "—")}–${esc(data.actualEnd || "—")}`
+            : "—";
+        const detailStatus = isAbsent ? "Absent" : leftEarly ? "Left early" : data.confirmed ? "Confirmed" : (p ? "Not confirmed" : "OFF");
 
         rows.push(`
             <tr>
@@ -4412,8 +4715,9 @@ function renderHoursAttendance() {
                 </td>
                 <td>${p.toFixed(2)}h</td>
                 <td><strong>${a.toFixed(2)}h</strong></td>
+                <td>${actualTime}</td>
                 <td>${data.confirmed && Number(data.breakMinutes || 0) ? "45 min" : "—"}</td>
-                <td><span class="${statusClass}">${data.confirmed ? esc(data.status) : (p ? "Not confirmed" : "OFF")}</span></td>
+                <td><span class="${statusClass}">${esc(detailStatus)}</span></td>
                 <td>${esc(data.reason || "—")}</td>
                 <td>${formatActionActor(data.confirmedByName, data.confirmedAt)}</td>
                 <td>${formatActionActor(data.lastChangedByName, data.lastChangedAt)}</td>
@@ -4438,10 +4742,12 @@ function renderHoursAttendance() {
 
     $("haPlanned").textContent = `${planned.toFixed(2)}h`;
     $("haConfirmed").textContent = `${confirmed.toFixed(2)}h`;
-    $("haDifference").textContent = `${(confirmed - planned).toFixed(2)}h`;
+    if ($("haWorkedDays")) $("haWorkedDays").textContent = String(workedDays);
+    if ($("haAbsent")) $("haAbsent").textContent = String(absent);
+    if ($("haUnderworked")) $("haUnderworked").textContent = `${underworked.toFixed(2)}h`;
     $("haPending").textContent = String(pending);
     $("hoursAttendanceTable").innerHTML = rows.join("") ||
-        `<tr><td colspan="12"><div class="empty">No days in this month.</div></td></tr>`;
+        `<tr><td colspan="13"><div class="empty">No days in this month.</div></td></tr>`;
 
     $("hoursAttendanceTable")
         .querySelectorAll("[data-ha-confirm]")
@@ -4590,6 +4896,14 @@ function initEvents() {
 
     $("exportShiftEmployees")?.addEventListener("click", exportShiftEmployees);
     $("exportEmployees")?.addEventListener("click", exportEmployeesExcel);
+    $("importEmployees")?.addEventListener("click", openEmployeeImportModal);
+    $("employeeImportFile")?.addEventListener("change", event => handleEmployeeImportFile(event.target.files?.[0] || null));
+    $("confirmEmployeeImport")?.addEventListener("click", confirmEmployeeImportRows);
+    $("closeEmployeeImportModal")?.addEventListener("click", closeEmployeeImportModal);
+    $("cancelEmployeeImport")?.addEventListener("click", closeEmployeeImportModal);
+    $("closeEmployeeEditModal")?.addEventListener("click", closeEmployeeEditModal);
+    $("cancelEmployeeEdit")?.addEventListener("click", closeEmployeeEditModal);
+    $("employeeEditForm")?.addEventListener("submit", event => { event.preventDefault(); saveEmployeeEdit(); });
 
     $("markSelectedAbsent").addEventListener(
         "click",
@@ -5083,15 +5397,7 @@ function updateHoursExportVisibility() {
     if (toolbar) toolbar.hidden = !hoursExportAllowed();
 }
 function getHoursEmployeeSummary(employee) {
-    let planned = 0, confirmed = 0, pending = 0;
-    for (let day = 1; day <= monthDays(hoursAttendanceMonth); day++) {
-        const date = new Date(hoursAttendanceMonth.getFullYear(), hoursAttendanceMonth.getMonth(), day, 12);
-        const p = plannedHours(employee, date), data = getAttendance(employee, date);
-        planned += p;
-        if (data.confirmed) confirmed += Number(data.actualHours || 0);
-        if (p > 0 && !data.confirmed) pending++;
-    }
-    return { planned, confirmed, difference: confirmed - planned, pending };
+    return getHoursAttendanceEmployeeMetrics(employee, hoursAttendanceMonth);
 }
 function hoursAllFilterEmployees(ignoreFilters = false) {
     let list = activeEmployees();
@@ -5103,7 +5409,14 @@ function hoursAllFilterEmployees(ignoreFilters = false) {
     if (search) list = list.filter(e => String(e.login).toLowerCase().includes(search) || String(e.name).toLowerCase().includes(search));
     if (brigades.length) list = list.filter(e => brigades.includes(e.brigade));
     if (processes.length) list = list.filter(e => processes.includes(e.process));
-    if (statuses.length) list = list.filter(e => statuses.some(status => { const s = getHoursEmployeeSummary(e); return status === "Complete" ? s.pending === 0 : status === "Pending" ? s.pending > 0 : Math.abs(s.difference) > 0.001; }));
+    if (statuses.length) list = list.filter(e => statuses.some(status => {
+        const s = getHoursEmployeeSummary(e);
+        return status === "Complete" ? s.pending === 0 :
+            status === "Pending" ? s.pending > 0 :
+            status === "Has difference" ? Math.abs(s.difference) > 0.001 :
+            status === "Has absent" ? s.absent > 0 :
+            status === "Has early leave" ? s.underworked > 0.001 : false;
+    }));
     return list;
 }
 function renderAllHoursAttendance() {
@@ -5135,8 +5448,30 @@ function renderAllHoursAttendance() {
 
     body.innerHTML = visibleEmployees.map(e => {
         const s = getHoursEmployeeSummary(e);
-        return `<tr><td><strong>${esc(e.login)}</strong></td><td>${esc(e.name)}</td><td>${esc(e.brigade)}</td><td>${esc(e.process)}</td><td>${s.planned.toFixed(2)}h</td><td>${s.confirmed.toFixed(2)}h</td><td>${s.difference >= 0 ? "+" : ""}${s.difference.toFixed(2)}h</td><td>${s.pending}</td></tr>`;
-    }).join("") || `<tr><td colspan="8"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+        return `<tr class="hours-employee-row" data-hours-employee="${esc(e.login)}" tabindex="0" title="Open monthly details">
+            <td><strong>${esc(e.login)}</strong></td>
+            <td>${esc(e.name)}</td>
+            <td>${esc(e.brigade)}</td>
+            <td>${esc(e.process)}</td>
+            <td>${s.planned.toFixed(2)}h</td>
+            <td>${s.confirmed.toFixed(2)}h</td>
+            <td>${s.underworked.toFixed(2)}h</td>
+            <td>${s.absent}</td>
+            <td>${s.pending}</td>
+            <td>${s.attendanceRate.toFixed(1)}%</td>
+        </tr>`;
+    }).join("") || `<tr><td colspan="10"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+
+    body.querySelectorAll("[data-hours-employee]").forEach(row => {
+        const open = () => {
+            hoursAttendanceEmployeeLogin = row.dataset.hoursEmployee;
+            if ($("hoursEmployeeLogin")) $("hoursEmployeeLogin").value = hoursAttendanceEmployeeLogin;
+            renderHoursAttendance();
+            document.getElementById("hoursEmployeeSummary")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        };
+        row.addEventListener("click", open);
+        row.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } });
+    });
 
     const moreWrap = $("hoursAllMoreWrap");
     const moreButton = $("hoursAllMoreBtn");
@@ -5407,7 +5742,7 @@ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 }
 
 function buildShiftEmployeesXlsx(people) {
-    const headers = ["Login", "Name", "Brigade", "Process", "Shift", "Planned", "Actual", "Break", "Status", "Confirmed by", "Last changed by", "Note"];
+    const headers = ["Login", "Name", "Brigade", "Process", "Shift", "Worked days", "Planned", "Actual", "Underworked", "Break", "Status", "Confirmed by", "Last changed by", "Note"];
     const rows = [headers];
     const seen = new Set();
 
@@ -5416,14 +5751,20 @@ function buildShiftEmployeesXlsx(people) {
         seen.add(employee.login);
         const schedule = getSchedule(employee, overviewDate);
         const data = getAttendance(employee, overviewDate);
+        const planned = Number(plannedHours(employee, overviewDate) || 0);
+        const actual = data.confirmed ? Number(data.actualHours || 0) : 0;
+        const isAbsent = String(data.status || "").trim().toLowerCase() === "absent";
+        const underworked = data.confirmed && !isAbsent && planned > actual ? planned - actual : 0;
         rows.push([
             employee.login,
             employee.name,
             employee.brigade,
             employee.process,
             schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "R" : "OFF",
-            Number(plannedHours(employee, overviewDate) || 0).toFixed(2),
-            data.confirmed ? Number(data.actualHours || 0).toFixed(2) : "0.00",
+            employeeWorkedDaysForMonth(employee, overviewDate),
+            planned.toFixed(2),
+            actual.toFixed(2),
+            underworked.toFixed(2),
             data.confirmed ? Number(data.breakMinutes || 0) : 0,
             data.confirmed ? (data.status || "Confirmed") : "Not confirmed",
             data.confirmedByName || "",
@@ -5440,7 +5781,7 @@ function buildShiftEmployeesXlsx(people) {
             const ref = `${xlsxColName(cIndex + 1)}${excelRow}`;
             const text = xlsxEscape(value);
             if (rIndex === 0) return `<c r="${ref}" s="1" t="inlineStr"><is><t>${text}</t></is></c>`;
-            const numeric = [5,6,7].includes(cIndex);
+            const numeric = [5,6,7,8,9].includes(cIndex);
             return numeric
                 ? `<c r="${ref}" s="3" t="n"><v>${Number(value) || 0}</v></c>`
                 : `<c r="${ref}" s="2" t="inlineStr"><is><t>${text}</t></is></c>`;
@@ -5452,7 +5793,7 @@ function buildShiftEmployeesXlsx(people) {
 <dimension ref="A1:${lastCol}${lastRow}"/>
 <sheetViews><sheetView workbookViewId="0"><pane xSplit="2" ySplit="1" topLeftCell="C2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>
 <sheetFormatPr defaultRowHeight="18"/>
-<cols><col min="1" max="1" width="14" customWidth="1"/><col min="2" max="2" width="28" customWidth="1"/><col min="3" max="4" width="14" customWidth="1"/><col min="5" max="12" width="16" customWidth="1"/></cols>
+<cols><col min="1" max="1" width="14" customWidth="1"/><col min="2" max="2" width="28" customWidth="1"/><col min="3" max="4" width="14" customWidth="1"/><col min="5" max="14" width="16" customWidth="1"/></cols>
 <sheetData>${rowsXml}</sheetData><autoFilter ref="A1:${lastCol}${lastRow}"/></worksheet>`;
 
     const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -5513,6 +5854,9 @@ function buildHoursAttendanceWorkbook(employees) {
         let plannedTotal = 0;
         let confirmedTotal = 0;
         let pending = 0;
+        let absentDays = 0;
+        let underworkedTotal = 0;
+        let workedDaysTotal = 0;
 
         for (let day = 1; day <= totalDays; day++) {
             const date = new Date(year, month, day, 12);
@@ -5522,12 +5866,18 @@ function buildHoursAttendanceWorkbook(employees) {
             const actual = data.confirmed ? Number(data.actualHours || 0) : 0;
             const safeActual = Number.isFinite(actual) ? actual : 0;
             const difference = safeActual - planned;
-            const status = data.confirmed
-                ? (data.status || "Confirmed")
-                : (planned > 0 ? "Pending" : "OFF");
+            const isAbsent = String(data.status || "").trim().toLowerCase() === "absent";
+            const leftEarly = Boolean(data.confirmed) && !isAbsent && planned > 0 && safeActual + 0.001 < planned;
+            const status = isAbsent ? "Absent" : leftEarly ? "Left early" : data.confirmed ? (data.status || "Confirmed") : (planned > 0 ? "Pending" : "OFF");
 
             plannedTotal += planned;
-            confirmedTotal += safeActual;
+            if (isAbsent) {
+                absentDays++;
+            } else if (data.confirmed) {
+                confirmedTotal += safeActual;
+                workedDaysTotal++;
+                if (leftEarly) underworkedTotal += planned - safeActual;
+            }
             if (planned > 0 && !data.confirmed) pending++;
             daily.push(Number(safeActual.toFixed(2)));
 
@@ -5543,6 +5893,9 @@ function buildHoursAttendanceWorkbook(employees) {
                 Number(safeActual.toFixed(2)),
                 Number(difference.toFixed(2)),
                 status,
+                data.actualStart || "",
+                data.actualEnd || "",
+                Number((leftEarly ? planned - safeActual : 0).toFixed(2)),
                 data.reason || "",
                 data.confirmedByName || "",
                 data.confirmedAt || "",
@@ -5562,7 +5915,10 @@ function buildHoursAttendanceWorkbook(employees) {
             Number(confirmedTotal.toFixed(2)),
             Number(plannedTotal.toFixed(2)),
             Number(differenceTotal.toFixed(2)),
-            pending
+            Number(underworkedTotal.toFixed(2)),
+            absentDays,
+            pending,
+            workedDaysTotal
         ]);
 
         summaryRows.push([
@@ -5573,7 +5929,11 @@ function buildHoursAttendanceWorkbook(employees) {
             Number(plannedTotal.toFixed(2)),
             Number(confirmedTotal.toFixed(2)),
             Number(differenceTotal.toFixed(2)),
-            pending
+            Number(underworkedTotal.toFixed(2)),
+            absentDays,
+            pending,
+            workedDaysTotal,
+            plannedTotal > 0 ? Number(((confirmedTotal / plannedTotal) * 100).toFixed(1)) : 0
         ]);
     }
 
@@ -5583,7 +5943,7 @@ function buildHoursAttendanceWorkbook(employees) {
     const dailyHeader = [
         "Login", "Name", "Brigade", "Process",
         ...dayHeaders,
-        "Confirmed total", "Planned total", "Difference", "Pending days"
+        "Confirmed total", "Planned total", "Difference", "Underworked hours", "Absent days", "Pending days", "Worked days"
     ];
     const dailySheet = XLSX.utils.aoa_to_sheet([dailyHeader, ...dailyRows]);
     dailySheet["!freeze"] = { xSplit: 4, ySplit: 1 };
@@ -5598,7 +5958,7 @@ function buildHoursAttendanceWorkbook(employees) {
     // Sheet 2: one row per employee/day, designed for Excel filtering.
     const detailHeader = [
         "Date", "Day", "Login", "Name", "Brigade", "Process", "Shift",
-        "Planned hours", "Actual hours", "Difference", "Status", "Reason",
+        "Planned hours", "Actual hours", "Difference", "Status", "Actual start", "Actual end", "Underworked hours", "Reason",
         "Confirmed by", "Confirmed at", "Edit by", "Edited at", "Note"
     ];
     const detailSheet = XLSX.utils.aoa_to_sheet([detailHeader, ...detailRows]);
@@ -5612,7 +5972,7 @@ function buildHoursAttendanceWorkbook(employees) {
     XLSX.utils.book_append_sheet(wb, detailSheet, "Daily Details");
 
     // Sheet 3: compact employee-level totals.
-    const summaryHeader = ["Login", "Name", "Brigade", "Process", "Planned hours", "Confirmed hours", "Difference", "Pending days"];
+    const summaryHeader = ["Login", "Name", "Brigade", "Process", "Planned hours", "Confirmed hours", "Difference", "Underworked hours", "Absent days", "Pending days", "Worked days", "Attendance %"];
     const summarySheet = XLSX.utils.aoa_to_sheet([summaryHeader, ...summaryRows]);
     summarySheet["!freeze"] = { xSplit: 4, ySplit: 1 };
     summarySheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: summaryRows.length, c: summaryHeader.length - 1 } }) };
