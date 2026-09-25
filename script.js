@@ -847,7 +847,7 @@ function employeeWorkedDaysForMonth(employee, monthDate) {
 }
 
 function getHoursAttendanceEmployeeMetrics(employee, monthDate = hoursAttendanceMonth) {
-    let planned = 0, confirmed = 0, pending = 0, absent = 0, underworked = 0, workedDays = 0;
+    let planned = 0, confirmed = 0, pending = 0, absent = 0, underworked = 0, workedDays = 0, plannedDays = 0;
     const totalDays = monthDays(monthDate);
     for (let day = 1; day <= totalDays; day++) {
         const date = new Date(monthDate.getFullYear(), monthDate.getMonth(), day, 12);
@@ -855,6 +855,8 @@ function getHoursAttendanceEmployeeMetrics(employee, monthDate = hoursAttendance
         const data = getAttendance(employee, date);
         const actual = Number(data.actualHours || 0);
         planned += p;
+        if (p > 0) plannedDays++;
+
         if (data.confirmed) {
             if (String(data.status || "").trim().toLowerCase() === "absent") {
                 absent++;
@@ -867,8 +869,13 @@ function getHoursAttendanceEmployeeMetrics(employee, monthDate = hoursAttendance
             pending++;
         }
     }
-    const attendanceRate = planned > 0 ? Math.round((confirmed / planned) * 1000) / 10 : 0;
-    return { planned, confirmed, difference: confirmed - planned, pending, absent, underworked, workedDays, attendanceRate };
+    const difference = confirmed - planned;
+    const differenceDays = workedDays - plannedDays;
+    const attendanceRate = plannedDays > 0 ? Math.round((workedDays / plannedDays) * 1000) / 10 : 0;
+    return {
+        planned, confirmed, difference, pending, absent, underworked, workedDays, attendanceRate,
+        plannedDays, differenceDays
+    };
 }
 
 function employeeSortValue(employee, key) {
@@ -4619,7 +4626,6 @@ function renderHoursAttendance() {
     renderAllHoursAttendance();
     const employee = employeeByLogin(hoursAttendanceEmployeeLogin);
     const summary = $("hoursEmployeeSummary");
-    const empty = $("hoursEmptyState");
 
     $("hoursMonthLabel").textContent =
         hoursAttendanceMonth.toLocaleDateString("en-US", {
@@ -4629,15 +4635,11 @@ function renderHoursAttendance() {
 
     if (!employee) {
         summary.classList.remove("show");
-        // All Employees is the default view; there is no need for an empty
-        // placeholder between the search panel and the employee table.
-        empty.style.display = "none";
         $("hoursAttendanceTable").innerHTML = "";
         return;
     }
 
     summary.classList.add("show");
-    empty.style.display = "none";
 
     $("hoursEmployeeName").innerHTML =
         `${esc(employee.name)} ${employeeStatusBadge(employee)}`;
@@ -4649,6 +4651,7 @@ function renderHoursAttendance() {
             : "");
 
     let planned = 0;
+    let plannedDays = 0;
     let confirmed = 0;
     let pending = 0;
     let absent = 0;
@@ -4672,6 +4675,7 @@ function renderHoursAttendance() {
         const a = Number(data.actualHours || 0);
 
         planned += p;
+        if (p > 0) plannedDays++;
 
         // Count every confirmed actual hour, even when the employee was
         // originally scheduled OFF (for example, a manually entered 8h day).
@@ -4703,6 +4707,7 @@ function renderHoursAttendance() {
             ? `${esc(data.actualStart || "—")}–${esc(data.actualEnd || "—")}`
             : "—";
         const detailStatus = isAbsent ? "Absent" : leftEarly ? "Left early" : data.confirmed ? "Confirmed" : (p ? "Not confirmed" : "OFF");
+        const detailReason = data.reason || (isAbsent ? "Absent" : leftEarly ? "Left early" : "—");
 
         rows.push(`
             <tr>
@@ -4718,7 +4723,7 @@ function renderHoursAttendance() {
                 <td>${actualTime}</td>
                 <td>${data.confirmed && Number(data.breakMinutes || 0) ? "45 min" : "—"}</td>
                 <td><span class="${statusClass}">${esc(detailStatus)}</span></td>
-                <td>${esc(data.reason || "—")}</td>
+                <td>${esc(detailReason)}</td>
                 <td>${formatActionActor(data.confirmedByName, data.confirmedAt)}</td>
                 <td>${formatActionActor(data.lastChangedByName, data.lastChangedAt)}</td>
                 <td class="hours-note" title="${esc(data.note || "")}">${esc(notePreview(data.note, 8))}</td>
@@ -4740,8 +4745,9 @@ function renderHoursAttendance() {
         `);
     }
 
-    $("haPlanned").textContent = `${planned.toFixed(2)}h`;
-    $("haConfirmed").textContent = `${confirmed.toFixed(2)}h`;
+    const differenceDays = workedDays - plannedDays;
+    $("haPlanned").textContent = String(plannedDays);
+    $("haConfirmed").textContent = `${differenceDays > 0 ? "+" : ""}${differenceDays}`;
     if ($("haWorkedDays")) $("haWorkedDays").textContent = String(workedDays);
     if ($("haAbsent")) $("haAbsent").textContent = String(absent);
     if ($("haUnderworked")) $("haUnderworked").textContent = `${underworked.toFixed(2)}h`;
@@ -4792,24 +4798,6 @@ function subscribeToHistoryRealtime() {
 
 }
 
-function findHoursAttendanceEmployee() {
-    const login = $("hoursEmployeeLogin").value.trim();
-    const employee = employeeByLogin(login);
-
-    if (!employee) {
-        hoursAttendanceEmployeeLogin = "";
-        $("hoursEmployeeHint").textContent =
-            login ? "Employee not found." : "Enter the exact employee login.";
-        renderHoursAttendance();
-        return;
-    }
-
-    hoursAttendanceEmployeeLogin = employee.login;
-    $("hoursEmployeeHint").textContent =
-        `${employee.name} · ${employee.process} · Brigade ${employee.brigade}`;
-    renderHoursAttendance();
-}
-
 function switchPage(pageId) {
     // Every top-level tab opens at the top instead of preserving the previous page's scroll position.
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -4849,8 +4837,12 @@ function switchPage(pageId) {
         // V27.1 — first render is limited to 100 employees.
         hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
         hoursAttendanceEmployeeLogin = "";
-        if ($("hoursEmployeeLogin")) $("hoursEmployeeLogin").value = "";
-        renderAllHoursAttendance();
+        if ($("hoursAllSearch")) $("hoursAllSearch").value = "";
+        setMultiFilterValues("hoursAllBrigade", []);
+        setMultiFilterValues("hoursAllProcess", []);
+        setMultiFilterValues("hoursAllStatus", []);
+        if ($("hoursAdvancedFilters")) $("hoursAdvancedFilters").hidden = true;
+        if ($("hoursFiltersToggle")) $("hoursFiltersToggle").setAttribute("aria-expanded", "false");
         renderHoursAttendance();
     }
 
@@ -5204,7 +5196,6 @@ $("saveSchedule").addEventListener(
             );
             hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
             renderHoursAttendance();
-            renderAllHoursAttendance();
         }
     );
 
@@ -5219,34 +5210,6 @@ $("saveSchedule").addEventListener(
             );
             hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
             renderHoursAttendance();
-            renderAllHoursAttendance();
-        }
-    );
-
-    $("hoursFindEmployee").addEventListener(
-        "click",
-        findHoursAttendanceEmployee
-    );
-
-    $("hoursEmployeeLogin").addEventListener(
-        "keydown",
-        event => {
-            if (event.key === "Enter") {
-                event.preventDefault();
-                findHoursAttendanceEmployee();
-            }
-        }
-    );
-
-    $("hoursEmployeeLogin").addEventListener(
-        "input",
-        () => {
-            const employee = employeeByLogin(
-                $("hoursEmployeeLogin").value.trim()
-            );
-            $("hoursEmployeeHint").textContent = employee
-                ? `${employee.name} · ${employee.process} · Brigade ${employee.brigade}`
-                : "Enter the exact employee login.";
         }
     );
 
@@ -5254,8 +5217,6 @@ $("saveSchedule").addEventListener(
         "click",
         () => {
             hoursAttendanceEmployeeLogin = "";
-            $("hoursEmployeeLogin").value = "";
-            $("hoursEmployeeHint").textContent = "Enter the exact employee login.";
             renderHoursAttendance();
         }
     );
@@ -5300,18 +5261,42 @@ $("saveSchedule").addEventListener(
         updateEditPreview
     );
 
-    $("hoursAllSearch")?.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE; renderAllHoursAttendance(); } });
-    $("applyHoursAllFilters")?.addEventListener("click", () => {
+    $("hoursAllSearch")?.addEventListener("input", () => {
+        hoursAttendanceEmployeeLogin = "";
         hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
-        renderAllHoursAttendance();
+        renderHoursAttendance();
     });
-    $("clearHoursAllFilters")?.addEventListener("click", () => {
+    $("hoursAllSearch")?.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            hoursAttendanceEmployeeLogin = "";
+            hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
+            renderHoursAttendance();
+        }
+    });
+    $("hoursFiltersToggle")?.addEventListener("click", () => {
+        const filters = $("hoursAdvancedFilters");
+        const button = $("hoursFiltersToggle");
+        if (!filters || !button) return;
+        const show = filters.hidden;
+        filters.hidden = !show;
+        button.setAttribute("aria-expanded", String(show));
+    });
+    $("hoursClearAllFilters")?.addEventListener("click", () => {
         if ($("hoursAllSearch")) $("hoursAllSearch").value = "";
         setMultiFilterValues("hoursAllBrigade", []);
         setMultiFilterValues("hoursAllProcess", []);
         setMultiFilterValues("hoursAllStatus", []);
         hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
-        renderAllHoursAttendance();
+        hoursAttendanceEmployeeLogin = "";
+        renderHoursAttendance();
+    });
+    $("hoursAdvancedFilters")?.querySelectorAll('input[type="checkbox"]').forEach(input => {
+        input.addEventListener("change", () => {
+            hoursAttendanceEmployeeLogin = "";
+            hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
+            renderHoursAttendance();
+        });
     });
     $("hoursAllMoreBtn")?.addEventListener("click", showMoreHoursEmployees);
     $("hoursExportAllBtn")?.addEventListener("click", () => exportHoursAttendanceCSV(true));
@@ -5413,7 +5398,7 @@ function hoursAllFilterEmployees(ignoreFilters = false) {
         const s = getHoursEmployeeSummary(e);
         return status === "Complete" ? s.pending === 0 :
             status === "Pending" ? s.pending > 0 :
-            status === "Has difference" ? Math.abs(s.difference) > 0.001 :
+            status === "Has difference" ? Math.abs(Number(s.differenceDays || 0)) > 0 :
             status === "Has absent" ? s.absent > 0 :
             status === "Has early leave" ? s.underworked > 0.001 : false;
     }));
@@ -5426,46 +5411,46 @@ function renderAllHoursAttendance() {
 
     const employees = hoursAllFilterEmployees(false);
     const visibleEmployees = employees.slice(0, hoursAllVisibleCount);
-    let planned = 0, confirmed = 0, pending = 0, difference = 0;
 
-    visibleEmployees.forEach(e => {
-        const s = getHoursEmployeeSummary(e);
-        planned += s.planned;
-        confirmed += s.confirmed;
-        pending += s.pending;
-        difference += s.difference;
+    let plannedDays = 0, confirmedDays = 0, pending = 0;
+    employees.forEach(employee => {
+        const s = getHoursEmployeeSummary(employee);
+        plannedDays += Number(s.plannedDays || 0);
+        confirmedDays += Number(s.workedDays || 0);
+        pending += Number(s.pending || 0);
     });
+    const differenceDays = confirmedDays - plannedDays;
 
-    if ($("hoursAllTotal")) $("hoursAllTotal").textContent = String(visibleEmployees.length);
-    if ($("hoursAllPlanned")) $("hoursAllPlanned").textContent = `${planned.toFixed(2)}h`;
-    if ($("hoursAllConfirmed")) $("hoursAllConfirmed").textContent = `${confirmed.toFixed(2)}h`;
+    if ($("hoursAllTotal")) $("hoursAllTotal").textContent = String(employees.length);
+    if ($("hoursAllPlanned")) $("hoursAllPlanned").textContent = String(plannedDays);
+    if ($("hoursAllConfirmed")) $("hoursAllConfirmed").textContent = String(confirmedDays);
     if ($("hoursAllPending")) $("hoursAllPending").textContent = String(pending);
-    if ($("hoursAllDifference")) $("hoursAllDifference").textContent = `${difference >= 0 ? "+" : ""}${difference.toFixed(2)}h`;
+    if ($("hoursAllDifference")) $("hoursAllDifference").textContent = `${differenceDays > 0 ? "+" : ""}${differenceDays}`;
 
     if (meta) {
         meta.textContent = `${visibleEmployees.length} of ${employees.length} employee${employees.length === 1 ? "" : "s"} shown`;
     }
 
     body.innerHTML = visibleEmployees.map(e => {
-        const s = getHoursEmployeeSummary(e);
-        return `<tr class="hours-employee-row" data-hours-employee="${esc(e.login)}" tabindex="0" title="Open monthly details">
-            <td><strong>${esc(e.login)}</strong></td>
-            <td>${esc(e.name)}</td>
+        const summary = getHoursEmployeeSummary(e);
+        const difference = Number(summary.differenceDays || 0);
+        return `<tr class="hours-employee-row" data-hours-employee="${esc(e.login)}" tabindex="0" title="Open attendance record">
+            <td><strong>${esc(e.name)}</strong><br><small>${esc(e.login)}</small></td>
             <td>${esc(e.brigade)}</td>
             <td>${esc(e.process)}</td>
-            <td>${s.planned.toFixed(2)}h</td>
-            <td>${s.confirmed.toFixed(2)}h</td>
-            <td>${s.underworked.toFixed(2)}h</td>
-            <td>${s.absent}</td>
-            <td>${s.pending}</td>
-            <td>${s.attendanceRate.toFixed(1)}%</td>
+            <td>${summary.plannedDays}</td>
+            <td>${summary.workedDays}</td>
+            <td>${difference > 0 ? "+" : ""}${difference}</td>
+            <td>${summary.absent}</td>
+            <td>${summary.pending}</td>
+            <td>${summary.underworked.toFixed(2)}h</td>
+            <td>${summary.attendanceRate.toFixed(1)}%</td>
         </tr>`;
     }).join("") || `<tr><td colspan="10"><div class="empty">No employees match the selected filters.</div></td></tr>`;
 
     body.querySelectorAll("[data-hours-employee]").forEach(row => {
         const open = () => {
             hoursAttendanceEmployeeLogin = row.dataset.hoursEmployee;
-            if ($("hoursEmployeeLogin")) $("hoursEmployeeLogin").value = hoursAttendanceEmployeeLogin;
             renderHoursAttendance();
             document.getElementById("hoursEmployeeSummary")?.scrollIntoView({ behavior: "smooth", block: "start" });
         };
@@ -5852,6 +5837,7 @@ function buildHoursAttendanceWorkbook(employees) {
     for (const employee of employees) {
         const daily = [];
         let plannedTotal = 0;
+        let plannedDaysTotal = 0;
         let confirmedTotal = 0;
         let pending = 0;
         let absentDays = 0;
@@ -5871,6 +5857,7 @@ function buildHoursAttendanceWorkbook(employees) {
             const status = isAbsent ? "Absent" : leftEarly ? "Left early" : data.confirmed ? (data.status || "Confirmed") : (planned > 0 ? "Pending" : "OFF");
 
             plannedTotal += planned;
+            if (planned > 0) plannedDaysTotal++;
             if (isAbsent) {
                 absentDays++;
             } else if (data.confirmed) {
@@ -5896,7 +5883,7 @@ function buildHoursAttendanceWorkbook(employees) {
                 data.actualStart || "",
                 data.actualEnd || "",
                 Number((leftEarly ? planned - safeActual : 0).toFixed(2)),
-                data.reason || "",
+                data.reason || (isAbsent ? "Absent" : leftEarly ? "Left early" : ""),
                 data.confirmedByName || "",
                 data.confirmedAt || "",
                 data.lastChangedByName || "",
@@ -5921,19 +5908,21 @@ function buildHoursAttendanceWorkbook(employees) {
             workedDaysTotal
         ]);
 
+        const differenceDays = workedDaysTotal - plannedDaysTotal;
         summaryRows.push([
             employee.login,
             employee.name,
             employee.brigade,
             employee.process,
-            Number(plannedTotal.toFixed(2)),
-            Number(confirmedTotal.toFixed(2)),
-            Number(differenceTotal.toFixed(2)),
-            Number(underworkedTotal.toFixed(2)),
+            plannedDaysTotal,
+            workedDaysTotal,
+            differenceDays,
             absentDays,
             pending,
-            workedDaysTotal,
-            plannedTotal > 0 ? Number(((confirmedTotal / plannedTotal) * 100).toFixed(1)) : 0
+            Number(underworkedTotal.toFixed(2)),
+            plannedDaysTotal > 0 ? Number(((workedDaysTotal / plannedDaysTotal) * 100).toFixed(1)) : 0,
+            Number(plannedTotal.toFixed(2)),
+            Number(confirmedTotal.toFixed(2))
         ]);
     }
 
@@ -5972,13 +5961,14 @@ function buildHoursAttendanceWorkbook(employees) {
     XLSX.utils.book_append_sheet(wb, detailSheet, "Daily Details");
 
     // Sheet 3: compact employee-level totals.
-    const summaryHeader = ["Login", "Name", "Brigade", "Process", "Planned hours", "Confirmed hours", "Difference", "Underworked hours", "Absent days", "Pending days", "Worked days", "Attendance %"];
+    const summaryHeader = ["Login", "Name", "Brigade", "Process", "Planned days", "Worked days", "Difference days", "Absent days", "Pending days", "Underworked hours", "Attendance %", "Planned hours", "Confirmed hours"];
     const summarySheet = XLSX.utils.aoa_to_sheet([summaryHeader, ...summaryRows]);
     summarySheet["!freeze"] = { xSplit: 4, ySplit: 1 };
     summarySheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: summaryRows.length, c: summaryHeader.length - 1 } }) };
     summarySheet["!cols"] = [
         { wch: 14 }, { wch: 26 }, { wch: 10 }, { wch: 18 },
-        { wch: 16 }, { wch: 17 }, { wch: 12 }, { wch: 14 }
+        { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+        { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 15 }
     ];
     XLSX.utils.book_append_sheet(wb, summarySheet, "Employee Summary");
 
@@ -6009,18 +5999,3 @@ function exportHoursAttendanceCSV(ignoreFilters = true) {
 }
 
 
-/* V12.12 search result focus */
-document.addEventListener("click", (event) => {
-    const button = event.target.closest("#hoursFindEmployee");
-    if (!button) return;
-
-    setTimeout(() => {
-        const summary = document.getElementById("hoursEmployeeSummary");
-        if (summary && !summary.classList.contains("hidden-section")) {
-            // The selected employee is deliberately placed before All Employees.
-            // Scroll to its top without letting the wide monthly table push the page sideways.
-            const top = summary.getBoundingClientRect().top + window.scrollY - 12;
-            window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-        }
-    }, 80);
-});

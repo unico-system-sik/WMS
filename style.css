@@ -1894,3 +1894,54 @@ th {
 .import-ok { color: #16834a; font-weight: 700; }
 .import-error { color: #b42318; font-weight: 700; }
 .management-only[hidden] { display: none !important; }
+
+/* V27.4 — simplified Hours Attendance search-first overview */
+.hours-all-search-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    margin: 14px 0 10px;
+    width: 100%;
+}
+.hours-all-search-field {
+    flex: 1 1 420px;
+    min-width: 220px;
+}
+.hours-all-search-field input {
+    width: 100%;
+    height: 40px;
+    box-sizing: border-box;
+}
+.hours-all-search-row > button {
+    height: 40px;
+    white-space: nowrap;
+}
+.hours-advanced-filters {
+    margin-top: 8px;
+    padding: 12px;
+    border: 1px solid #e1e6ee;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+.hours-advanced-filters[hidden] {
+    display: none !important;
+}
+.hours-all-panel table {
+    min-width: 980px;
+}
+.hours-employee-row td:first-child {
+    min-width: 190px;
+}
+@media (max-width: 700px) {
+    .hours-all-search-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .hours-all-search-field {
+        min-width: 0;
+        width: 100%;
+    }
+    .hours-all-search-row > button {
+        width: 100%;
+    }
+}

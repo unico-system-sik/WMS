@@ -243,6 +243,7 @@
                         <th>Shift</th>
                         <th>Planned</th>
                         <th>Actual</th>
+                        <th>Worked days</th>
                         <th>Status</th>
                         <th>Reason</th>
                         <th>Confirmed by</th>
@@ -726,17 +727,6 @@
         </div>
     </header>
 
-    <section class="panel attendance-search-panel">
-        <div class="attendance-search">
-            <div class="attendance-search-field">
-                <label class="control-label">Employee login</label>
-                <input id="hoursEmployeeLogin" placeholder="e.g. 60010001" autocomplete="off">
-                <small id="hoursEmployeeHint" class="field-hint">Enter the exact employee login to open monthly details.</small>
-            </div>
-            <button id="hoursFindEmployee" class="primary" type="button">Find employee</button>
-        </div>
-    </section>
-
 <section id="hoursEmployeeSummary" class="hidden-section">
         <div class="hours-employee-header panel">
             <div>
@@ -748,19 +738,19 @@
         </div>
 
         <div class="cards six hours-summary-cards">
-            <div class="card"><span>Planned</span><strong id="haPlanned">0.0h</strong><small>scheduled net hours</small></div>
-            <div class="card"><span>Worked</span><strong id="haWorkedDays">0</strong><small>confirmed working days</small></div>
-            <div class="card"><span>Confirmed hours</span><strong id="haConfirmed">0.0h</strong><small>confirmed actual hours</small></div>
-            <div class="card"><span>Underworked</span><strong id="haUnderworked">0.0h</strong><small>hours not completed</small></div>
-            <div class="card"><span>Absent</span><strong id="haAbsent">0</strong><small>confirmed absent days</small></div>
+            <div class="card"><span>Planned days</span><strong id="haPlanned">0</strong><small>scheduled working days</small></div>
+            <div class="card"><span>Worked days</span><strong id="haWorkedDays">0</strong><small>confirmed working days</small></div>
+            <div class="card"><span>Difference</span><strong id="haConfirmed">0</strong><small>worked minus planned</small></div>
+            <div class="card"><span>Absent days</span><strong id="haAbsent">0</strong><small>confirmed absent days</small></div>
             <div class="card"><span>Pending</span><strong id="haPending">0</strong><small>working days waiting</small></div>
+            <div class="card"><span>Underworked</span><strong id="haUnderworked">0.0h</strong><small>hours not completed</small></div>
         </div>
 
         <section class="panel">
             <div class="panel-title">
                 <div>
-                    <h3>Monthly hours</h3>
-                    <p>Edit any day if the employee arrived late, left early, was absent or worked different hours.</p>
+                    <h3>Attendance record</h3>
+                    <p>Monthly record of planned days, worked days, absences, early leave and the reason recorded for each day.</p>
                 </div>
             </div>
             <div class="table-wrap">
@@ -790,36 +780,63 @@
 
     <section id="hoursAllEmployeesPanel" class="panel hours-all-panel">
         <div class="panel-title hours-all-title">
-            <div><h3>All employees</h3><p>All active employees for the selected month. Use the filters above to narrow the list.</p></div>
+            <div>
+                <h3>All employees</h3>
+                <p>Monthly attendance overview. Search one employee or use optional filters to narrow the list.</p>
+            </div>
             <div id="hoursExportToolbar" class="hours-export-toolbar" hidden>
                 <button type="button" id="hoursExportAllBtn" class="primary">Export All Excel</button>
                 <button type="button" id="hoursExportFilteredBtn" class="secondary">Export Filtered Excel</button>
             </div>
-<div class="hours-export-hint">Excel: daily hours matrix + detailed day-by-day sheet + employee summary, all filterable in Excel.</div>
         </div>
+        <div class="hours-export-hint">Excel contains the monthly day summary, daily details, reasons and early-leave information.</div>
+
         <div class="cards five hours-all-summary-cards">
-            <div class="card"><span>Employees</span><strong id="hoursAllTotal">0</strong><small>matching current filters</small></div>
-            <div class="card"><span>Planned</span><strong id="hoursAllPlanned">0.00h</strong><small>scheduled net hours</small></div>
-            <div class="card"><span>Confirmed</span><strong id="hoursAllConfirmed">0.00h</strong><small>confirmed actual hours</small></div>
-            <div class="card"><span>Difference</span><strong id="hoursAllDifference">0.00h</strong><small>confirmed minus planned</small></div>
+            <div class="card"><span>Employees</span><strong id="hoursAllTotal">0</strong><small>employees in current view</small></div>
+            <div class="card"><span>Planned days</span><strong id="hoursAllPlanned">0</strong><small>scheduled working days</small></div>
+            <div class="card"><span>Confirmed days</span><strong id="hoursAllConfirmed">0</strong><small>worked and confirmed</small></div>
+            <div class="card"><span>Difference</span><strong id="hoursAllDifference">0</strong><small>confirmed minus planned</small></div>
             <div class="card"><span>Pending</span><strong id="hoursAllPending">0</strong><small>working days waiting</small></div>
         </div>
-        <div class="hours-all-filters">
-            <div><label class="control-label" for="hoursAllSearch">Search</label><input id="hoursAllSearch" type="search" placeholder="Login or name" autocomplete="off"></div>
+
+        <div class="hours-all-search-row">
+            <div class="hours-all-search-field">
+                <label class="control-label" for="hoursAllSearch">Search employee</label>
+                <input id="hoursAllSearch" type="search" placeholder="Name or login" autocomplete="off">
+            </div>
+            <button id="hoursFiltersToggle" class="secondary" type="button" aria-expanded="false">Filters</button>
+            <button id="hoursClearAllFilters" class="secondary" type="button">Clear</button>
+        </div>
+
+        <div id="hoursAdvancedFilters" class="hours-all-filters hours-advanced-filters" hidden>
             <div class="filter-control"><label class="control-label">Brigade</label><div class="multi-filter" id="hoursAllBrigade"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllBrigade">All brigades ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllBrigade"></div></div></div>
             <div class="filter-control"><label class="control-label">Process</label><div class="multi-filter" id="hoursAllProcess"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllProcess">All processes ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllProcess"></div></div></div>
-            <div class="filter-control"><label class="control-label">Status</label><div class="multi-filter" id="hoursAllStatus"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllStatus">All statuses ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllStatus"></div></div></div>
-            <button id="applyHoursAllFilters" class="primary filter-search-btn" type="button">Search</button>
-            <button id="clearHoursAllFilters" class="secondary" type="button">Clear</button>
+            <div class="filter-control"><label class="control-label">Attendance</label><div class="multi-filter" id="hoursAllStatus"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllStatus">All statuses ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllStatus"></div></div></div>
         </div>
+
         <div class="hours-all-meta" id="hoursAllMeta">0 employees</div>
-        <div class="table-wrap"><table id="hoursAllTable"><thead><tr><th>Login</th><th>Name</th><th>Brigade</th><th>Process</th><th>Planned</th><th>Worked</th><th>Underworked</th><th>Absent</th><th>Pending</th><th>Attendance</th></tr></thead><tbody id="hoursAllTableBody"></tbody></table></div>
+        <div class="table-wrap">
+            <table id="hoursAllTable">
+                <thead>
+                    <tr>
+                        <th>Employee</th>
+                        <th>Brigade</th>
+                        <th>Process</th>
+                        <th>Planned days</th>
+                        <th>Worked days</th>
+                        <th>Difference</th>
+                        <th>Absent</th>
+                        <th>Pending</th>
+                        <th>Underworked</th>
+                        <th>Attendance</th>
+                    </tr>
+                </thead>
+                <tbody id="hoursAllTableBody"></tbody>
+            </table>
+        </div>
         <div id="hoursAllMoreWrap" class="table-more-wrap" hidden>
             <button id="hoursAllMoreBtn" class="secondary" type="button">More</button>
         </div>
-    </section>
-<section id="hoursEmptyState" class="panel empty-state-panel" style="display:none">
-        <div class="empty">Search for an employee by login to open the monthly details.</div>
     </section>
 </section>
 
