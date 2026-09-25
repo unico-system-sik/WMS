@@ -2128,3 +2128,35 @@ th {
     .hours-attendance-matrix .hours-matrix-process-col,
     .hours-attendance-matrix .hours-matrix-process { left: 237px; }
 }
+
+/* V28.0 — employee Start date boundary */
+.shift-pill.pre-start,
+.schedule-pre-start-mark {
+    color: var(--muted, #64748b);
+    background: rgba(100,116,139,.08);
+    border: 1px dashed rgba(100,116,139,.28);
+}
+.schedule-pre-start-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 42px;
+    height: 30px;
+    border-radius: 8px;
+    font-weight: 700;
+}
+.employee-check:disabled {
+    opacity: .35;
+    cursor: not-allowed;
+}
+
+/* V28.0 — Feedback Tracker fixed, aligned employee identity columns */
+.feedback-table {
+    table-layout: fixed;
+}
+.feedback-login-col, .feedback-login-cell { text-align: left; }
+.feedback-name-col, .feedback-name-cell { text-align: left; }
+.feedback-brigade-col, .feedback-brigade-cell { text-align: center; }
+.feedback-process-col, .feedback-process-cell { text-align: left; }
+.feedback-login-cell, .feedback-name-cell, .feedback-brigade-cell, .feedback-process-cell,
+.feedback-total-cell, .feedback-add-cell { vertical-align: middle; }
