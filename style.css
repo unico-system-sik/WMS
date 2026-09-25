@@ -1514,20 +1514,19 @@ th {
     justify-content:center;
     padding:24px;
     overflow:auto;
-    /* Keep the login screen self-contained: the previous build referenced
-       a missing warehouse-login-bg.png asset, which caused a 404 on Pages. */
+    /* Warehouse photo sits behind the login card; the overlay keeps the form readable. */
     background-image:
-        linear-gradient(135deg, rgba(30,52,82,.98), rgba(8,18,31,.98)),
-        linear-gradient(45deg, rgba(255,255,255,.06) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.06) 75%);
-    background-size: cover, 64px 64px;
-    background-position: center, center;
-    background-repeat: no-repeat, repeat;
+        linear-gradient(135deg, rgba(7,19,34,.50), rgba(8,18,31,.64)),
+        url("./warehouse-login-bg.png");
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
     background-color:#0b1626;
 }
 .login-overlay{
     position:absolute;
     inset:0;
-    background:rgba(8,18,31,.48);
+    background:rgba(8,18,31,.18);
     backdrop-filter:saturate(.85);
 }
 .login-card{
