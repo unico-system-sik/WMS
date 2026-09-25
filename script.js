@@ -802,12 +802,39 @@ function employeeStatusBadge(employee) {
     `;
 }
 
+// A worked day is counted only when attendance was explicitly confirmed
+// and the final attendance status is not Absent. Planned/scheduled days
+// are intentionally not counted. Each employee/date is counted once.
+function employeeWorkedDays(employee) {
+    const login = typeof employee === "string" ? employee : employee?.login;
+    if (!login) return 0;
+
+    const suffix = `_${login}`;
+    const workedDates = new Set();
+
+    Object.entries(attendance || {}).forEach(([key, data]) => {
+        if (!key.endsWith(suffix)) return;
+
+        const confirmed = Boolean(data?.confirmed);
+        const status = String(data?.status || "").trim().toLowerCase();
+        if (!confirmed || status === "absent") return;
+
+        const workDate = key.slice(0, -suffix.length);
+        if (workDate) workedDates.add(workDate);
+    });
+
+    return workedDates.size;
+}
+
 function employeeSortValue(employee, key) {
     if (key === "qualifications") {
         return employeeQualifications(employee).join(", ").toLowerCase();
     }
     if (key === "processSkills") {
         return employeeProcessSkills(employee).join(", ").toLowerCase();
+    }
+    if (key === "workedDays") {
+        return employeeWorkedDays(employee);
     }
 
     return String(employee?.[key] ?? "").toLowerCase();
@@ -2043,6 +2070,10 @@ function subscribeToAttendanceRealtime() {
                 if (loaded) {
                     renderOverview();
                     renderHoursAttendance();
+                    if (document.getElementById("employeesPage")?.classList.contains("active-page")) {
+                        renderEmployeeDatabase();
+                        renderFormerEmployees();
+                    }
                 }
             }
         )
@@ -3047,6 +3078,9 @@ function renderEmployeeDatabase() {
     const processSkills = selectedMultiValues("employeeProcessSkillFilter");
 
     const allActive = activeEmployees();
+    const workedDaysByLogin = new Map(
+        allActive.map(employee => [employee.login, employeeWorkedDays(employee)])
+    );
 
     const list = allActive
         .filter(employee => {
@@ -3063,6 +3097,11 @@ function renderEmployeeDatabase() {
             return true;
         })
         .sort((a, b) => {
+            if (employeeSort.key === "workedDays") {
+                const av = workedDaysByLogin.get(a.login) || 0;
+                const bv = workedDaysByLogin.get(b.login) || 0;
+                return (av - bv) * employeeSort.direction;
+            }
             const av = employeeSortValue(a, employeeSort.key);
             const bv = employeeSortValue(b, employeeSort.key);
             return av.localeCompare(bv) * employeeSort.direction;
@@ -3096,11 +3135,12 @@ function renderEmployeeDatabase() {
                         ${employeeProcessSkills(employee).map(value => `<span class="skill-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}
                     </div>
                 </td>
+                <td><strong>${workedDaysByLogin.get(employee.login) || 0}</strong></td>
                 <td>${esc(employee.startDate || "—")}</td>
                 ${(canManageEmployees() || canEditEmployeeSkills()) ? `<td>${canEditEmployeeSkills() ? employeeEditButton(employee) : ""} ${canManageEmployees() ? employeeActionButton(employee, "former") : ""}</td>` : ""}
             </tr>
         `).join("") ||
-        `<tr><td colspan="${(canManageEmployees() || canEditEmployeeSkills()) ? 8 : 7}"><div class="empty">No employees found.</div></td></tr>`;
+        `<tr><td colspan="${(canManageEmployees() || canEditEmployeeSkills()) ? 9 : 8}"><div class="empty">No employees found.</div></td></tr>`;
 
     // Make the active sort visible on the headers.
     document.querySelectorAll("[data-employee-sort]").forEach(button => {
@@ -3110,9 +3150,13 @@ function renderEmployeeDatabase() {
 }
 
 function renderFormerEmployees() {
-    const list = EMPLOYEES.filter(
+    const formerEmployees = EMPLOYEES.filter(
         employee => employee.status !== "Active"
-    ).sort((a,b) => a.name.localeCompare(b.name));
+    );
+    const workedDaysByLogin = new Map(
+        formerEmployees.map(employee => [employee.login, employeeWorkedDays(employee)])
+    );
+    const list = formerEmployees.sort((a,b) => a.name.localeCompare(b.name));
 
     if ($("formerEmployeeTotalCount")) $("formerEmployeeTotalCount").textContent = String(list.length);
     if ($("formerEmployeeFilteredCount")) $("formerEmployeeFilteredCount").textContent = `${list.length} shown`;
@@ -3125,13 +3169,14 @@ function renderFormerEmployees() {
                 <td>${esc(employee.process)}</td>
                 <td>${esc(employee.brigade)}</td>
                 <td><div class="employee-skills">${employeeQualifications(employee).map(value => `<span class="qualification-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}</div></td><td><div class="employee-skills">${employeeProcessSkills(employee).map(value => `<span class="skill-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}</div></td>
-                <td>${esc(employee.startDate || "—")}</td>
+<td><strong>${workedDaysByLogin.get(employee.login) || 0}</strong></td>
+                                <td>${esc(employee.startDate || "—")}</td>
                 <td>${esc(employee.endDate || "—")}</td>
                 <td>${esc(employee.reason || "—")}</td>
                 ${(canManageEmployees() || canEditEmployeeSkills()) ? `<td>${canEditEmployeeSkills() ? employeeEditButton(employee) : ""} ${canManageEmployees() ? employeeActionButton(employee, "active") : ""}</td>` : ""}
             </tr>
         `).join("") ||
-        `<tr><td colspan="${(canManageEmployees() || canEditEmployeeSkills()) ? 10 : 9}"><div class="empty">No former employees.</div></td></tr>`;
+        `<tr><td colspan="${(canManageEmployees() || canEditEmployeeSkills()) ? 11 : 10}"><div class="empty">No former employees.</div></td></tr>`;
 }
 
 function openEmployeeStatusModal(login, status) {
