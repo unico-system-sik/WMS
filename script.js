@@ -5566,9 +5566,10 @@ function renderAllHoursAttendance() {
     body.innerHTML = visibleEmployees.map(employee => {
         const summary = getHoursEmployeeSummary(employee);
         const difference = Number(summary.differenceDays || 0);
-        const dayCells = dayHeaders.map(({date}) => {
+        const dayCells = dayHeaders.map(({date, key}) => {
             const cell = getHoursAttendanceDayCell(employee, date);
-            return `<td class="hours-matrix-day-cell" title="${esc(cell.title)}"><span class="attendance-day-badge ${cell.className}">${esc(cell.code)}</span></td>`;
+            const selectedClass = hoursAttendanceDaySortKey === key ? " is-sorted-column" : "";
+            return `<td class="hours-matrix-day-cell${selectedClass}" title="${esc(cell.title)}"><span class="attendance-day-badge ${cell.className}">${esc(cell.code)}</span></td>`;
         }).join("");
 
         return `<tr class="hours-employee-row" data-hours-employee="${esc(employee.login)}" tabindex="0" title="Open attendance record">

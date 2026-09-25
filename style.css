@@ -1198,6 +1198,20 @@ th {
     cursor: help;
 }
 
+/* Attendance Monitoring: lightly shade the whole selected day column. */
+.hours-matrix-day-col.is-sorted,
+.hours-matrix-day-cell.is-sorted-column {
+    background: rgba(15, 23, 42, 0.055);
+}
+
+.hours-matrix-day-col.is-sorted {
+    box-shadow: inset 0 -2px 0 rgba(15, 23, 42, 0.18);
+}
+
+.hours-matrix-day-cell.is-sorted-column {
+    box-shadow: inset 1px 0 0 rgba(15, 23, 42, 0.06), inset -1px 0 0 rgba(15, 23, 42, 0.06);
+}
+
 .hours-note:hover {
     color: #344054;
 }
