@@ -32,7 +32,7 @@ const AUDIT_KEY = "warehouse_v3_audit";
 // the real authentication authority and its own rate limits still apply.
 // =========================================================
 const LOGIN_MAX_ATTEMPTS = 5;
-const LOGIN_LOCKOUT_MS = 5 * 60 * 1000;
+const LOGIN_LOCKOUT_MS = 10 * 60 * 1000;
 const LOGIN_SECURITY_KEY = "warehouse_login_security_v1";
 let loginCountdownTimer = null;
 
@@ -52,29 +52,39 @@ function saveLoginSecurityStore(store) {
     }
 }
 
-function normalizeLoginForSecurity(login) {
-    return String(login || "").trim().toLowerCase();
+function getGlobalLoginSecurityState() {
+    const store = getLoginSecurityStore();
+    const state = store.__global__ || { attempts: 0, lockedUntil: 0 };
+
+    // A completed lockout starts a completely fresh 5-attempt window.
+    if (state.lockedUntil && state.lockedUntil <= Date.now()) {
+        delete store.__global__;
+        saveLoginSecurityStore(store);
+        return { attempts: 0, lockedUntil: 0 };
+    }
+
+    return {
+        attempts: Number(state.attempts || 0),
+        lockedUntil: Number(state.lockedUntil || 0)
+    };
 }
 
-function getLoginSecurityState(login) {
-    const key = normalizeLoginForSecurity(login);
+function clearLoginSecurityState() {
     const store = getLoginSecurityStore();
-    return store[key] || { attempts: 0, lockedUntil: 0 };
-}
-
-function clearLoginSecurityState(login) {
-    const key = normalizeLoginForSecurity(login);
-    const store = getLoginSecurityStore();
-    delete store[key];
+    delete store.__global__;
     saveLoginSecurityStore(store);
 }
 
-function registerFailedLogin(login) {
-    const key = normalizeLoginForSecurity(login);
-    if (!key) return { attempts: 0, lockedUntil: 0 };
-
+function registerFailedLogin() {
     const store = getLoginSecurityStore();
-    const state = store[key] || { attempts: 0, lockedUntil: 0 };
+    const state = store.__global__ || { attempts: 0, lockedUntil: 0 };
+
+    // If the previous lock has expired, start from zero.
+    if (state.lockedUntil && state.lockedUntil <= Date.now()) {
+        state.attempts = 0;
+        state.lockedUntil = 0;
+    }
+
     state.attempts = Number(state.attempts || 0) + 1;
 
     if (state.attempts >= LOGIN_MAX_ATTEMPTS) {
@@ -82,7 +92,7 @@ function registerFailedLogin(login) {
         state.attempts = LOGIN_MAX_ATTEMPTS;
     }
 
-    store[key] = state;
+    store.__global__ = state;
     saveLoginSecurityStore(store);
     return state;
 }
@@ -101,7 +111,7 @@ function stopLoginCountdown() {
     }
 }
 
-function setLoginLockoutUI(login, lockedUntil) {
+function setLoginLockoutUI(_login, lockedUntil) {
     const lockout = document.getElementById("loginLockout");
     const countdown = document.getElementById("loginCountdown");
     const button = document.querySelector("#loginForm .login-button");
@@ -113,7 +123,7 @@ function setLoginLockoutUI(login, lockedUntil) {
     const update = () => {
         const remaining = Number(lockedUntil || 0) - Date.now();
         if (remaining <= 0) {
-            clearLoginSecurityState(login);
+            clearLoginSecurityState();
             if (lockout) lockout.classList.add("hidden");
             if (button) button.disabled = false;
             if (username) username.disabled = false;
@@ -133,22 +143,21 @@ function setLoginLockoutUI(login, lockedUntil) {
 }
 
 function refreshLoginLockoutUI() {
-    const login = document.getElementById("loginUsername")?.value || "";
-    if (!normalizeLoginForSecurity(login)) {
-        stopLoginCountdown();
-        document.getElementById("loginLockout")?.classList.add("hidden");
-        const button = document.querySelector("#loginForm .login-button");
-        if (button) button.disabled = false;
+    const state = getGlobalLoginSecurityState();
+
+    if (state.lockedUntil && state.lockedUntil > Date.now()) {
+        setLoginLockoutUI("", state.lockedUntil);
         return;
     }
 
-    const state = getLoginSecurityState(login);
-    if (state.lockedUntil && state.lockedUntil > Date.now()) {
-        setLoginLockoutUI(login, state.lockedUntil);
-    } else if (state.lockedUntil) {
-        clearLoginSecurityState(login);
-        document.getElementById("loginLockout")?.classList.add("hidden");
-    }
+    stopLoginCountdown();
+    document.getElementById("loginLockout")?.classList.add("hidden");
+    const button = document.querySelector("#loginForm .login-button");
+    const username = document.getElementById("loginUsername");
+    const password = document.getElementById("loginPassword");
+    if (button) button.disabled = false;
+    if (username) username.disabled = false;
+    if (password) password.disabled = false;
 }
 
 let currentUser = null;
@@ -381,13 +390,23 @@ async function initAppOnce() {
 async function logout() {
     const user = getCurrentUser();
 
+    // Audit must never block the actual logout.
     if (user) {
-        await addAudit("Logout", "User signed out", "", user.login);
+        try {
+            await addAudit("Logout", "User signed out", "", user.login);
+        } catch (auditError) {
+            console.error("Logout audit error:", auditError);
+        }
     }
 
+    // clearWmsClientData() only clears browser storage and does not
+    // return a Supabase response. The previous code incorrectly
+    // destructured { error } from its return value, which caused
+    // logout to fail with a TypeError.
+    clearWmsClientData();
+
     const { error } =
-        await clearWmsClientData();
-    supabaseClient.auth.signOut({ scope: "local" });
+        await supabaseClient.auth.signOut({ scope: "local" });
 
     if (error) {
         console.error("Logout error:", error);
@@ -546,9 +565,9 @@ async function initAuth() {
         }
 
         // Check the 5-attempt lock BEFORE calling Supabase.
-        const securityState = getLoginSecurityState(login);
+        const securityState = getGlobalLoginSecurityState();
         if (securityState.lockedUntil > Date.now()) {
-            setLoginLockoutUI(login, securityState.lockedUntil);
+            setLoginLockoutUI('', securityState.lockedUntil);
             return;
         }
 
@@ -569,7 +588,7 @@ async function initAuth() {
             const failedState = registerFailedLogin(login);
             if (failedState.lockedUntil > Date.now()) {
                 error.textContent = "";
-                setLoginLockoutUI(login, failedState.lockedUntil);
+                setLoginLockoutUI('', failedState.lockedUntil);
             } else {
                 const remaining = LOGIN_MAX_ATTEMPTS - failedState.attempts;
                 error.textContent = remaining > 0
@@ -581,7 +600,7 @@ async function initAuth() {
         }
 
         // Successful authentication resets the failed-attempt counter.
-        clearLoginSecurityState(login);
+        clearLoginSecurityState();
         stopLoginCountdown();
         document.getElementById("loginLockout")?.classList.add("hidden");
 
