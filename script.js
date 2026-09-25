@@ -1007,6 +1007,8 @@ let hoursAttendanceMonth = new Date(
 
 let hoursAttendanceEmployeeLogin = "";
 let hoursModalSource = "hours";
+let hoursAttendanceDaySortKey = "";
+let hoursAttendanceDaySortDirection = 1; // 1 = A/E/P/C/O priority, -1 = reverse
 
 // V27.1 — large-list rendering optimisation.
 // Keep the first render lightweight and reveal more rows only on request.
@@ -4837,6 +4839,8 @@ function switchPage(pageId) {
         // V27.1 — first render is limited to 100 employees.
         hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
         hoursAttendanceEmployeeLogin = "";
+        hoursAttendanceDaySortKey = "";
+        hoursAttendanceDaySortDirection = 1;
         if ($("hoursAllSearch")) $("hoursAllSearch").value = "";
         setMultiFilterValues("hoursAllBrigade", []);
         setMultiFilterValues("hoursAllProcess", []);
@@ -5195,6 +5199,8 @@ $("saveSchedule").addEventListener(
                 12
             );
             hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
+            hoursAttendanceDaySortKey = "";
+            hoursAttendanceDaySortDirection = 1;
             renderHoursAttendance();
         }
     );
@@ -5209,6 +5215,8 @@ $("saveSchedule").addEventListener(
                 12
             );
             hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
+            hoursAttendanceDaySortKey = "";
+            hoursAttendanceDaySortDirection = 1;
             renderHoursAttendance();
         }
     );
@@ -5384,6 +5392,36 @@ function updateHoursExportVisibility() {
 function getHoursEmployeeSummary(employee) {
     return getHoursAttendanceEmployeeMetrics(employee, hoursAttendanceMonth);
 }
+function getHoursAttendanceDaySortRank(employee, dayKey) {
+    const [year, month, day] = String(dayKey).split("-").map(Number);
+    const date = new Date(year, month - 1, day, 12);
+    const cell = getHoursAttendanceDayCell(employee, date);
+    const rank = { absent: 0, early: 1, pending: 2, confirmed: 3, off: 4 };
+    return Object.prototype.hasOwnProperty.call(rank, cell.className) ? rank[cell.className] : 9;
+}
+
+function sortHoursAttendanceEmployees(employees) {
+    if (!hoursAttendanceDaySortKey) return employees;
+    const direction = hoursAttendanceDaySortDirection;
+    return [...employees].sort((a, b) => {
+        const rankA = getHoursAttendanceDaySortRank(a, hoursAttendanceDaySortKey);
+        const rankB = getHoursAttendanceDaySortRank(b, hoursAttendanceDaySortKey);
+        if (rankA !== rankB) return (rankA - rankB) * direction;
+        return String(a.name || a.login || "").localeCompare(String(b.name || b.login || ""), undefined, { sensitivity: "base" });
+    });
+}
+
+function toggleHoursAttendanceDaySort(dayKey) {
+    if (hoursAttendanceDaySortKey === dayKey) {
+        hoursAttendanceDaySortDirection *= -1;
+    } else {
+        hoursAttendanceDaySortKey = dayKey;
+        hoursAttendanceDaySortDirection = 1;
+    }
+    hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
+    renderAllHoursAttendance();
+}
+
 function hoursAllFilterEmployees(ignoreFilters = false) {
     let list = activeEmployees();
     if (ignoreFilters) return list;
@@ -5478,12 +5516,13 @@ function renderAllHoursAttendance() {
     if (!body) return;
     updateHoursExportVisibility();
 
-    const employees = hoursAllFilterEmployees(false);
+    const filteredEmployees = hoursAllFilterEmployees(false);
+    const employees = sortHoursAttendanceEmployees(filteredEmployees);
     const visibleEmployees = employees.slice(0, hoursAllVisibleCount);
     const dayHeaders = getHoursAttendanceDayHeaders(hoursAttendanceMonth);
 
     let plannedDays = 0, confirmedDays = 0, pending = 0;
-    employees.forEach(employee => {
+    filteredEmployees.forEach(employee => {
         const s = getHoursEmployeeSummary(employee);
         plannedDays += Number(s.plannedDays || 0);
         confirmedDays += Number(s.workedDays || 0);
@@ -5506,7 +5545,14 @@ function renderAllHoursAttendance() {
             <th class="hours-matrix-employee-col">Employee</th>
             <th class="hours-matrix-brigade-col">Brigade</th>
             <th class="hours-matrix-process-col">Process</th>
-            ${dayHeaders.map(({label, fullLabel}) => `<th class="hours-matrix-day-col" title="${esc(fullLabel)}">${esc(label)}</th>`).join("")}
+            ${dayHeaders.map(({label, fullLabel, key}) => {
+                const active = hoursAttendanceDaySortKey === key;
+                const arrow = active ? (hoursAttendanceDaySortDirection === 1 ? "↑" : "↓") : "↕";
+                const title = active
+                    ? `Sorted by ${fullLabel} · click to reverse order`
+                    : `Sort employees by ${fullLabel} · Absent first`;
+                return `<th class="hours-matrix-day-col${active ? " is-sorted" : ""}" title="${esc(title)}"><button type="button" class="attendance-day-sort-button" data-hours-sort-day="${esc(key)}" aria-label="${esc(title)}"><span>${esc(label)}</span><small>${arrow}</small></button></th>`;
+            }).join("")}
             <th>Planned days</th>
             <th>Worked days</th>
             <th>Difference</th>
@@ -5539,6 +5585,13 @@ function renderAllHoursAttendance() {
             <td>${summary.attendanceRate.toFixed(1)}%</td>
         </tr>`;
     }).join("") || `<tr><td colspan="${3 + dayHeaders.length + 7}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+
+    head?.querySelectorAll("[data-hours-sort-day]").forEach(button => {
+        button.addEventListener("click", event => {
+            event.stopPropagation();
+            toggleHoursAttendanceDaySort(button.dataset.hoursSortDay);
+        });
+    });
 
     body.querySelectorAll("[data-hours-employee]").forEach(row => {
         const open = () => {
