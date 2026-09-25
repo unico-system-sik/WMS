@@ -1946,7 +1946,7 @@ th {
     }
 }
 
-/* V27.5 — schedule-style Attendance Monitoring matrix */
+/* V27.6 — synchronized schedule-style Attendance Monitoring matrix */
 .hours-attendance-legend {
     display: flex;
     flex-wrap: wrap;
@@ -1967,7 +1967,7 @@ th {
     justify-content: center;
     width: 24px;
     height: 24px;
-    border-radius: 7px;
+    border-radius: 50%;
     border: 1px solid transparent;
     font-size: 12px;
     font-weight: 800;
@@ -2036,15 +2036,30 @@ th {
     text-align: center !important;
 }
 .hours-matrix-day-cell {
-    padding: 6px 4px !important;
+    width: 42px;
+    min-width: 42px;
+    max-width: 42px;
+    padding: 5px 3px !important;
+    text-align: center !important;
+    background: #fff;
+}
+.attendance-day-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    font-size: 12px;
+    line-height: 1;
     font-weight: 800;
 }
-.hours-matrix-day-cell.confirmed { background: #dcfce7; color: #166534; }
-.hours-matrix-day-cell.early { background: #fef3c7; color: #92400e; }
-.hours-matrix-day-cell.absent { background: #fee2e2; color: #991b1b; }
-.hours-matrix-day-cell.pending { background: #f1f5f9; color: #475569; }
-.hours-matrix-day-cell.off { background: #fff; color: #cbd5e1; }
-.hours-attendance-matrix tbody tr:hover .hours-matrix-day-cell.off { background: #f8fafc; }
+.attendance-day-badge.confirmed { background: #dcfce7; color: #166534; border-color: #86efac; }
+.attendance-day-badge.early { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+.attendance-day-badge.absent { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.attendance-day-badge.pending { background: #eef2f7; color: #475569; border-color: #cbd5e1; }
+.attendance-day-badge.off { background: #f8fafc; color: #64748b; border-color: #e2e8f0; }
 
 @media (max-width: 900px) {
     .hours-attendance-matrix .hours-matrix-employee-col,

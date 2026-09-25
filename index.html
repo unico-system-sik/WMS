@@ -77,7 +77,7 @@
         <button class="nav-btn active" data-page="overviewPage">📊 <span>Shift Overview</span></button>
         <button class="nav-btn" data-page="employeesPage">👥 <span>Employees</span></button>
         <button class="nav-btn" data-page="schedulingPage">📅 <span>Shift Scheduling</span></button>
-        <button class="nav-btn" data-page="hoursAttendancePage">⏱️ <span>Hours Attendance</span></button>
+        <button class="nav-btn" data-page="hoursAttendancePage">⏱️ <span>Attendance Monitoring</span></button>
         <button class="nav-btn" data-page="feedbackTrackerPage">📝 <span>Feedback Tracker</span></button>
     </nav>
 </aside>
@@ -717,8 +717,8 @@
 <section id="hoursAttendancePage" class="page">
     <header class="page-header">
         <div>
-            <h2>Hours Attendance</h2>
-<p>Review monthly hours for all employees, then open one employee for detailed daily confirmation and correction. Future hours cannot be confirmed. Former employees remain available for historical review.</p>
+            <h2>Attendance Monitoring</h2>
+<p>Review monthly attendance for all employees. The monthly grid follows the same schedule used by Shift Overview. Future hours cannot be confirmed. Former employees remain available for historical review.</p>
         </div>
         <div class="toolbar">
             <button id="hoursMonthPrev" class="secondary">←</button>
@@ -820,7 +820,7 @@
             <span><strong class="attendance-code early">E</strong> Left early</span>
             <span><strong class="attendance-code absent">A</strong> Absent</span>
             <span><strong class="attendance-code pending">P</strong> Pending</span>
-            <span><strong class="attendance-code off">—</strong> No planned shift</span>
+            <span><strong class="attendance-code off">O</strong> Day off / no planned shift</span>
         </div>
         <div class="table-wrap hours-attendance-matrix-wrap">
             <table id="hoursAllTable" class="hours-attendance-matrix">

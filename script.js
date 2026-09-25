@@ -2283,7 +2283,7 @@ function fillAdditionalMultiFilters() {
     fillMultiFilter('scheduleHistoryType', ['extra-off','extra-work-day','extra-work-night','removed'], 'types', {'extra-off':'Extra OFF','extra-work-day':'Extra DAY','extra-work-night':'Extra NIGHT',removed:'Removed'});
     fillMultiFilter('hoursAllBrigade', BRIGADES, 'brigades', Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
     fillMultiFilter('hoursAllProcess', PROCESSES, 'processes');
-    fillMultiFilter('hoursAllStatus', ['Complete','Pending','Has difference','Has absent','Has early leave'], 'statuses');
+    fillMultiFilter('hoursAllStatus', ['Complete','Pending','Has difference','Absent','Left early'], 'statuses');
     updateAllMultiFilterLabels();
 }
 function selectedMultiValues(id) {
@@ -5373,7 +5373,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 
 
-/* V12.8 — Hours Attendance: all employees + filters + export */
+/* Attendance Monitoring: all employees + filters + export */
 function hoursExportAllowed() {
     return canExportData();
 }
@@ -5399,23 +5399,27 @@ function hoursAllFilterEmployees(ignoreFilters = false) {
         return status === "Complete" ? s.pending === 0 :
             status === "Pending" ? s.pending > 0 :
             status === "Has difference" ? Math.abs(Number(s.differenceDays || 0)) > 0 :
-            status === "Has absent" ? s.absent > 0 :
-            status === "Has early leave" ? s.underworked > 0.001 : false;
+            status === "Absent" ? s.absent > 0 :
+            status === "Left early" ? s.underworked > 0.001 : false;
     }));
     return list;
 }
 function getHoursAttendanceDayCell(employee, date) {
+    const schedule = getSchedule(employee, date);
     const planned = Number(plannedHours(employee, date) || 0);
     const data = getAttendance(employee, date);
     const actual = Number(data.actualHours || 0);
     const safeActual = Number.isFinite(actual) ? actual : 0;
     const dateLabel = date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const weekdayLabel = date.toLocaleDateString("en-US", { weekday: "long" });
+    const shiftLabel = SHIFTS[schedule.shift]?.label || String(schedule.shift || "OFF").toUpperCase();
 
+    // Keep Attendance Monitoring synchronized with the exact schedule source used by Shift Overview.
     if (planned <= 0) {
         return {
-            code: "—",
+            code: "O",
             className: "off",
-            title: `${dateLabel}: No planned shift`
+            title: `${weekdayLabel}, ${dateLabel} · ${shiftLabel} · Day off / no planned shift`
         };
     }
 
@@ -5423,7 +5427,7 @@ function getHoursAttendanceDayCell(employee, date) {
         return {
             code: "P",
             className: "pending",
-            title: `${dateLabel}: Pending confirmation · Planned ${planned.toFixed(2)}h`
+            title: `${weekdayLabel}, ${dateLabel} · ${shiftLabel} · Pending confirmation · Planned ${planned.toFixed(2)}h`
         };
     }
 
@@ -5432,7 +5436,7 @@ function getHoursAttendanceDayCell(employee, date) {
         return {
             code: "A",
             className: "absent",
-            title: `${dateLabel}: Absent${data.reason ? ` · ${data.reason}` : ""}`
+            title: `${weekdayLabel}, ${dateLabel} · ${shiftLabel} · Absent${data.reason ? ` · ${data.reason}` : ""}`
         };
     }
 
@@ -5442,14 +5446,14 @@ function getHoursAttendanceDayCell(employee, date) {
         return {
             code: "E",
             className: "early",
-            title: `${dateLabel}: Left early · Planned ${planned.toFixed(2)}h · Actual ${safeActual.toFixed(2)}h · Underworked ${missing.toFixed(2)}h${data.reason ? ` · ${data.reason}` : ""}`
+            title: `${weekdayLabel}, ${dateLabel} · ${shiftLabel} · Left early · Planned ${planned.toFixed(2)}h · Actual ${safeActual.toFixed(2)}h · Underworked ${missing.toFixed(2)}h${data.reason ? ` · ${data.reason}` : ""}`
         };
     }
 
     return {
         code: "C",
         className: "confirmed",
-        title: `${dateLabel}: Confirmed · ${safeActual.toFixed(2)}h${data.reason ? ` · ${data.reason}` : ""}`
+        title: `${weekdayLabel}, ${dateLabel} · ${shiftLabel} · Confirmed · ${safeActual.toFixed(2)}h${data.reason ? ` · ${data.reason}` : ""}`
     };
 }
 
@@ -5462,8 +5466,8 @@ function getHoursAttendanceDayHeaders(monthDate = hoursAttendanceMonth) {
         headers.push({
             date,
             key: dateKey(date),
-            label: date.toLocaleDateString("en-GB", { day: "2-digit", weekday: "short" }),
-            fullLabel: date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })
+            label: String(day).padStart(2, "0"),
+            fullLabel: date.toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" })
         });
     }
     return headers;
@@ -5518,7 +5522,7 @@ function renderAllHoursAttendance() {
         const difference = Number(summary.differenceDays || 0);
         const dayCells = dayHeaders.map(({date}) => {
             const cell = getHoursAttendanceDayCell(employee, date);
-            return `<td class="hours-matrix-day-cell ${cell.className}" title="${esc(cell.title)}">${esc(cell.code)}</td>`;
+            return `<td class="hours-matrix-day-cell" title="${esc(cell.title)}"><span class="attendance-day-badge ${cell.className}">${esc(cell.code)}</span></td>`;
         }).join("");
 
         return `<tr class="hours-employee-row" data-hours-employee="${esc(employee.login)}" tabindex="0" title="Open attendance record">
@@ -5579,7 +5583,7 @@ function hoursExportRows(ignoreFilters) {
 }
 // csvCell is declared once above and reused by all CSV exports.
 
-/* Hours Attendance XLSX export
+/* Attendance Monitoring XLSX export
    Matrix layout:
    A = Login
    B = Name
@@ -5786,7 +5790,7 @@ function buildHoursAttendanceXlsx(employees) {
     const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<sheets><sheet name="Hours Attendance" sheetId="1" r:id="rId1"/></sheets>
+<sheets><sheet name="Attendance Monitoring" sheetId="1" r:id="rId1"/></sheets>
 </workbook>`;
 
     const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -5919,8 +5923,7 @@ function buildHoursAttendanceWorkbook(employees) {
 
     for (let day = 1; day <= totalDays; day++) {
         const date = new Date(year, month, day, 12);
-        const weekday = date.toLocaleDateString("en-US", { weekday: "short" });
-        dayHeaders.push(`${String(day).padStart(2, "0")} ${weekday}`);
+        dayHeaders.push(String(day).padStart(2, "0"));
     }
 
     const dailyRows = [];
@@ -6063,7 +6066,7 @@ function buildHoursAttendanceWorkbook(employees) {
         ["E", "Left early"],
         ["A", "Absent"],
         ["P", "Pending confirmation"],
-        ["—", "No planned shift / OFF"]
+        ["O", "Day off / no planned shift"]
     ]);
     legendSheet["!cols"] = [{ wch: 10 }, { wch: 28 }];
     XLSX.utils.book_append_sheet(wb, legendSheet, "Legend");
@@ -6132,10 +6135,10 @@ function exportHoursAttendanceCSV(ignoreFilters = true) {
     const workbook = buildHoursAttendanceWorkbook(employees);
     const month = `${hoursAttendanceMonth.getFullYear()}-${String(hoursAttendanceMonth.getMonth() + 1).padStart(2, "0")}`;
     const suffix = ignoreFilters ? "" : "_Filtered";
-    XLSX.writeFile(workbook, `Hours_Attendance_${month}${suffix}.xlsx`);
+    XLSX.writeFile(workbook, `Attendance_Monitoring_${month}${suffix}.xlsx`);
     toast(ignoreFilters
-        ? "All hours exported to Excel (3 filterable sheets)."
-        : "Filtered hours exported to Excel (3 filterable sheets).");
+        ? "Attendance monitoring exported to Excel (5 sheets: 4 filterable data sheets + Legend)."
+        : "Filtered attendance monitoring exported to Excel (5 sheets: 4 filterable data sheets + Legend).");
 }
 
 
