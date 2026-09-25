@@ -1502,8 +1502,9 @@ th {
 }
 
 /* =========================================================
-   LOGIN SCREEN
-   Self-contained background: no external/local image asset is required.
+   LOGIN SCREEN — WAREHOUSE PHOTO
+   The image is kept as a local asset so the login screen
+   also works without an external image URL.
 ========================================================= */
 .login-screen{
     position:fixed !important;
@@ -1514,19 +1515,15 @@ th {
     justify-content:center;
     padding:24px;
     overflow:auto;
-    /* Warehouse photo sits behind the login card; the overlay keeps the form readable. */
-    background-image:
-        linear-gradient(135deg, rgba(7,19,34,.50), rgba(8,18,31,.64)),
-        url("./warehouse-login-bg.png");
-    background-size: cover;
-    background-position: center center;
-    background-repeat: no-repeat;
-    background-color:#0b1626;
+    background-image:url("warehouse-login-bg.png");
+    background-size:cover;
+    background-position:center;
+    background-repeat:no-repeat;
 }
 .login-overlay{
     position:absolute;
     inset:0;
-    background:rgba(8,18,31,.18);
+    background:rgba(8,18,31,.48);
     backdrop-filter:saturate(.85);
 }
 .login-card{

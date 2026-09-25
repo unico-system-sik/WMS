@@ -26,78 +26,64 @@ const AUDIT_KEY = "warehouse_v3_audit";
 
 // =========================================================
 // LOGIN SECURITY SETTINGS
-// 5 failed login attempts -> GLOBAL 10-minute lock.
-// The counter is intentionally NOT tied to a username/login.
-// After the 10-minute lock expires, the counter resets to 0 and
-// the user receives a fresh set of 5 attempts.
-//
-// This is browser/device-level protection. Supabase Auth remains
+// 5 wrong password attempts -> temporary 5-minute lock.
+// The lock is stored per login in localStorage so a page refresh
+// does not immediately reset the counter. Supabase Auth remains
 // the real authentication authority and its own rate limits still apply.
 // =========================================================
 const LOGIN_MAX_ATTEMPTS = 5;
-const LOGIN_LOCKOUT_MS = 10 * 60 * 1000;
-const LOGIN_SECURITY_KEY = "warehouse_login_security_v2";
+const LOGIN_LOCKOUT_MS = 5 * 60 * 1000;
+const LOGIN_SECURITY_KEY = "warehouse_login_security_v1";
 let loginCountdownTimer = null;
-let loginRequestInProgress = false;
 
 function getLoginSecurityStore() {
     try {
-        const parsed = JSON.parse(localStorage.getItem(LOGIN_SECURITY_KEY) || "{}");
-        if (!parsed || typeof parsed !== "object") return { attempts: 0, lockedUntil: 0 };
-
-        return {
-            attempts: Math.max(0, Number(parsed.attempts || 0)),
-            lockedUntil: Math.max(0, Number(parsed.lockedUntil || 0))
-        };
+        return JSON.parse(localStorage.getItem(LOGIN_SECURITY_KEY) || "{}");
     } catch {
-        return { attempts: 0, lockedUntil: 0 };
+        return {};
     }
 }
 
 function saveLoginSecurityStore(store) {
     try {
-        localStorage.setItem(LOGIN_SECURITY_KEY, JSON.stringify({
-            attempts: Math.max(0, Number(store?.attempts || 0)),
-            lockedUntil: Math.max(0, Number(store?.lockedUntil || 0))
-        }));
+        localStorage.setItem(LOGIN_SECURITY_KEY, JSON.stringify(store));
     } catch (error) {
         console.warn("Could not save login security state:", error);
     }
 }
 
-function getLoginSecurityState() {
-    const state = getLoginSecurityStore();
-
-    // Once the 10-minute lock expires, start a completely new 5-attempt window.
-    if (state.lockedUntil && state.lockedUntil <= Date.now()) {
-        const resetState = { attempts: 0, lockedUntil: 0 };
-        saveLoginSecurityStore(resetState);
-        return resetState;
-    }
-
-    return state;
+function normalizeLoginForSecurity(login) {
+    return String(login || "").trim().toLowerCase();
 }
 
-function clearLoginSecurityState() {
-    saveLoginSecurityStore({ attempts: 0, lockedUntil: 0 });
+function getLoginSecurityState(login) {
+    const key = normalizeLoginForSecurity(login);
+    const store = getLoginSecurityStore();
+    return store[key] || { attempts: 0, lockedUntil: 0 };
 }
 
-function registerFailedLogin() {
-    const state = getLoginSecurityState();
+function clearLoginSecurityState(login) {
+    const key = normalizeLoginForSecurity(login);
+    const store = getLoginSecurityStore();
+    delete store[key];
+    saveLoginSecurityStore(store);
+}
 
-    // A valid active lock should never consume another attempt.
-    if (state.lockedUntil > Date.now()) {
-        return state;
-    }
+function registerFailedLogin(login) {
+    const key = normalizeLoginForSecurity(login);
+    if (!key) return { attempts: 0, lockedUntil: 0 };
 
-    state.attempts += 1;
+    const store = getLoginSecurityStore();
+    const state = store[key] || { attempts: 0, lockedUntil: 0 };
+    state.attempts = Number(state.attempts || 0) + 1;
 
     if (state.attempts >= LOGIN_MAX_ATTEMPTS) {
-        state.attempts = LOGIN_MAX_ATTEMPTS;
         state.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
+        state.attempts = LOGIN_MAX_ATTEMPTS;
     }
 
-    saveLoginSecurityStore(state);
+    store[key] = state;
+    saveLoginSecurityStore(store);
     return state;
 }
 
@@ -115,7 +101,7 @@ function stopLoginCountdown() {
     }
 }
 
-function setLoginLockoutUI(lockedUntil) {
+function setLoginLockoutUI(login, lockedUntil) {
     const lockout = document.getElementById("loginLockout");
     const countdown = document.getElementById("loginCountdown");
     const button = document.querySelector("#loginForm .login-button");
@@ -126,11 +112,8 @@ function setLoginLockoutUI(lockedUntil) {
 
     const update = () => {
         const remaining = Number(lockedUntil || 0) - Date.now();
-
         if (remaining <= 0) {
-            // The lock has expired: reset the global counter and give 5 new attempts.
-            clearLoginSecurityState();
-
+            clearLoginSecurityState(login);
             if (lockout) lockout.classList.add("hidden");
             if (button) button.disabled = false;
             if (username) username.disabled = false;
@@ -150,35 +133,25 @@ function setLoginLockoutUI(lockedUntil) {
 }
 
 function refreshLoginLockoutUI() {
-    const state = getLoginSecurityState();
-    const lockout = document.getElementById("loginLockout");
-    const button = document.querySelector("#loginForm .login-button");
-    const username = document.getElementById("loginUsername");
-    const password = document.getElementById("loginPassword");
-
-    if (state.lockedUntil > Date.now()) {
-        setLoginLockoutUI(state.lockedUntil);
+    const login = document.getElementById("loginUsername")?.value || "";
+    if (!normalizeLoginForSecurity(login)) {
+        stopLoginCountdown();
+        document.getElementById("loginLockout")?.classList.add("hidden");
+        const button = document.querySelector("#loginForm .login-button");
+        if (button) button.disabled = false;
         return;
     }
 
-    stopLoginCountdown();
-    if (lockout) lockout.classList.add("hidden");
-    if (button) button.disabled = false;
-    if (username) username.disabled = false;
-    if (password) password.disabled = false;
+    const state = getLoginSecurityState(login);
+    if (state.lockedUntil && state.lockedUntil > Date.now()) {
+        setLoginLockoutUI(login, state.lockedUntil);
+    } else if (state.lockedUntil) {
+        clearLoginSecurityState(login);
+        document.getElementById("loginLockout")?.classList.add("hidden");
+    }
 }
 
-// Login identifiers used by the current WMS Auth accounts.
-// Users may still enter the Auth email prefix (admin01/coordinator01/leader01),
-// or the WMS profile login (000001/100001/500001).
-const LOGIN_EMAIL_ALIASES = Object.freeze({
-    "000001": "admin01@warehouse.local",
-    "100001": "coordinator01@warehouse.local",
-    "500001": "leader01@warehouse.local"
-});
-
 let currentUser = null;
-let liveClockTimer = null;
 // Audit Log is stored centrally in Supabase.
 async function loadAuditHistory() {
     if (!currentUser || String(currentUser.role || "").trim().toLowerCase() !== "admin") {
@@ -236,6 +209,10 @@ async function loadCurrentUser(authUser) {
             .maybeSingle();
 
         if (error) {
+            console.error("Profile lookup error:", error);
+        }
+
+        if (error) {
             console.error("Profile lookup failed. Access is blocked until the profile can be read:", error);
             currentUser = null;
             return null;
@@ -277,8 +254,7 @@ async function loadCurrentUser(authUser) {
 }
 
 function loginEmail(login) {
-    const normalized = String(login || "").trim().toLowerCase();
-    return LOGIN_EMAIL_ALIASES[normalized] || `${normalized}@warehouse.local`;
+    return `${String(login).trim().toLowerCase()}@warehouse.local`;
 }
 
 async function addAudit(action, details = "", employeeLogin = "", actorLogin = "") {
@@ -405,21 +381,13 @@ async function initAppOnce() {
 async function logout() {
     const user = getCurrentUser();
 
-    // Audit is best-effort. A temporary audit insert failure must never
-    // prevent the user from signing out of the browser session.
     if (user) {
-        try {
-            await addAudit("Logout", "User signed out", "", user.login);
-        } catch (error) {
-            console.warn("Logout audit failed:", error);
-        }
+        await addAudit("Logout", "User signed out", "", user.login);
     }
 
-    // Clear local operational WMS state. This function is synchronous.
-    clearWmsClientData();
-
-    // End the local Supabase session and wait for the result.
-    const { error } = await supabaseClient.auth.signOut({ scope: "local" });
+    const { error } =
+        await clearWmsClientData();
+    supabaseClient.auth.signOut({ scope: "local" });
 
     if (error) {
         console.error("Logout error:", error);
@@ -427,69 +395,34 @@ async function logout() {
         return;
     }
 
-    const channels = [
-        scheduleRealtimeChannel,
-        individualScheduleRealtimeChannel,
-        extraDaysRealtimeChannel,
-        attendanceRealtimeChannel,
-        scheduleHistoryRealtimeChannel,
-        employeesRealtimeChannel,
-        auditRealtimeChannel,
-        feedbackRealtimeChannel
-    ];
-
-    for (const channel of channels) {
-        if (channel) {
-            try {
-                await supabaseClient.removeChannel(channel);
-            } catch (removeError) {
-                console.warn("Could not remove realtime channel:", removeError);
-            }
-        }
+    if (scheduleRealtimeChannel) {
+        await supabaseClient.removeChannel(scheduleRealtimeChannel);
+        scheduleRealtimeChannel = null;
+    }
+    if (individualScheduleRealtimeChannel) {
+        await supabaseClient.removeChannel(individualScheduleRealtimeChannel);
+        individualScheduleRealtimeChannel = null;
     }
 
-    scheduleRealtimeChannel = null;
-    individualScheduleRealtimeChannel = null;
-    extraDaysRealtimeChannel = null;
-    attendanceRealtimeChannel = null;
-    scheduleHistoryRealtimeChannel = null;
-    employeesRealtimeChannel = null;
-    auditRealtimeChannel = null;
-    feedbackRealtimeChannel = null;
-
-    if (liveClockTimer) {
-        clearInterval(liveClockTimer);
-        liveClockTimer = null;
+    if (extraDaysRealtimeChannel) {
+        await supabaseClient.removeChannel(extraDaysRealtimeChannel);
+        extraDaysRealtimeChannel = null;
     }
+    if (attendanceRealtimeChannel) {
+        await supabaseClient.removeChannel(attendanceRealtimeChannel);
+        attendanceRealtimeChannel = null;
+    }
+    if (scheduleHistoryRealtimeChannel) {
+        await supabaseClient.removeChannel(scheduleHistoryRealtimeChannel);
+        scheduleHistoryRealtimeChannel = null;
+    }
+    if (employeesRealtimeChannel) { await supabaseClient.removeChannel(employeesRealtimeChannel); employeesRealtimeChannel=null; }
+    if (auditRealtimeChannel) { await supabaseClient.removeChannel(auditRealtimeChannel); auditRealtimeChannel=null; }
+    if (feedbackRealtimeChannel) { await supabaseClient.removeChannel(feedbackRealtimeChannel); feedbackRealtimeChannel=null; }
 
     currentUser = null;
     window.__warehouseAppInitialized = false;
     setAuthScreen(false);
-
-    // Reset the login form so a successful login cannot leave the button
-    // disabled for the next session.
-    const loginForm = document.getElementById("loginForm");
-    const loginButton = loginForm?.querySelector(".login-button");
-    const usernameInput = document.getElementById("loginUsername");
-    const passwordInput = document.getElementById("loginPassword");
-    const togglePassword = document.getElementById("togglePassword");
-    const loginError = document.getElementById("loginError");
-    const loginLockout = document.getElementById("loginLockout");
-
-    if (loginForm) loginForm.reset();
-    if (loginButton) loginButton.disabled = false;
-    if (usernameInput) usernameInput.disabled = false;
-    if (passwordInput) {
-        passwordInput.disabled = false;
-        passwordInput.type = "password";
-    }
-    if (togglePassword) {
-        togglePassword.setAttribute("aria-label", "Show password");
-        togglePassword.setAttribute("title", "Show password");
-    }
-    if (loginError) loginError.textContent = "";
-    if (loginLockout) loginLockout.classList.add("hidden");
-    stopLoginCountdown();
 }
 
 function auditDateKey(value) {
@@ -613,53 +546,30 @@ async function initAuth() {
         }
 
         // Check the 5-attempt lock BEFORE calling Supabase.
-        const securityState = getLoginSecurityState();
+        const securityState = getLoginSecurityState(login);
         if (securityState.lockedUntil > Date.now()) {
-            setLoginLockoutUI(securityState.lockedUntil);
+            setLoginLockoutUI(login, securityState.lockedUntil);
             return;
         }
-
-        // Ignore a second submit (for example, pressing Enter repeatedly)
-        // while the first authentication request is still pending.
-        if (loginRequestInProgress) return;
 
         error.textContent = "";
 
         const button = loginForm.querySelector(".login-button");
         if (button) button.disabled = true;
 
-        loginRequestInProgress = true;
-        let signInResult;
-
-        try {
-            signInResult = await supabaseClient.auth.signInWithPassword({
+        const { data, error: signInError } =
+            await supabaseClient.auth.signInWithPassword({
                 email: loginEmail(login),
                 password
             });
-        } catch (requestError) {
-            console.error("Supabase authentication request failed:", requestError);
-            loginRequestInProgress = false;
-            error.textContent = "Could not connect to the authentication service. Check your connection and try again.";
-
-            const currentSecurityState = getLoginSecurityState();
-            if (currentSecurityState.lockedUntil > Date.now()) {
-                setLoginLockoutUI(currentSecurityState.lockedUntil);
-            } else if (button) {
-                button.disabled = false;
-            }
-            return;
-        }
-
-        loginRequestInProgress = false;
-        const { data, error: signInError } = signInResult;
 
         if (signInError) {
             console.error("Supabase login error:", signInError);
 
-            const failedState = registerFailedLogin();
+            const failedState = registerFailedLogin(login);
             if (failedState.lockedUntil > Date.now()) {
                 error.textContent = "";
-                setLoginLockoutUI(failedState.lockedUntil);
+                setLoginLockoutUI(login, failedState.lockedUntil);
             } else {
                 const remaining = LOGIN_MAX_ATTEMPTS - failedState.attempts;
                 error.textContent = remaining > 0
@@ -671,7 +581,7 @@ async function initAuth() {
         }
 
         // Successful authentication resets the failed-attempt counter.
-        clearLoginSecurityState();
+        clearLoginSecurityState(login);
         stopLoginCountdown();
         document.getElementById("loginLockout")?.classList.add("hidden");
 
@@ -1780,17 +1690,7 @@ function normalizeAttendanceData(data = {}) {
         actualEnd: data.actualEnd || "",
         breakMinutes: Number(data.breakMinutes || 0),
         status: confirmed ? (legacyStatus === "Absent" ? "Absent" : "Confirmed") : "Pending",
-        reason,
-        confirmedAt: data.confirmedAt || "",
-        confirmedById: data.confirmedById || "",
-        confirmedByLogin: data.confirmedByLogin || "",
-        confirmedByName: data.confirmedByName || "",
-        lastChangedById: data.lastChangedById || "",
-        lastChangedByLogin: data.lastChangedByLogin || "",
-        lastChangedByName: data.lastChangedByName || "",
-        lastChangedAt: data.lastChangedAt || "",
-        note: data.note || "",
-        terminatedRecord: data.terminatedRecord === true
+        reason
     };
 }
 
@@ -2054,8 +1954,6 @@ function plannedHours(employee, date) {
     return SHIFTS[shift] ? SHIFTS[shift].netHours : 0;
 }
 
-let toastTimer = null;
-
 function toast(message) {
     const element = $("toast");
     if (!element) return;
@@ -2063,8 +1961,8 @@ function toast(message) {
     element.textContent = message;
     element.classList.add("show");
 
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(
         () => element.classList.remove("show"),
         2200
     );
@@ -4486,9 +4384,6 @@ function switchPage(pageId) {
 }
 
 function initEvents() {
-    if (window.__warehouseEventsInitialized) return;
-    window.__warehouseEventsInitialized = true;
-
     document
         .querySelectorAll(".nav-btn")
         .forEach(button => {
@@ -4932,8 +4827,6 @@ $("saveSchedule").addEventListener(
             updateEditPreview();
         }
     );
-
-    $("reloadSystemUsers")?.addEventListener("click", loadSystemUsers);
 }
 
 
@@ -4955,9 +4848,7 @@ async function initApp() {
     subscribeToFeedbackRealtime();
 
     updateLiveDateTime();
-    if (!liveClockTimer) {
-        liveClockTimer = setInterval(updateLiveDateTime, 1000);
-    }
+    setInterval(updateLiveDateTime, 1000);
     fillOverviewFilters();
     fillEmployeeFilters();
     fillAdditionalMultiFilters();
@@ -4970,6 +4861,7 @@ async function initApp() {
 
     initEvents();
     initEmployeeStatusActions();
+    $("reloadSystemUsers")?.addEventListener("click", loadSystemUsers);
     await loadSystemUsers();
 
     switchPage("overviewPage");
