@@ -929,6 +929,13 @@ let hoursAttendanceMonth = new Date(
 let hoursAttendanceEmployeeLogin = "";
 let hoursModalSource = "hours";
 
+// V27.1 — large-list rendering optimisation.
+// Keep the first render lightweight and reveal more rows only on request.
+const LARGE_LIST_PAGE_SIZE = 100;
+let hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
+let feedbackVisibleCount = LARGE_LIST_PAGE_SIZE;
+let feedbackActiveSubtab = "tracker";
+
 // =========================================================
 // FEEDBACK TRACKER
 // =========================================================
@@ -1226,44 +1233,116 @@ function renderFeedbackAdditionalStats(source) {
 }
 
 function activateFeedbackSubtab(name) {
+    feedbackActiveSubtab = name;
     document.querySelectorAll("[data-feedback-subtab]").forEach(button => button.classList.toggle("active", button.dataset.feedbackSubtab === name));
     document.querySelectorAll(".feedback-subtab-panel").forEach(panel => panel.classList.remove("active"));
     const target = $(name === "tracker" ? "feedbackTrackerSubpage" : name === "statistics" ? "feedbackStatisticsSubpage" : "feedbackHistorySubpage");
     target?.classList.add("active");
+    renderFeedbackCurrentSubtab();
 }
 
-function renderFeedbackTracker() {
+function buildFeedbackDailyIndex(source) {
+    const byDay = new Map();
+    const byEmployee = new Map();
+    const byEmployeeDayEntries = new Map();
+
+    source.forEach(entry => {
+        const employeeLogin = String(entry.employee_login || "");
+        const dayKey = `${employeeLogin}_${entry.work_date}`;
+        byDay.set(dayKey, (byDay.get(dayKey) || 0) + 1);
+        byEmployee.set(employeeLogin, (byEmployee.get(employeeLogin) || 0) + 1);
+
+        const entries = byEmployeeDayEntries.get(dayKey);
+        if (entries) entries.push(entry);
+        else byEmployeeDayEntries.set(dayKey, [entry]);
+    });
+
+    return { byDay, byEmployee, byEmployeeDayEntries };
+}
+
+function renderFeedbackTrackerTable(employees, filtered) {
     const days = feedbackDays();
-    const employees = feedbackFilteredEmployees();
-    const filtered = feedbackEntriesFilteredForView();
-    $("feedbackMonthLabel").textContent = feedbackMonth.toLocaleDateString("en-GB", {month:"long", year:"numeric"});
-    $("feedbackMeta").textContent = `${employees.length} employee${employees.length===1?"":"s"} · ${filtered.length} feedback entr${filtered.length===1?"y":"ies"}`;
+    const index = buildFeedbackDailyIndex(filtered);
+    const visibleEmployees = employees.slice(0, feedbackVisibleCount);
+
     const head = ["<tr><th class=\"feedback-employee-col\">Employee</th><th class=\"feedback-total-col\">Month total</th>"];
     for (let day=1; day<=days; day++) head.push(`<th class="feedback-day-col">${day}</th>`);
     head.push(`<th class="feedback-add-col">Add</th></tr>`);
     $("feedbackTableHead").innerHTML = head.join("");
 
-    $("feedbackTableBody").innerHTML = employees.map(employee => {
-        const total = feedbackTotalFor(employee.login);
+    $("feedbackTableBody").innerHTML = visibleEmployees.map(employee => {
+        const total = index.byEmployee.get(employee.login) || 0;
         const cells = [];
         for (let day=1; day<=days; day++) {
-            const entries = feedbackEntriesFor(employee.login, day);
-            const count = entries.length;
+            const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
+            const key = `${employee.login}_${date}`;
+            const entries = index.byEmployeeDayEntries.get(key) || [];
+            const count = index.byDay.get(key) || 0;
             const title = entries.length ? entries.map(e => `${e.error_type}${e.note ? ` — ${e.note}` : ""} — ${feedbackActor(e)}`).join("\n") : "No feedback";
             cells.push(`<td class="feedback-day-cell" title="${esc(title)}"><span class="feedback-count">${count}</span></td>`);
         }
         return `<tr><td class="feedback-employee"><strong>${esc(employee.login)}</strong><br><span>${esc(employee.name)}</span><small>${esc(employee.brigade)} · ${esc(employee.process)}</small></td><td class="feedback-total-cell"><span class="feedback-total-chip ${feedbackTotalClass(total)}">${total}</span></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
     }).join("") || `<tr><td colspan="${days+3}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
 
+    const moreWrap = $("feedbackMoreWrap");
+    const moreButton = $("feedbackMoreBtn");
+    const hasMore = visibleEmployees.length < employees.length;
+    if (moreWrap) moreWrap.hidden = !hasMore;
+    if (moreButton) {
+        moreButton.textContent = hasMore ? `More (${Math.min(LARGE_LIST_PAGE_SIZE, employees.length - visibleEmployees.length)})` : "More";
+        moreButton.disabled = !hasMore;
+    }
+    const meta = $("feedbackMeta");
+    if (meta) {
+        meta.textContent = `${visibleEmployees.length} of ${employees.length} employee${employees.length===1?"":"s"} shown · ${filtered.length} feedback entr${filtered.length===1?"y":"ies"}`;
+    }
+
+    document.querySelectorAll("[data-feedback-add]").forEach(button => button.addEventListener("click", () => openFeedbackModal(button.dataset.feedbackAdd)));
+}
+
+function renderFeedbackHistory(filtered) {
     const history = [...filtered].sort((a,b) => String(b.created_at||"").localeCompare(String(a.created_at||""))).slice(0,200);
     $("feedbackHistoryTable").innerHTML = history.map(entry => {
         const employee = feedbackEntryEmployee(entry.employee_login);
         return `<tr><td>${esc(entry.work_date)}</td><td><strong>${esc(employee?.login || entry.employee_login)}</strong><br>${esc(employee?.name || "")}</td><td>${esc(entry.error_type)}</td><td>${esc(entry.note || "—")}</td><td>${formatActionActor(entry.confirmed_by_name, entry.confirmed_at)}</td></tr>`;
     }).join("") || `<tr><td colspan="5"><div class="empty">No feedback entries for this month.</div></td></tr>`;
+}
 
-    renderFeedbackErrorStats();
-    renderFeedbackAdditionalStats(filtered);
-    document.querySelectorAll("[data-feedback-add]").forEach(button => button.addEventListener("click", () => openFeedbackModal(button.dataset.feedbackAdd)));
+function renderFeedbackCurrentSubtab() {
+    const filtered = feedbackEntriesFilteredForView();
+    if (feedbackActiveSubtab === "statistics") {
+        renderFeedbackErrorStats();
+        renderFeedbackAdditionalStats(filtered);
+        return;
+    }
+    if (feedbackActiveSubtab === "history") {
+        renderFeedbackHistory(filtered);
+        return;
+    }
+
+    const employees = feedbackFilteredEmployees();
+    renderFeedbackTrackerTable(employees, filtered);
+}
+
+function renderFeedbackTracker() {
+    const filtered = feedbackEntriesFilteredForView();
+    $("feedbackMonthLabel").textContent = feedbackMonth.toLocaleDateString("en-GB", {month:"long", year:"numeric"});
+    renderFeedbackCurrentSubtab();
+
+    // Keep the main tracker fast on entry. Statistics and history are now
+    // rendered only when their own subtab is opened.
+    if (feedbackActiveSubtab === "tracker") {
+        const employees = feedbackFilteredEmployees();
+        const meta = $("feedbackMeta");
+        if (meta) meta.textContent = `${Math.min(feedbackVisibleCount, employees.length)} of ${employees.length} employee${employees.length===1?"":"s"} shown · ${filtered.length} feedback entr${filtered.length===1?"y":"ies"}`;
+    }
+}
+
+function showMoreFeedbackEmployees() {
+    const employees = feedbackFilteredEmployees();
+    if (feedbackVisibleCount >= employees.length) return;
+    feedbackVisibleCount = Math.min(feedbackVisibleCount + LARGE_LIST_PAGE_SIZE, employees.length);
+    renderFeedbackCurrentSubtab();
 }
 
 function subscribeToFeedbackRealtime() {
@@ -1272,7 +1351,9 @@ function subscribeToFeedbackRealtime() {
         .on("postgres_changes", {event:"*", schema:"public", table:"feedback_entries"}, async payload => {
             console.info("Feedback realtime update:", payload.eventType);
             await loadFeedbackFromSupabase();
-            renderFeedbackTracker();
+            if ($("feedbackTrackerPage")?.classList.contains("active-page")) {
+                renderFeedbackTracker();
+            }
         })
         .subscribe(status => console.info("Feedback realtime status:", status));
 }
@@ -1339,7 +1420,24 @@ function subscribeToEmployeesRealtime() {
         .on("postgres_changes", { event: "*", schema: "public", table: "employees" }, async payload => {
             console.info("Employees realtime update:", payload.eventType);
             const loaded = await loadEmployeesFromSupabase();
-            if (loaded) { fillOverviewFilters(); fillEmployeeFilters(); fillFeedbackFilters(); renderEmployeeDatabase(); renderFormerEmployees(); renderStatistics(); renderAllHoursAttendance(); renderOverview(); renderFeedbackTracker(); }
+            if (loaded) {
+                fillOverviewFilters();
+                fillEmployeeFilters();
+                fillFeedbackFilters();
+                renderEmployeeDatabase();
+                renderFormerEmployees();
+                renderStatistics();
+                renderOverview();
+
+                if ($("hoursAttendancePage")?.classList.contains("active-page")) {
+                    hoursAllVisibleCount = Math.min(hoursAllVisibleCount, LARGE_LIST_PAGE_SIZE);
+                    renderAllHoursAttendance();
+                }
+                if ($("feedbackTrackerPage")?.classList.contains("active-page")) {
+                    feedbackVisibleCount = Math.min(feedbackVisibleCount, LARGE_LIST_PAGE_SIZE);
+                    renderFeedbackTracker();
+                }
+            }
         })
         .subscribe(status => console.info("Employees realtime status:", status));
 }
@@ -4397,8 +4495,8 @@ function switchPage(pageId) {
     }
 
     if (pageId === "hoursAttendancePage") {
-        // Hours Attendance always opens with the full employee list visible.
-        // Searching an employee adds the detailed monthly panel above it.
+        // V27.1 — first render is limited to 100 employees.
+        hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
         hoursAttendanceEmployeeLogin = "";
         if ($("hoursEmployeeLogin")) $("hoursEmployeeLogin").value = "";
         renderAllHoursAttendance();
@@ -4406,6 +4504,10 @@ function switchPage(pageId) {
     }
 
     if (pageId === "feedbackTrackerPage") {
+        // V27.1 — first render is limited to 100 employees.
+        feedbackVisibleCount = LARGE_LIST_PAGE_SIZE;
+        feedbackActiveSubtab = "tracker";
+        activateFeedbackSubtab("tracker");
         renderFeedbackTracker();
     }
 }
@@ -4589,25 +4691,32 @@ function initEvents() {
     // Feedback Tracker
     $("feedbackMonthPrev")?.addEventListener("click", async () => {
         feedbackMonth = new Date(feedbackMonth.getFullYear(), feedbackMonth.getMonth()-1, 1, 12);
+        feedbackVisibleCount = LARGE_LIST_PAGE_SIZE;
         await loadFeedbackFromSupabase();
         renderFeedbackTracker();
     });
     $("feedbackMonthNext")?.addEventListener("click", async () => {
         feedbackMonth = new Date(feedbackMonth.getFullYear(), feedbackMonth.getMonth()+1, 1, 12);
+        feedbackVisibleCount = LARGE_LIST_PAGE_SIZE;
         await loadFeedbackFromSupabase();
         renderFeedbackTracker();
     });
-    $("applyFeedbackFilters")?.addEventListener("click", renderFeedbackTracker);
+    $("applyFeedbackFilters")?.addEventListener("click", () => {
+        feedbackVisibleCount = LARGE_LIST_PAGE_SIZE;
+        renderFeedbackTracker();
+    });
     $("clearFeedbackFilters")?.addEventListener("click", () => {
         $("feedbackSearch").value = "";
         setMultiFilterValues("feedbackBrigadeFilter", []);
         setMultiFilterValues("feedbackProcessFilter", []);
         setMultiFilterValues("feedbackErrorTypeFilter", []);
+        feedbackVisibleCount = LARGE_LIST_PAGE_SIZE;
         renderFeedbackTracker();
     });
     $("feedbackSearch")?.addEventListener("keydown", event => {
-        if (event.key === "Enter") { event.preventDefault(); renderFeedbackTracker(); }
+        if (event.key === "Enter") { event.preventDefault(); feedbackVisibleCount = LARGE_LIST_PAGE_SIZE; renderFeedbackTracker(); }
     });
+    $("feedbackMoreBtn")?.addEventListener("click", showMoreFeedbackEmployees);
     $("feedbackForm")?.addEventListener("submit", saveFeedbackEntry);
     $("closeFeedbackModal")?.addEventListener("click", closeFeedbackModal);
     $("cancelFeedback")?.addEventListener("click", closeFeedbackModal);
@@ -4734,6 +4843,7 @@ $("saveSchedule").addEventListener(
                 1,
                 12
             );
+            hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
             renderHoursAttendance();
             renderAllHoursAttendance();
         }
@@ -4748,6 +4858,7 @@ $("saveSchedule").addEventListener(
                 1,
                 12
             );
+            hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
             renderHoursAttendance();
             renderAllHoursAttendance();
         }
@@ -4830,15 +4941,20 @@ $("saveSchedule").addEventListener(
         updateEditPreview
     );
 
-    $("hoursAllSearch")?.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); renderAllHoursAttendance(); } });
-    $("applyHoursAllFilters")?.addEventListener("click", renderAllHoursAttendance);
+    $("hoursAllSearch")?.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE; renderAllHoursAttendance(); } });
+    $("applyHoursAllFilters")?.addEventListener("click", () => {
+        hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
+        renderAllHoursAttendance();
+    });
     $("clearHoursAllFilters")?.addEventListener("click", () => {
         if ($("hoursAllSearch")) $("hoursAllSearch").value = "";
         setMultiFilterValues("hoursAllBrigade", []);
         setMultiFilterValues("hoursAllProcess", []);
         setMultiFilterValues("hoursAllStatus", []);
+        hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
         renderAllHoursAttendance();
     });
+    $("hoursAllMoreBtn")?.addEventListener("click", showMoreHoursEmployees);
     $("hoursExportAllBtn")?.addEventListener("click", () => exportHoursAttendanceCSV(true));
     $("hoursExportFilteredBtn")?.addEventListener("click", () => exportHoursAttendanceCSV(false));
 
@@ -4880,8 +4996,9 @@ async function initApp() {
     fillEmployeeFilters();
     fillAdditionalMultiFilters();
     fillFeedbackFilters();
-    renderAllHoursAttendance();
-    renderFeedbackTracker();
+
+    // Heavy Hours Attendance / Feedback tables are rendered lazily when
+    // the user actually opens those pages.
 
     $("overviewDate").value =
         dateKey(overviewDate);
@@ -4948,25 +5065,49 @@ function renderAllHoursAttendance() {
     const body = $("hoursAllTableBody"), meta = $("hoursAllMeta");
     if (!body) return;
     updateHoursExportVisibility();
+
     const employees = hoursAllFilterEmployees(false);
+    const visibleEmployees = employees.slice(0, hoursAllVisibleCount);
     let planned = 0, confirmed = 0, pending = 0, difference = 0;
-    employees.forEach(e => {
+
+    visibleEmployees.forEach(e => {
         const s = getHoursEmployeeSummary(e);
         planned += s.planned;
         confirmed += s.confirmed;
         pending += s.pending;
         difference += s.difference;
     });
-    if ($("hoursAllTotal")) $("hoursAllTotal").textContent = String(employees.length);
+
+    if ($("hoursAllTotal")) $("hoursAllTotal").textContent = String(visibleEmployees.length);
     if ($("hoursAllPlanned")) $("hoursAllPlanned").textContent = `${planned.toFixed(2)}h`;
     if ($("hoursAllConfirmed")) $("hoursAllConfirmed").textContent = `${confirmed.toFixed(2)}h`;
     if ($("hoursAllPending")) $("hoursAllPending").textContent = String(pending);
     if ($("hoursAllDifference")) $("hoursAllDifference").textContent = `${difference >= 0 ? "+" : ""}${difference.toFixed(2)}h`;
-    if (meta) meta.textContent = `${employees.length} employee${employees.length === 1 ? "" : "s"}`;
-    body.innerHTML = employees.map(e => {
-        const s=getHoursEmployeeSummary(e);
+
+    if (meta) {
+        meta.textContent = `${visibleEmployees.length} of ${employees.length} employee${employees.length === 1 ? "" : "s"} shown`;
+    }
+
+    body.innerHTML = visibleEmployees.map(e => {
+        const s = getHoursEmployeeSummary(e);
         return `<tr><td><strong>${esc(e.login)}</strong></td><td>${esc(e.name)}</td><td>${esc(e.brigade)}</td><td>${esc(e.process)}</td><td>${s.planned.toFixed(2)}h</td><td>${s.confirmed.toFixed(2)}h</td><td>${s.difference >= 0 ? "+" : ""}${s.difference.toFixed(2)}h</td><td>${s.pending}</td></tr>`;
     }).join("") || `<tr><td colspan="8"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+
+    const moreWrap = $("hoursAllMoreWrap");
+    const moreButton = $("hoursAllMoreBtn");
+    const hasMore = visibleEmployees.length < employees.length;
+    if (moreWrap) moreWrap.hidden = !hasMore;
+    if (moreButton) {
+        moreButton.textContent = hasMore ? `More (${Math.min(LARGE_LIST_PAGE_SIZE, employees.length - visibleEmployees.length)})` : "More";
+        moreButton.disabled = !hasMore;
+    }
+}
+
+function showMoreHoursEmployees() {
+    const employees = hoursAllFilterEmployees(false);
+    if (hoursAllVisibleCount >= employees.length) return;
+    hoursAllVisibleCount = Math.min(hoursAllVisibleCount + LARGE_LIST_PAGE_SIZE, employees.length);
+    renderAllHoursAttendance();
 }
 
 function hoursExportRows(ignoreFilters) {

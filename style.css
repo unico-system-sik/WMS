@@ -213,6 +213,22 @@ button {
     grid-template-columns: repeat(4, 1fr);
 }
 
+.cards.five {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.table-more-wrap {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    padding-top: 14px;
+}
+
+.table-more-wrap button {
+    min-width: 120px;
+}
+
 .card,
 .panel {
     background: #ffffff;
@@ -1806,6 +1822,11 @@ th {
 .feedback-subtabs { margin-bottom: 16px; }
 @media (max-width: 1100px) {
     .hours-all-summary-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cards.five { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 700px) {
+    .cards.five { grid-template-columns: 1fr; }
 }
 
 /* V26.9 — Hours Attendance selected employee stays at the top and inside the page width */
