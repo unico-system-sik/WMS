@@ -1779,21 +1779,26 @@ th {
 .feedback-table-wrap { overflow-x:auto; }
 .feedback-table { min-width:max-content; }
 .feedback-table th, .feedback-table td { white-space:nowrap; }
-.feedback-employee-col { min-width:190px; position:sticky; left:0; z-index:3; }
-.feedback-total-col { min-width:95px; position:sticky; left:190px; z-index:3; }
-.feedback-employee { min-width:190px; position:sticky; left:0; background:var(--surface,#fff); z-index:2; }
-.feedback-employee span { display:block; font-weight:600; }
-.feedback-employee small { display:block; margin-top:3px; opacity:.65; }
-.feedback-total-cell { min-width:95px; text-align:center; position:sticky; left:190px; background:var(--surface,#fff); z-index:2; }
+.feedback-login-col, .feedback-login-cell { min-width:110px; width:110px; position:sticky; left:0; z-index:3; }
+.feedback-name-col, .feedback-name-cell { min-width:190px; width:190px; position:sticky; left:110px; z-index:3; }
+.feedback-brigade-col, .feedback-brigade-cell { min-width:95px; width:95px; text-align:center; position:sticky; left:300px; z-index:3; }
+.feedback-process-col, .feedback-process-cell { min-width:145px; width:145px; position:sticky; left:395px; z-index:3; }
+.feedback-login-cell, .feedback-name-cell, .feedback-brigade-cell, .feedback-process-cell, .feedback-total-cell { background:var(--surface,#fff); }
+.feedback-login-cell, .feedback-name-cell, .feedback-process-cell { text-align:left; }
+.feedback-total-col { min-width:95px; position:sticky; left:540px; z-index:3; }
+.feedback-total-cell { min-width:95px; text-align:center; position:sticky; left:540px; z-index:2; }
 .feedback-day-col, .feedback-day-cell { width:38px; min-width:38px; text-align:center; }
 .feedback-day-cell { font-weight:700; cursor:default; }
 .feedback-count { display:inline-flex; align-items:center; justify-content:center; min-width:24px; height:24px; border-radius:7px; background:rgba(100,116,139,.10); }
 .feedback-add-col, .feedback-add-cell { width:52px; min-width:52px; text-align:center; position:sticky; right:0; background:var(--surface,#fff); z-index:2; }
 .feedback-add-btn { width:32px; height:32px; padding:0; border-radius:9px; font-size:20px; line-height:1; }
-.feedback-table tbody tr:hover .feedback-employee, .feedback-table tbody tr:hover .feedback-total-cell, .feedback-table tbody tr:hover .feedback-add-cell { background:var(--surface-hover,#f8fafc); }
+.feedback-table tbody tr:hover .feedback-login-cell, .feedback-table tbody tr:hover .feedback-name-cell, .feedback-table tbody tr:hover .feedback-brigade-cell, .feedback-table tbody tr:hover .feedback-process-cell, .feedback-table tbody tr:hover .feedback-total-cell, .feedback-table tbody tr:hover .feedback-add-cell { background:var(--surface-hover,#f8fafc); }
 @media (max-width:900px) {
-    .feedback-employee-col, .feedback-employee { min-width:155px; }
-    .feedback-total-col, .feedback-total-cell { left:155px; }
+    .feedback-login-col, .feedback-login-cell { min-width:100px; width:100px; }
+    .feedback-name-col, .feedback-name-cell { min-width:165px; width:165px; left:100px; }
+    .feedback-brigade-col, .feedback-brigade-cell { min-width:85px; width:85px; left:265px; }
+    .feedback-process-col, .feedback-process-cell { min-width:125px; width:125px; left:350px; }
+    .feedback-total-col, .feedback-total-cell { left:475px; }
 }
 
 /* V26.3 Feedback statistics */

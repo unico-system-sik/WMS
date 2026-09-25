@@ -846,11 +846,38 @@ function employeeWorkedDaysForMonth(employee, monthDate) {
     return workedDates.size;
 }
 
+function employeeDateKey(value) {
+    if (!value) return "";
+    const text = String(value).slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function canConfirmEmployeeDate(employee, date) {
+    if (!employee || !date) return false;
+    const startDate = employeeDateKey(employee.startDate);
+    return !startDate || dateKey(date) >= startDate;
+}
+
+function attendanceMonitoringEmployees(monthDate = hoursAttendanceMonth) {
+    const monthStart = dateKey(new Date(monthDate.getFullYear(), monthDate.getMonth(), 1, 12));
+    const monthEnd = dateKey(new Date(monthDate.getFullYear(), monthDate.getMonth(), monthDays(monthDate), 12));
+    return EMPLOYEES.filter(employee => {
+        if (employee.status === "Active") return true;
+        if (employee.status !== "Former" || !employee.endDate) return false;
+        const end = employeeDateKey(employee.endDate);
+        if (!end || end > monthEnd) return false;
+        const endDate = fromKey(end);
+        const keepUntil = dateKey(new Date(endDate.getFullYear(), endDate.getMonth() + 1, endDate.getDate(), 12));
+        return monthStart <= keepUntil;
+    });
+}
+
 function getHoursAttendanceEmployeeMetrics(employee, monthDate = hoursAttendanceMonth) {
     let planned = 0, confirmed = 0, pending = 0, absent = 0, underworked = 0, workedDays = 0, plannedDays = 0;
     const totalDays = monthDays(monthDate);
     for (let day = 1; day <= totalDays; day++) {
         const date = new Date(monthDate.getFullYear(), monthDate.getMonth(), day, 12);
+        if (!canConfirmEmployeeDate(employee, date)) continue;
         const p = Number(plannedHours(employee, date) || 0);
         const data = getAttendance(employee, date);
         const actual = Number(data.actualHours || 0);
@@ -1248,7 +1275,7 @@ function renderFeedbackErrorStats() {
         matrixRows.push(`<tr class="feedback-stats-percent-row"><td><strong>Daily share</strong></td>${dailyPcts.join("")}<td><strong>100.0%</strong></td><td><strong>100.0%</strong></td></tr>`);
     }
     $("feedbackStatsHead").innerHTML = head.join("");
-    $("feedbackStatsBody").innerHTML = matrixRows.join("") || `<tr><td colspan="${days+3}"><div class="empty">No feedback statistics for the selected filters.</div></td></tr>`;
+    $("feedbackStatsBody").innerHTML = matrixRows.join("") || `<tr><td colspan="${days+6}"><div class="empty">No feedback statistics for the selected filters.</div></td></tr>`;
 
     // Daily overview: useful for spotting high-error days at a glance.
     const dailyRows = [];
@@ -1346,7 +1373,7 @@ function renderFeedbackTrackerTable(employees, filtered) {
     const index = buildFeedbackDailyIndex(filtered);
     const visibleEmployees = employees.slice(0, feedbackVisibleCount);
 
-    const head = ["<tr><th class=\"feedback-employee-col\">Employee</th><th class=\"feedback-total-col\">Month total</th>"];
+    const head = ["<tr><th class=\"feedback-login-col\">Login</th><th class=\"feedback-name-col\">Name</th><th class=\"feedback-brigade-col\">Brigade</th><th class=\"feedback-process-col\">Process</th><th class=\"feedback-total-col\">Month total</th>"];
     for (let day=1; day<=days; day++) head.push(`<th class="feedback-day-col">${day}</th>`);
     head.push(`<th class="feedback-add-col">Add</th></tr>`);
     $("feedbackTableHead").innerHTML = head.join("");
@@ -1362,7 +1389,7 @@ function renderFeedbackTrackerTable(employees, filtered) {
             const title = entries.length ? entries.map(e => `${e.error_type}${e.note ? ` — ${e.note}` : ""} — ${feedbackActor(e)}`).join("\n") : "No feedback";
             cells.push(`<td class="feedback-day-cell" title="${esc(title)}"><span class="feedback-count">${count}</span></td>`);
         }
-        return `<tr><td class="feedback-employee"><strong>${esc(employee.login)}</strong><br><span>${esc(employee.name)}</span><small>${esc(employee.brigade)} · ${esc(employee.process)}</small></td><td class="feedback-total-cell"><span class="feedback-total-chip ${feedbackTotalClass(total)}">${total}</span></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
+        return `<tr><td class="feedback-login-cell"><strong>${esc(employee.login)}</strong></td><td class="feedback-name-cell">${esc(employee.name)}</td><td class="feedback-brigade-cell">${esc(employee.brigade)}</td><td class="feedback-process-cell">${esc(employee.process)}</td><td class="feedback-total-cell"><span class="feedback-total-chip ${feedbackTotalClass(total)}">${total}</span></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
     }).join("") || `<tr><td colspan="${days+3}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
 
     const moreWrap = $("feedbackMoreWrap");
@@ -2592,6 +2619,7 @@ async function confirmSelectedHours() {
         const current = attendance[key] || {};
 
         if (current.confirmed) return;
+        if (!canConfirmEmployeeDate(employee, overviewDate)) return;
 
         const schedule = getSchedule(employee, overviewDate);
         const shift = schedule.shift;
@@ -2670,6 +2698,7 @@ async function markSelectedAbsent() {
             alreadyConfirmed.push(employee.login);
             return;
         }
+        if (!canConfirmEmployeeDate(employee, overviewDate)) return;
 
         const schedule = getSchedule(employee, overviewDate);
         const shift = schedule.shift;
@@ -2864,6 +2893,10 @@ async function saveHoursEdit(event) {
     const requestedStatus = $("editStatus")?.value || "Pending";
     if (requestedStatus === "Confirmed" && !isTodayOrPast(date)) {
         toast("Future hours cannot be confirmed.");
+        return;
+    }
+    if (requestedStatus === "Confirmed" && !canConfirmEmployeeDate(employee, date)) {
+        toast(`Hours cannot be confirmed before ${employee.startDate}.`);
         return;
     }
 
@@ -4579,6 +4612,11 @@ async function confirmHoursDay(employee, date) {
         return;
     }
 
+    if (!canConfirmEmployeeDate(employee, date)) {
+        toast(`Hours cannot be confirmed before ${employee.startDate}.`);
+        return;
+    }
+
     const key = attendanceKey(date, employee.login);
     const current = getAttendance(employee, date);
     if (current.confirmed) {
@@ -4673,8 +4711,22 @@ function renderHoursAttendance() {
 
         const schedule = getSchedule(employee, date);
         const data = getAttendance(employee, date);
-        const p = plannedHours(employee, date);
-        const a = Number(data.actualHours || 0);
+        const p = canConfirmEmployeeDate(employee, date) ? plannedHours(employee, date) : 0;
+        const a = canConfirmEmployeeDate(employee, date) ? Number(data.actualHours || 0) : 0;
+
+        if (!canConfirmEmployeeDate(employee, date)) {
+            rows.push(`
+                <tr>
+                    <td><strong>${date.toLocaleDateString("en-GB")}</strong></td>
+                    <td>${date.toLocaleDateString("en-US", { weekday: "short" })}</td>
+                    <td><span class="shift-pill off">O</span></td>
+                    <td>0.00h</td><td>0.00h</td><td>—</td><td>—</td>
+                    <td><span class="hours-status-pending">Before start</span></td>
+                    <td>Not employed yet</td><td>—</td><td>—</td><td>—</td><td>—</td>
+                </tr>
+            `);
+            continue;
+        }
 
         planned += p;
         if (p > 0) plannedDays++;
@@ -5423,7 +5475,7 @@ function toggleHoursAttendanceDaySort(dayKey) {
 }
 
 function hoursAllFilterEmployees(ignoreFilters = false) {
-    let list = activeEmployees();
+    let list = attendanceMonitoringEmployees(hoursAttendanceMonth);
     if (ignoreFilters) return list;
     const search = $("hoursAllSearch")?.value.trim().toLowerCase() || "";
     const brigades = selectedMultiValues("hoursAllBrigade");
@@ -5444,6 +5496,15 @@ function hoursAllFilterEmployees(ignoreFilters = false) {
 }
 function getHoursAttendanceDayCell(employee, date) {
     const schedule = getSchedule(employee, date);
+    if (!canConfirmEmployeeDate(employee, date)) {
+        const dateLabel = date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
+        const weekdayLabel = date.toLocaleDateString("en-US", { weekday: "long" });
+        return {
+            code: "O",
+            className: "off",
+            title: `${weekdayLabel}, ${dateLabel} · Before start date ${employee.startDate} · No attendance confirmation allowed`
+        };
+    }
     const planned = Number(plannedHours(employee, date) || 0);
     const data = getAttendance(employee, date);
     const actual = Number(data.actualHours || 0);
