@@ -2142,3 +2142,36 @@ th {
     .hours-attendance-matrix .hours-matrix-process-col,
     .hours-attendance-matrix .hours-matrix-process { left: 237px; }
 }
+
+
+/* V28.3 — Feedback Tracker / Detailed Statistics alignment */
+.feedback-table.feedback-stats-summary-table { width:100%; min-width:620px; table-layout:fixed; }
+.feedback-stats-summary-table th:nth-child(1), .feedback-stats-summary-table td:nth-child(1) { width:52%; text-align:left; }
+.feedback-stats-summary-table th:nth-child(2), .feedback-stats-summary-table td:nth-child(2) { width:20%; text-align:center; }
+.feedback-stats-summary-table th:nth-child(3), .feedback-stats-summary-table td:nth-child(3) { width:28%; text-align:center; }
+
+.feedback-table.feedback-daily-summary-table { width:100%; min-width:760px; table-layout:fixed; }
+.feedback-daily-summary-table th:nth-child(1), .feedback-daily-summary-table td:nth-child(1) { width:12%; text-align:center; }
+.feedback-daily-summary-table th:nth-child(2), .feedback-daily-summary-table td:nth-child(2) { width:28%; text-align:center; }
+.feedback-daily-summary-table th:nth-child(3), .feedback-daily-summary-table td:nth-child(3) { width:30%; text-align:center; }
+.feedback-daily-summary-table th:nth-child(4), .feedback-daily-summary-table td:nth-child(4) { width:30%; text-align:center; }
+
+.feedback-table.feedback-stats-table { width:max-content; min-width:100%; }
+.feedback-stats-table th, .feedback-stats-table td { height:42px; vertical-align:middle; }
+.feedback-stats-table th:first-child, .feedback-stats-table td:first-child { min-width:190px; width:190px; }
+.feedback-stats-table th:last-child, .feedback-stats-table td:last-child { min-width:82px; width:82px; }
+.feedback-stats-table th:nth-last-child(2), .feedback-stats-table td:nth-last-child(2) { min-width:82px; width:82px; }
+
+/* Keep the first seven Feedback Tracker columns visually stable and aligned. */
+.feedback-table.feedback-table-main { table-layout:fixed; }
+.feedback-table-main .feedback-login-col, .feedback-table-main .feedback-login-cell { width:110px; min-width:110px; }
+.feedback-table-main .feedback-name-col, .feedback-table-main .feedback-name-cell { width:190px; min-width:190px; }
+.feedback-table-main .feedback-brigade-col, .feedback-table-main .feedback-brigade-cell { width:95px; min-width:95px; }
+.feedback-table-main .feedback-process-col, .feedback-table-main .feedback-process-cell { width:145px; min-width:145px; }
+.feedback-table-main .feedback-worked-col, .feedback-table-main .feedback-worked-cell { width:105px; min-width:105px; }
+.feedback-table-main .feedback-start-col, .feedback-table-main .feedback-start-cell { width:110px; min-width:110px; }
+.feedback-table-main .feedback-total-col, .feedback-table-main .feedback-total-cell { width:110px; min-width:110px; }
+.feedback-table-main .feedback-day-col, .feedback-table-main .feedback-day-cell { width:38px; min-width:38px; }
+.feedback-table-main .feedback-add-col, .feedback-table-main .feedback-add-cell { width:52px; min-width:52px; }
+.feedback-total-col span, .feedback-total-col small { text-align:center; }
+.feedback-total-button { border:1px solid transparent; background:transparent; }
