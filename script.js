@@ -1037,6 +1037,7 @@ let hoursAttendanceEmployeeLogin = "";
 let hoursModalSource = "hours";
 let hoursAttendanceDaySortKey = "";
 let hoursAttendanceDaySortDirection = 1; // 1 = A/E/P/C/O priority, -1 = reverse
+let attendanceActiveSubtab = "tracker";
 
 // V27.1 — large-list rendering optimisation.
 // Keep the first render lightweight and reveal more rows only on request.
@@ -4922,6 +4923,8 @@ function switchPage(pageId) {
         hoursAttendanceEmployeeLogin = "";
         hoursAttendanceDaySortKey = "";
         hoursAttendanceDaySortDirection = 1;
+        attendanceActiveSubtab = "tracker";
+        activateAttendanceSubtab("tracker");
         if ($("hoursAllSearch")) $("hoursAllSearch").value = "";
         setMultiFilterValues("hoursAllBrigade", []);
         setMultiFilterValues("hoursAllProcess", []);
@@ -5122,6 +5125,10 @@ function initEvents() {
 
     document.querySelectorAll("[data-feedback-subtab]").forEach(button => {
         button.addEventListener("click", () => activateFeedbackSubtab(button.dataset.feedbackSubtab));
+    });
+
+    document.querySelectorAll("[data-attendance-subtab]").forEach(button => {
+        button.addEventListener("click", () => activateAttendanceSubtab(button.dataset.attendanceSubtab));
     });
 
     // Feedback Tracker
@@ -5465,6 +5472,22 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 
 
+/* Attendance Monitoring subtabs */
+function activateAttendanceSubtab(name) {
+    attendanceActiveSubtab = name === "statistics" ? "statistics" : "tracker";
+    document.querySelectorAll("[data-attendance-subtab]").forEach(button => {
+        button.classList.toggle("active", button.dataset.attendanceSubtab === attendanceActiveSubtab);
+    });
+    document.querySelectorAll(".attendance-subtab-panel").forEach(panel => {
+        panel.classList.toggle("active", panel.id === (attendanceActiveSubtab === "tracker" ? "attendanceTrackerSubpage" : "attendanceStatisticsSubpage"));
+    });
+    if (attendanceActiveSubtab === "statistics") {
+        renderAttendanceMonthlyStats();
+    } else {
+        renderAllHoursAttendance();
+    }
+}
+
 /* Attendance Monitoring: all employees + filters + export */
 function hoursExportAllowed() {
     return canExportData();
@@ -5679,7 +5702,10 @@ function getHoursAttendanceDayHeaders(monthDate = hoursAttendanceMonth) {
 }
 
 function renderAllHoursAttendance() {
-    renderAttendanceMonthlyStats();
+    if (attendanceActiveSubtab === "statistics") {
+        renderAttendanceMonthlyStats();
+        return;
+    }
     const body = $("hoursAllTableBody"), meta = $("hoursAllMeta"), head = $("hoursAllTableHead");
     if (!body) return;
     updateHoursExportVisibility();

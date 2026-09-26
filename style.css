@@ -2191,3 +2191,9 @@ th {
 .attendance-stats-table th:nth-child(3), .attendance-stats-table td:nth-child(3) { width:25%; }
 .attendance-stats-table th:nth-child(4), .attendance-stats-table td:nth-child(4) { width:25%; }
 @media (max-width: 900px) { .attendance-stats-grid { grid-template-columns:1fr; } }
+
+/* V28.5 — Attendance Monitoring subtabs, matching Feedback Tracker */
+.attendance-subtabs{display:flex;gap:8px;margin:0 0 14px;padding:5px;background:#eef2f8;border:1px solid #dbe2ec;border-radius:10px;width:max-content;max-width:100%;}
+.attendance-subtab-panel{display:none;}
+.attendance-subtab-panel.active{display:block;}
+@media(max-width:1000px){.attendance-subtabs{width:100%;}.attendance-subtabs .subtab{flex:1;}}
