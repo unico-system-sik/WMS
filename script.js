@@ -5508,7 +5508,7 @@ function renderAttendanceMonthlyStats() {
         return d >= monthStart && d <= monthEnd;
     };
 
-    let extraDays = 0, extraNights = 0, extraOff = 0, absentTotal = 0;
+    let extraDayCount = 0, extraNightCount = 0, extraOffCount = 0, absentTotal = 0;
     const dailyAbsent = new Map();
     const dailyPlanned = new Map();
     const extraByDate = new Map();
@@ -5539,14 +5539,14 @@ function renderAttendanceMonthlyStats() {
         const key = String(item.date).slice(0, 10);
         if (!extraByDate.has(key)) extraByDate.set(key, { day: 0, night: 0, off: 0 });
         const bucket = extraByDate.get(key);
-        if (item.type === 'extra-off') { extraOff++; bucket.off++; }
-        else if (item.type === 'extra-work-night') { extraNights++; bucket.night++; }
-        else if (item.type === 'extra-work-day') { extraDays++; bucket.day++; }
+        if (item.type === 'extra-off') { extraOffCount++; bucket.off++; }
+        else if (item.type === 'extra-work-night') { extraNightCount++; bucket.night++; }
+        else if (item.type === 'extra-work-day') { extraDayCount++; bucket.day++; }
     });
 
-    $("attendanceStatsExtraDays") && ($("attendanceStatsExtraDays").textContent = String(extraDays));
-    $("attendanceStatsExtraNights") && ($("attendanceStatsExtraNights").textContent = String(extraNights));
-    $("attendanceStatsExtraOff") && ($("attendanceStatsExtraOff").textContent = String(extraOff));
+    $("attendanceStatsExtraDays") && ($("attendanceStatsExtraDays").textContent = String(extraDayCount));
+    $("attendanceStatsExtraNights") && ($("attendanceStatsExtraNights").textContent = String(extraNightCount));
+    $("attendanceStatsExtraOff") && ($("attendanceStatsExtraOff").textContent = String(extraOffCount));
     $("attendanceStatsAbsent") && ($("attendanceStatsAbsent").textContent = String(absentTotal));
     $("attendanceStatsAbsentDays") && ($("attendanceStatsAbsentDays").textContent = String([...dailyAbsent.values()].filter(v => v > 0).length));
 
