@@ -838,6 +838,7 @@ function employeeWorkedDaysForMonth(employee, monthDate) {
         const datePart = key.slice(0, -suffix.length);
         const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(datePart);
         if (!match || Number(match[1]) !== year || Number(match[2]) !== month + 1) return;
+        if (employee && !canConfirmEmployeeDate(employee, datePart)) return;
         const confirmed = Boolean(data?.confirmed);
         const status = String(data?.status || "").trim().toLowerCase();
         if (!confirmed || status === "absent") return;
@@ -854,7 +855,8 @@ function employeeDateKey(value) {
 
 function canConfirmEmployeeDate(employee, date) {
     if (!employee || !date) return false;
-    return employeeHasStartedOnDate(employee, date);
+    const startDate = employeeDateKey(employee.startDate);
+    return !startDate || dateKey(date) >= startDate;
 }
 
 function attendanceMonitoringEmployees(monthDate = hoursAttendanceMonth) {
@@ -1372,7 +1374,7 @@ function renderFeedbackTrackerTable(employees, filtered) {
     const index = buildFeedbackDailyIndex(filtered);
     const visibleEmployees = employees.slice(0, feedbackVisibleCount);
 
-    const head = ["<tr><th class=\"feedback-login-col\">Login</th><th class=\"feedback-name-col\">Name</th><th class=\"feedback-brigade-col\">Brigade</th><th class=\"feedback-process-col\">Process</th><th class=\"feedback-total-col\">Month total</th>"];
+    const head = ["<tr><th class=\"feedback-login-col\">Login</th><th class=\"feedback-name-col\">Name</th><th class=\"feedback-brigade-col\">Brigade</th><th class=\"feedback-process-col\">Process</th><th class=\"feedback-worked-col\">Worked days</th><th class=\"feedback-start-col\">Start date</th><th class=\"feedback-total-col\"><span>Feedback</span><small>Month total</small></th>"];
     for (let day=1; day<=days; day++) head.push(`<th class="feedback-day-col">${day}</th>`);
     head.push(`<th class="feedback-add-col">Add</th></tr>`);
     $("feedbackTableHead").innerHTML = head.join("");
@@ -1388,8 +1390,9 @@ function renderFeedbackTrackerTable(employees, filtered) {
             const title = entries.length ? entries.map(e => `${e.error_type}${e.note ? ` — ${e.note}` : ""} — ${feedbackActor(e)}`).join("\n") : "No feedback";
             cells.push(`<td class="feedback-day-cell" title="${esc(title)}"><span class="feedback-count">${count}</span></td>`);
         }
-        return `<tr><td class="feedback-login-cell"><strong>${esc(employee.login)}</strong></td><td class="feedback-name-cell">${esc(employee.name)}</td><td class="feedback-brigade-cell">${esc(employee.brigade)}</td><td class="feedback-process-cell">${esc(employee.process)}</td><td class="feedback-total-cell"><span class="feedback-total-chip ${feedbackTotalClass(total)}">${total}</span></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
-    }).join("") || `<tr><td colspan="${days+3}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+        const workedDays = employeeWorkedDaysForMonth(employee, feedbackMonth);
+        return `<tr><td class="feedback-login-cell"><strong>${esc(employee.login)}</strong></td><td class="feedback-name-cell">${esc(employee.name)}</td><td class="feedback-brigade-cell">${esc(employee.brigade)}</td><td class="feedback-process-cell">${esc(employee.process)}</td><td class="feedback-worked-cell"><strong>${workedDays}</strong></td><td class="feedback-start-cell">${esc(employee.startDate || "—")}</td><td class="feedback-total-cell"><span class="feedback-total-chip ${feedbackTotalClass(total)}">${total}</span></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
+    }).join("") || `<tr><td colspan="${days+8}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
 
     const moreWrap = $("feedbackMoreWrap");
     const moreButton = $("feedbackMoreBtn");
@@ -1864,16 +1867,7 @@ function individualScheduleValue(employee, date) {
     return individualSchedules[scheduleKey(date, employee.login)] || "";
 }
 
-function employeeHasStartedOnDate(employee, date) {
-    const startDate = employeeDateKey(employee?.startDate);
-    if (!startDate || !date) return true;
-    return dateKey(date) >= startDate;
-}
-
 function getSchedule(employee, date) {
-    if (!employeeHasStartedOnDate(employee, date)) {
-        return { shift: "off", source: "pre-start" };
-    }
     const key = scheduleKey(date, employee.login);
     const individual = individualSchedules[key];
     const extra = extraDays[key];
@@ -1934,13 +1928,6 @@ function isTerminatedOnDate(employee, date) {
 }
 
 function getAttendance(employee, date) {
-    if (!employeeHasStartedOnDate(employee, date)) {
-        return normalizeAttendanceData({
-            confirmed: false, actualHours: 0, actualStart: "", actualEnd: "",
-            breakMinutes: 0, status: "Pending", reason: "",
-            terminatedRecord: false, note: ""
-        });
-    }
     const existing = attendance[attendanceKey(date, employee.login)];
     return normalizeAttendanceData(existing || {
         confirmed: false,
@@ -2091,10 +2078,6 @@ async function loadAttendanceFromSupabase() {
 
 async function saveAttendanceToSupabase(employee, date, data) {
     if (!currentUser) return false;
-    if (!canConfirmEmployeeDate(employee, date)) {
-        toast(`Attendance cannot be saved before ${employee.startDate}.`);
-        return false;
-    }
 
     const row = attendanceRowFromLocal(employee, date, data);
 
@@ -2119,10 +2102,6 @@ async function saveAttendanceToSupabase(employee, date, data) {
 
 async function saveAttendanceRowsToSupabase(rows) {
     if (!currentUser || !rows.length) return true;
-    if (rows.some(({ employee, date }) => !canConfirmEmployeeDate(employee, date))) {
-        toast("Attendance cannot be saved before an employee's Start date.");
-        return false;
-    }
 
     const payload = rows.map(({ employee, date, data }) =>
         attendanceRowFromLocal(employee, date, data)
@@ -2531,8 +2510,7 @@ function renderShiftEmployees(people) {
     $("overviewEmployeeTable").innerHTML = filtered.map(employee => {
         const schedule = getSchedule(employee, overviewDate);
         const data = getAttendance(employee, overviewDate);
-        const beforeStart = !employeeHasStartedOnDate(employee, overviewDate);
-        const planned = beforeStart ? 0 : plannedHours(employee, overviewDate);
+        const planned = plannedHours(employee, overviewDate);
         const actual = Number(data.actualHours || 0);
         const fullConfirmed = Boolean(data.confirmed) && Math.abs(actual - planned) < 0.001;
         const visibleReason = data.reason || (data.terminatedRecord ? "Terminated" : "");
@@ -2541,18 +2519,18 @@ function renderShiftEmployees(people) {
 
         return `
             <tr>
-                <td class="check-col"><input class="employee-check" type="checkbox" data-shift-select="${esc(employee.login)}" aria-label="Select ${esc(employee.name)}" ${beforeStart ? "disabled" : ""}></td>
+                <td class="check-col"><input class="employee-check" type="checkbox" data-shift-select="${esc(employee.login)}" aria-label="Select ${esc(employee.name)}"></td>
                 <td><strong>${esc(employee.name)}</strong><br><small>${esc(employee.login)}</small></td>
                 <td>${esc(employee.brigade)}</td>
                 <td>${esc(employee.process)}</td>
                 <td><div class="employee-skills compact-skills">${employeeProcessSkills(employee).map(value => `<span class="skill-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}</div></td>
-                <td><span class="shift-pill ${beforeStart ? "pre-start" : schedule.shift}">${beforeStart ? "-" : SHIFTS[schedule.shift].label}</span></td>
+                <td><span class="shift-pill ${schedule.shift}">${SHIFTS[schedule.shift].label}</span></td>
                 <td>${planned.toFixed(2)}h</td>
                 <td>${actual.toFixed(2)}h</td>
                 <td><strong>${workedDays}</strong></td>
                 <td>
                     <span class="shift-status-select ${statusClass}" aria-label="Status for ${esc(employee.name)}">
-                        ${beforeStart ? "Not started" : (data.confirmed ? "Confirmed" : "Not confirmed")}
+                        ${data.confirmed ? "Confirmed" : "Not confirmed"}
                     </span>
                 </td>
                 <td class="shift-reason-display">
@@ -2913,11 +2891,6 @@ async function saveHoursEdit(event) {
     const key = attendanceKey(date, login);
     const current = attendance[key] || {};
     const planned = plannedHours(employee, date);
-
-    if (!canConfirmEmployeeDate(employee, date)) {
-        toast(`This employee was not employed yet on ${dateKey(date)}. No attendance can be saved.`);
-        return;
-    }
 
     const requestedStatus = $("editStatus")?.value || "Pending";
     if (requestedStatus === "Confirmed" && !isTodayOrPast(date)) {
@@ -4050,25 +4023,21 @@ function renderSelectedIndividualSchedule(login) {
             12
         );
 
-        const beforeStart = !employeeHasStartedOnDate(employee, date);
-        const override = beforeStart ? "" : individualScheduleValue(employee, date);
+        const override = individualScheduleValue(employee, date);
         const effective = getSchedule(employee, date).shift;
 
-        const displayClass = beforeStart ? "pre-start" : (override || effective || "off");
+        const displayClass = override || effective || "off";
 
         return `
             <td class="schedule-cell individual-schedule-cell ${override ? "has-override" : ""}">
-                ${beforeStart
-                    ? `<span class="schedule-pre-start-mark" title="Employee starts ${esc(employee.startDate)}">-</span>`
-                    : `<select
-                        class="${displayClass}"
-                        data-individual-schedule="${esc(employee.login)}"
-                        data-schedule-date="${dateKey(date)}"
-                        data-effective-shift="${effective || ""}"
-                        title="${override ? `Override: ${override}` : `Brigade: ${effective || "off"}`}"
-                    >
-                        ${scheduleOptionHtml(override || "")}
-                    </select>`}
+                <select
+                    class="${displayClass}"
+                    data-individual-schedule="${esc(employee.login)}"
+                    data-schedule-date="${dateKey(date)}"
+                    data-effective-shift="${effective || ""}"
+                    title="${override ? `Override: ${override}` : `Brigade: ${effective || "off"}`}">
+                    ${scheduleOptionHtml(override || "")}
+                </select>
             </td>
         `;
     }).join("");
@@ -4597,13 +4566,10 @@ function exportSchedule() {
                     day,
                     12
                 );
-                const beforeStart = !employeeHasStartedOnDate(employee, date);
                 const schedule = getSchedule(employee, date);
                 const extra = extraDays[scheduleKey(date, employee.login)];
 
-                if (beforeStart) {
-                    row.push("-");
-                } else if (extra?.type === "extra-off") {
+                if (extra?.type === "extra-off") {
                     row.push("EXTRA OFF");
                 } else if (extra?.type === "extra-work-day" || extra?.type === "extra-work-night") {
                     row.push(`EXTRA ${String(extra.shift || "day").toUpperCase()}`);
@@ -4755,7 +4721,7 @@ function renderHoursAttendance() {
                 <tr>
                     <td><strong>${date.toLocaleDateString("en-GB")}</strong></td>
                     <td>${date.toLocaleDateString("en-US", { weekday: "short" })}</td>
-                    <td><span class="shift-pill pre-start">-</span></td>
+                    <td><span class="shift-pill off">O</span></td>
                     <td>0.00h</td><td>0.00h</td><td>—</td><td>—</td>
                     <td><span class="hours-status-pending">Before start</span></td>
                     <td>Not employed yet</td><td>—</td><td>—</td><td>—</td><td>—</td>
@@ -5536,9 +5502,9 @@ function getHoursAttendanceDayCell(employee, date) {
         const dateLabel = date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
         const weekdayLabel = date.toLocaleDateString("en-US", { weekday: "long" });
         return {
-            code: "-",
-            className: "pre-start",
-            title: `${weekdayLabel}, ${dateLabel} · Before start date ${employee.startDate} · No schedule / attendance`
+            code: "O",
+            className: "off",
+            title: `${weekdayLabel}, ${dateLabel} · Before start date ${employee.startDate} · No attendance confirmation allowed`
         };
     }
     const planned = Number(plannedHours(employee, date) || 0);
