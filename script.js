@@ -1678,6 +1678,9 @@ function subscribeToExtraDaysRealtime() {
                     renderScheduling();
                     renderOverview();
                     updateExtraScheduleHint();
+                    if (attendanceActiveSubtab === "statistics") {
+                        renderAttendanceMonthlyStats();
+                    }
                     toast("Schedule updated.");
                 }
             }
@@ -5534,9 +5537,16 @@ function renderAttendanceMonthlyStats() {
         }
     });
 
-    Object.values(extraDays || {}).forEach(item => {
-        if (!item?.date || !inMonth(item.date)) return;
-        const key = String(item.date).slice(0, 10);
+    // extraDays is keyed as YYYY-MM-DD_login; the date is part of the key,
+    // while the stored item intentionally contains only the exception fields.
+    // Always derive the date from the key so Supabase-loaded Extra Days are
+    // counted exactly like the Shift Scheduling screen.
+    Object.entries(extraDays || {}).forEach(([extraKey, item]) => {
+        if (!item?.type) return;
+        const split = extraKey.lastIndexOf("_");
+        const extraDate = split > 0 ? extraKey.slice(0, split) : "";
+        if (!extraDate || !inMonth(extraDate)) return;
+        const key = String(extraDate).slice(0, 10);
         if (!extraByDate.has(key)) extraByDate.set(key, { day: 0, night: 0, off: 0 });
         const bucket = extraByDate.get(key);
         if (item.type === 'extra-off') { extraOffCount++; bucket.off++; }
