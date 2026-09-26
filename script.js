@@ -5473,6 +5473,80 @@ function updateHoursExportVisibility() {
     const toolbar = $("hoursExportToolbar");
     if (toolbar) toolbar.hidden = !hoursExportAllowed();
 }
+function renderAttendanceMonthlyStats() {
+    const monthDate = hoursAttendanceMonth;
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const employees = attendanceMonitoringEmployees(monthDate);
+    const monthStart = new Date(year, month, 1, 12);
+    const monthEnd = new Date(year, month + 1, 0, 12);
+    const inMonth = (dateValue) => {
+        const d = dateValue instanceof Date ? dateValue : new Date(`${dateValue}T12:00:00`);
+        return d >= monthStart && d <= monthEnd;
+    };
+
+    let extraDays = 0, extraNights = 0, extraOff = 0, absentTotal = 0;
+    const dailyAbsent = new Map();
+    const dailyPlanned = new Map();
+    const extraByDate = new Map();
+
+    for (let day = 1; day <= monthEnd.getDate(); day++) {
+        const date = new Date(year, month, day, 12);
+        dailyAbsent.set(day, 0);
+        dailyPlanned.set(day, 0);
+    }
+
+    employees.forEach(employee => {
+        for (let day = 1; day <= monthEnd.getDate(); day++) {
+            const date = new Date(year, month, day, 12);
+            if (!canConfirmEmployeeDate(employee, date)) continue;
+            const planned = Number(plannedHours(employee, date) || 0);
+            if (planned <= 0) continue;
+            dailyPlanned.set(day, dailyPlanned.get(day) + 1);
+            const data = getAttendance(employee, date);
+            if (String(data.status || '').trim().toLowerCase() === 'absent') {
+                absentTotal++;
+                dailyAbsent.set(day, dailyAbsent.get(day) + 1);
+            }
+        }
+    });
+
+    Object.values(extraDays || {}).forEach(item => {
+        if (!item?.date || !inMonth(item.date)) return;
+        const key = String(item.date).slice(0, 10);
+        if (!extraByDate.has(key)) extraByDate.set(key, { day: 0, night: 0, off: 0 });
+        const bucket = extraByDate.get(key);
+        if (item.type === 'extra-off') { extraOff++; bucket.off++; }
+        else if (item.type === 'extra-work-night') { extraNights++; bucket.night++; }
+        else if (item.type === 'extra-work-day') { extraDays++; bucket.day++; }
+    });
+
+    $("attendanceStatsExtraDays") && ($("attendanceStatsExtraDays").textContent = String(extraDays));
+    $("attendanceStatsExtraNights") && ($("attendanceStatsExtraNights").textContent = String(extraNights));
+    $("attendanceStatsExtraOff") && ($("attendanceStatsExtraOff").textContent = String(extraOff));
+    $("attendanceStatsAbsent") && ($("attendanceStatsAbsent").textContent = String(absentTotal));
+    $("attendanceStatsAbsentDays") && ($("attendanceStatsAbsentDays").textContent = String([...dailyAbsent.values()].filter(v => v > 0).length));
+
+    const absentBody = $("attendanceStatsDailyAbsent");
+    if (absentBody) {
+        absentBody.innerHTML = Array.from(dailyAbsent.entries()).map(([day, count]) => {
+            const planned = dailyPlanned.get(day) || 0;
+            const pct = planned ? ((count / planned) * 100).toFixed(1) : '0.0';
+            const date = new Date(year, month, day, 12);
+            return `<tr><td>${String(day).padStart(2,'0')}</td><td>${date.toLocaleDateString('en-GB')}</td><td>${count}</td><td>${pct}%</td></tr>`;
+        }).join('');
+    }
+
+    const extraBody = $("attendanceStatsExtraByDate");
+    if (extraBody) {
+        const rows = [...extraByDate.entries()].sort((a,b) => a[0].localeCompare(b[0]));
+        extraBody.innerHTML = rows.map(([key, bucket]) => {
+            const date = new Date(`${key}T12:00:00`);
+            return `<tr><td>${date.toLocaleDateString('en-GB')}</td><td>${bucket.day}</td><td>${bucket.night}</td><td>${bucket.off}</td></tr>`;
+        }).join('') || `<tr><td colspan="4"><div class="empty">No Extra Days records for this month.</div></td></tr>`;
+    }
+}
+
 function getHoursEmployeeSummary(employee) {
     return getHoursAttendanceEmployeeMetrics(employee, hoursAttendanceMonth);
 }
@@ -5605,6 +5679,7 @@ function getHoursAttendanceDayHeaders(monthDate = hoursAttendanceMonth) {
 }
 
 function renderAllHoursAttendance() {
+    renderAttendanceMonthlyStats();
     const body = $("hoursAllTableBody"), meta = $("hoursAllMeta"), head = $("hoursAllTableHead");
     if (!body) return;
     updateHoursExportVisibility();

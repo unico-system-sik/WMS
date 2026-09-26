@@ -778,6 +778,42 @@
         </section>
     </section>
 
+    <section id="attendanceMonthlyStats" class="panel attendance-monthly-stats-panel">
+        <div class="panel-title">
+            <div>
+                <h3>Monthly Attendance Statistics</h3>
+                <p>Quick view for Coordinators and Leaders: extra days, extra days off and absences by day.</p>
+            </div>
+        </div>
+        <div class="cards five attendance-stats-cards">
+            <div class="card"><span>Extra days</span><strong id="attendanceStatsExtraDays">0</strong><small>extra work days</small></div>
+            <div class="card"><span>Extra nights</span><strong id="attendanceStatsExtraNights">0</strong><small>extra work nights</small></div>
+            <div class="card"><span>Extra days off</span><strong id="attendanceStatsExtraOff">0</strong><small>extra OFF records</small></div>
+            <div class="card"><span>Absent</span><strong id="attendanceStatsAbsent">0</strong><small>confirmed absent days</small></div>
+            <div class="card"><span>Days with absence</span><strong id="attendanceStatsAbsentDays">0</strong><small>calendar days with absent employees</small></div>
+        </div>
+        <div class="attendance-stats-grid">
+            <section class="attendance-stat-box">
+                <div class="panel-title"><div><h4>Daily absence</h4><p>How many employees were absent on each day.</p></div></div>
+                <div class="table-wrap">
+                    <table class="attendance-stats-table">
+                        <thead><tr><th>Day</th><th>Date</th><th>Absent</th><th>% of planned</th></tr></thead>
+                        <tbody id="attendanceStatsDailyAbsent"></tbody>
+                    </table>
+                </div>
+            </section>
+            <section class="attendance-stat-box">
+                <div class="panel-title"><div><h4>Extra days by date</h4><p>Extra DAY, NIGHT and OFF records in the selected month.</p></div></div>
+                <div class="table-wrap">
+                    <table class="attendance-stats-table">
+                        <thead><tr><th>Date</th><th>Extra DAY</th><th>Extra NIGHT</th><th>Extra OFF</th></tr></thead>
+                        <tbody id="attendanceStatsExtraByDate"></tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </section>
+
     <section id="hoursAllEmployeesPanel" class="panel hours-all-panel">
         <div class="panel-title hours-all-title">
             <div>

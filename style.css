@@ -2175,3 +2175,19 @@ th {
 .feedback-table-main .feedback-add-col, .feedback-table-main .feedback-add-cell { width:52px; min-width:52px; }
 .feedback-total-col span, .feedback-total-col small { text-align:center; }
 .feedback-total-button { border:1px solid transparent; background:transparent; }
+
+/* V28.4 — Attendance Monitoring monthly statistics */
+.attendance-monthly-stats-panel { margin-bottom: 16px; }
+.attendance-stats-cards { margin-bottom: 16px; }
+.attendance-stats-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.attendance-stat-box { border:1px solid #e3e9f1; border-radius:12px; background:#fff; overflow:hidden; }
+.attendance-stat-box .panel-title { padding:14px 16px 10px; }
+.attendance-stat-box .panel-title h4 { margin:0 0 4px; }
+.attendance-stat-box .panel-title p { margin:0; }
+.attendance-stats-table { width:100%; table-layout:fixed; }
+.attendance-stats-table th, .attendance-stats-table td { text-align:center; vertical-align:middle; }
+.attendance-stats-table th:first-child, .attendance-stats-table td:first-child { width:18%; }
+.attendance-stats-table th:nth-child(2), .attendance-stats-table td:nth-child(2) { width:32%; }
+.attendance-stats-table th:nth-child(3), .attendance-stats-table td:nth-child(3) { width:25%; }
+.attendance-stats-table th:nth-child(4), .attendance-stats-table td:nth-child(4) { width:25%; }
+@media (max-width: 900px) { .attendance-stats-grid { grid-template-columns:1fr; } }
