@@ -1776,6 +1776,14 @@ th {
 .feedback-total-chip.low { background:#ecfdf3; color:#166534; border-color:#bbf7d0; }
 .feedback-total-chip.medium { background:#fffbeb; color:#92400e; border-color:#fde68a; }
 .feedback-total-chip.high { background:#fef2f2; color:#991b1b; border-color:#fecaca; }
+.feedback-total-button { cursor:pointer; font:inherit; }
+.feedback-total-button:hover { filter:brightness(.97); transform:translateY(-1px); }
+.feedback-total-button:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
+.feedback-employee-history-card { width:min(900px, calc(100vw - 32px)); max-width:900px; }
+.feedback-employee-history-meta { margin:0 0 12px; color:#667085; font-size:13px; }
+.feedback-employee-history-wrap { max-height:55vh; overflow:auto; }
+.feedback-employee-history-wrap table { width:100%; }
+.feedback-employee-history-wrap th, .feedback-employee-history-wrap td { white-space:normal; vertical-align:top; }
 .feedback-table-wrap { overflow-x:auto; }
 .feedback-table { min-width:max-content; }
 .feedback-table th, .feedback-table td { white-space:nowrap; }

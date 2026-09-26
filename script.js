@@ -1172,6 +1172,32 @@ function openFeedbackModal(login) {
 
 function closeFeedbackModal() { $("feedbackModal")?.classList.add("hidden"); }
 
+function openFeedbackEmployeeHistoryModal(login) {
+    const employee = feedbackEntryEmployee(login);
+    if (!employee) return;
+
+    const monthKey = feedbackMonthKey();
+    const entries = feedbackEntries
+        .filter(entry => String(entry.employee_login || "") === String(login) && String(entry.work_date || "").slice(0, 7) === monthKey)
+        .sort((a, b) => {
+            const dateCompare = String(b.work_date || "").localeCompare(String(a.work_date || ""));
+            if (dateCompare !== 0) return dateCompare;
+            return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+        });
+
+    $("feedbackEmployeeHistoryLabel").textContent = `${employee.name} · ${employee.login}`;
+    $("feedbackEmployeeHistoryMeta").textContent = `${entries.length} feedback entr${entries.length === 1 ? "y" : "ies"} · ${feedbackMonth.toLocaleDateString("en-GB", {month:"long", year:"numeric"})}`;
+    $("feedbackEmployeeHistoryBody").innerHTML = entries.map(entry => {
+        return `<tr><td>${esc(entry.work_date)}</td><td><strong>${esc(entry.error_type)}</strong></td><td>${esc(entry.note || "—")}</td><td>${formatActionActor(entry.confirmed_by_name, entry.confirmed_at)}</td></tr>`;
+    }).join("") || `<tr><td colspan="4"><div class="empty">No feedback entries for this employee in the selected month.</div></td></tr>`;
+
+    $("feedbackEmployeeHistoryModal").classList.remove("hidden");
+}
+
+function closeFeedbackEmployeeHistoryModal() {
+    $("feedbackEmployeeHistoryModal")?.classList.add("hidden");
+}
+
 async function saveFeedbackEntry(event) {
     event.preventDefault();
     const login = $("feedbackEmployeeLogin").value;
@@ -1391,7 +1417,7 @@ function renderFeedbackTrackerTable(employees, filtered) {
             cells.push(`<td class="feedback-day-cell" title="${esc(title)}"><span class="feedback-count">${count}</span></td>`);
         }
         const workedDays = employeeWorkedDaysForMonth(employee, feedbackMonth);
-        return `<tr><td class="feedback-login-cell"><strong>${esc(employee.login)}</strong></td><td class="feedback-name-cell">${esc(employee.name)}</td><td class="feedback-brigade-cell">${esc(employee.brigade)}</td><td class="feedback-process-cell">${esc(employee.process)}</td><td class="feedback-worked-cell"><strong>${workedDays}</strong></td><td class="feedback-start-cell">${esc(employee.startDate || "—")}</td><td class="feedback-total-cell"><span class="feedback-total-chip ${feedbackTotalClass(total)}">${total}</span></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
+        return `<tr><td class="feedback-login-cell"><strong>${esc(employee.login)}</strong></td><td class="feedback-name-cell">${esc(employee.name)}</td><td class="feedback-brigade-cell">${esc(employee.brigade)}</td><td class="feedback-process-cell">${esc(employee.process)}</td><td class="feedback-worked-cell"><strong>${workedDays}</strong></td><td class="feedback-start-cell">${esc(employee.startDate || "—")}</td><td class="feedback-total-cell"><button class="feedback-total-chip feedback-total-button ${feedbackTotalClass(total)}" type="button" data-feedback-history="${esc(employee.login)}" aria-label="Open all feedback for ${esc(employee.name)}">${total}</button></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
     }).join("") || `<tr><td colspan="${days+8}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
 
     const moreWrap = $("feedbackMoreWrap");
@@ -1408,6 +1434,7 @@ function renderFeedbackTrackerTable(employees, filtered) {
     }
 
     document.querySelectorAll("[data-feedback-add]").forEach(button => button.addEventListener("click", () => openFeedbackModal(button.dataset.feedbackAdd)));
+    document.querySelectorAll("[data-feedback-history]").forEach(button => button.addEventListener("click", () => openFeedbackEmployeeHistoryModal(button.dataset.feedbackHistory)));
 }
 
 function renderFeedbackHistory(filtered) {
@@ -5130,6 +5157,9 @@ function initEvents() {
     $("closeFeedbackModal")?.addEventListener("click", closeFeedbackModal);
     $("cancelFeedback")?.addEventListener("click", closeFeedbackModal);
     $("feedbackModal")?.addEventListener("click", event => { if (event.target.id === "feedbackModal") closeFeedbackModal(); });
+    $("closeFeedbackEmployeeHistoryModal")?.addEventListener("click", closeFeedbackEmployeeHistoryModal);
+    $("closeFeedbackEmployeeHistory")?.addEventListener("click", closeFeedbackEmployeeHistoryModal);
+    $("feedbackEmployeeHistoryModal")?.addEventListener("click", event => { if (event.target.id === "feedbackEmployeeHistoryModal") closeFeedbackEmployeeHistoryModal(); });
 
 
 
