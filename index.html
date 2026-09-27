@@ -7,7 +7,7 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://ipmyxkhnwijpdweeztgb.supabase.co wss://ipmyxkhnwijpdweeztgb.supabase.co; worker-src 'self' blob:;">
-    <link rel="stylesheet" href="style.css?v=28.3">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
@@ -630,7 +630,7 @@
 
         </div>
         <div class="table-wrap feedback-table-wrap">
-            <table class="feedback-table feedback-table-main">
+            <table class="feedback-table">
                 <thead id="feedbackTableHead"></thead>
                 <tbody id="feedbackTableBody"></tbody>
             </table>
@@ -727,12 +727,6 @@
         </div>
     </header>
 
-<div class="subtabs attendance-subtabs">
-        <button type="button" class="subtab active" data-attendance-subtab="tracker">Tracker</button>
-        <button type="button" class="subtab" data-attendance-subtab="statistics">Detailed Statistics</button>
-    </div>
-
-    <div id="attendanceTrackerSubpage" class="attendance-subtab-panel active">
 <section id="hoursEmployeeSummary" class="hidden-section">
         <div class="hours-employee-header panel">
             <div>
@@ -810,11 +804,10 @@
                 <label class="control-label" for="hoursAllSearch">Search employee</label>
                 <input id="hoursAllSearch" type="search" placeholder="Name or login" autocomplete="off">
             </div>
-            <button id="hoursFiltersToggle" class="secondary" type="button" aria-expanded="false">Filters</button>
             <button id="hoursClearAllFilters" class="secondary" type="button">Clear</button>
         </div>
 
-        <div id="hoursAdvancedFilters" class="hours-all-filters hours-advanced-filters" hidden>
+        <div id="hoursAdvancedFilters" class="hours-all-filters hours-advanced-filters">
             <div class="filter-control"><label class="control-label">Brigade</label><div class="multi-filter" id="hoursAllBrigade"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllBrigade">All brigades ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllBrigade"></div></div></div>
             <div class="filter-control"><label class="control-label">Process</label><div class="multi-filter" id="hoursAllProcess"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllProcess">All processes ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllProcess"></div></div></div>
             <div class="filter-control"><label class="control-label">Attendance</label><div class="multi-filter" id="hoursAllStatus"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllStatus">All statuses ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllStatus"></div></div></div>
@@ -828,7 +821,10 @@
             <span><strong class="attendance-code pending">P</strong> Pending</span>
             <span><strong class="attendance-code off">O</strong> Day off / no planned shift</span>
         </div>
-        <div class="table-wrap hours-attendance-matrix-wrap">
+        <div class="hours-attendance-horizontal-scroll" id="hoursAttendanceHorizontalScroll" aria-label="Horizontal table scroll">
+            <div id="hoursAttendanceHorizontalScrollInner"></div>
+        </div>
+        <div class="table-wrap hours-attendance-matrix-wrap" id="hoursAttendanceMatrixWrap">
             <table id="hoursAllTable" class="hours-attendance-matrix">
                 <thead id="hoursAllTableHead"></thead>
                 <tbody id="hoursAllTableBody"></tbody>
@@ -837,48 +833,37 @@
         <div id="hoursAllMoreWrap" class="table-more-wrap" hidden>
             <button id="hoursAllMoreBtn" class="secondary" type="button">More</button>
         </div>
-    </section>
-    </div>
 
-    <div id="attendanceStatisticsSubpage" class="attendance-subtab-panel">
-    <section id="attendanceMonthlyStats" class="panel attendance-monthly-stats-panel">
-        <div class="panel-title">
-            <div>
-                <h3>Monthly Attendance Statistics</h3>
-                <p>Quick view for Coordinators and Leaders: extra days, extra days off and absences by day.</p>
+        <section class="panel attendance-detailed-statistics-panel">
+            <div class="panel-title">
+                <div>
+                    <h3>Detailed Statistics</h3>
+                    <p>Daily absence and Extra Days for the selected month, including DAY (DS) and NIGHT (NS) work.</p>
+                </div>
             </div>
-        </div>
-        <div class="cards five attendance-stats-cards">
-            <div class="card"><span>Extra days</span><strong id="attendanceStatsExtraDays">0</strong><small>extra work days</small></div>
-            <div class="card"><span>Extra nights</span><strong id="attendanceStatsExtraNights">0</strong><small>extra work nights</small></div>
-            <div class="card"><span>Extra days off</span><strong id="attendanceStatsExtraOff">0</strong><small>extra OFF records</small></div>
-            <div class="card"><span>Absent</span><strong id="attendanceStatsAbsent">0</strong><small>confirmed absent days</small></div>
-            <div class="card"><span>Days with absence</span><strong id="attendanceStatsAbsentDays">0</strong><small>calendar days with absent employees</small></div>
-        </div>
-        <div class="attendance-stats-grid">
-            <section class="attendance-stat-box">
-                <div class="panel-title"><div><h4>Daily absence</h4><p>How many employees were absent on each day.</p></div></div>
-                <div class="table-wrap">
-                    <table class="attendance-stats-table">
-                        <thead><tr><th>Day</th><th>Date</th><th>Absent</th><th>% of planned</th></tr></thead>
-                        <tbody id="attendanceStatsDailyAbsent"></tbody>
-                    </table>
-                </div>
-            </section>
-            <section class="attendance-stat-box">
-                <div class="panel-title"><div><h4>Extra days by date</h4><p>Extra DAY, NIGHT and OFF records in the selected month.</p></div></div>
-                <div class="table-wrap">
-                    <table class="attendance-stats-table">
-                        <thead><tr><th>Date</th><th>Extra DAY</th><th>Extra NIGHT</th><th>Extra OFF</th></tr></thead>
-                        <tbody id="attendanceStatsExtraByDate"></tbody>
-                    </table>
-                </div>
-            </section>
-        </div>
+            <div class="cards four attendance-detail-stats-cards">
+                <div class="card"><span>Daily absence</span><strong id="attendanceStatsAbsentTotal">0</strong><small>absent records</small></div>
+                <div class="card"><span>Extra work — DS</span><strong id="attendanceStatsExtraDay">0</strong><small>extra DAY records</small></div>
+                <div class="card"><span>Extra work — NS</span><strong id="attendanceStatsExtraNight">0</strong><small>extra NIGHT records</small></div>
+                <div class="card"><span>Extra day off</span><strong id="attendanceStatsExtraOff">0</strong><small>extra OFF records</small></div>
+            </div>
+            <div class="table-wrap attendance-detailed-statistics-wrap">
+                <table class="attendance-detailed-statistics-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Day</th>
+                            <th>Daily absence</th>
+                            <th>Extra work DS</th>
+                            <th>Extra work NS</th>
+                            <th>Extra day off</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendanceDetailedStatisticsBody"></tbody>
+                </table>
+            </div>
+        </section>
     </section>
-    </div>
-
-
 </section>
 
 </main>
@@ -1053,35 +1038,6 @@
     </div>
 </div>
 
-<div id="feedbackEmployeeHistoryModal" class="modal hidden">
-    <div class="modal-card feedback-employee-history-card">
-        <div class="panel-title">
-            <div>
-                <h3>Employee Feedback</h3>
-                <p id="feedbackEmployeeHistoryLabel" class="modal-subtitle"></p>
-            </div>
-            <button id="closeFeedbackEmployeeHistoryModal" class="icon-btn" type="button">×</button>
-        </div>
-        <div class="feedback-employee-history-meta" id="feedbackEmployeeHistoryMeta"></div>
-        <div class="table-wrap feedback-employee-history-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Error type</th>
-                        <th>Note</th>
-                        <th>Confirmed by</th>
-                    </tr>
-                </thead>
-                <tbody id="feedbackEmployeeHistoryBody"></tbody>
-            </table>
-        </div>
-        <div class="modal-actions">
-            <button type="button" id="closeFeedbackEmployeeHistory" class="secondary">Close</button>
-        </div>
-    </div>
-</div>
-
 <div id="hoursModal" class="modal hidden">
     <div class="modal-card">
         <div class="panel-title">
@@ -1169,7 +1125,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=28.3"></script>
+<script src="script.js"></script>
 
 </body>
 </html>

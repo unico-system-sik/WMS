@@ -838,7 +838,6 @@ function employeeWorkedDaysForMonth(employee, monthDate) {
         const datePart = key.slice(0, -suffix.length);
         const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(datePart);
         if (!match || Number(match[1]) !== year || Number(match[2]) !== month + 1) return;
-        if (employee && !canConfirmEmployeeDate(employee, datePart)) return;
         const confirmed = Boolean(data?.confirmed);
         const status = String(data?.status || "").trim().toLowerCase();
         if (!confirmed || status === "absent") return;
@@ -1037,7 +1036,6 @@ let hoursAttendanceEmployeeLogin = "";
 let hoursModalSource = "hours";
 let hoursAttendanceDaySortKey = "";
 let hoursAttendanceDaySortDirection = 1; // 1 = A/E/P/C/O priority, -1 = reverse
-let attendanceActiveSubtab = "tracker";
 
 // V27.1 — large-list rendering optimisation.
 // Keep the first render lightweight and reveal more rows only on request.
@@ -1172,32 +1170,6 @@ function openFeedbackModal(login) {
 }
 
 function closeFeedbackModal() { $("feedbackModal")?.classList.add("hidden"); }
-
-function openFeedbackEmployeeHistoryModal(login) {
-    const employee = feedbackEntryEmployee(login);
-    if (!employee) return;
-
-    const monthKey = feedbackMonthKey();
-    const entries = feedbackEntries
-        .filter(entry => String(entry.employee_login || "") === String(login) && String(entry.work_date || "").slice(0, 7) === monthKey)
-        .sort((a, b) => {
-            const dateCompare = String(b.work_date || "").localeCompare(String(a.work_date || ""));
-            if (dateCompare !== 0) return dateCompare;
-            return String(b.created_at || "").localeCompare(String(a.created_at || ""));
-        });
-
-    $("feedbackEmployeeHistoryLabel").textContent = `${employee.name} · ${employee.login}`;
-    $("feedbackEmployeeHistoryMeta").textContent = `${entries.length} feedback entr${entries.length === 1 ? "y" : "ies"} · ${feedbackMonth.toLocaleDateString("en-GB", {month:"long", year:"numeric"})}`;
-    $("feedbackEmployeeHistoryBody").innerHTML = entries.map(entry => {
-        return `<tr><td>${esc(entry.work_date)}</td><td><strong>${esc(entry.error_type)}</strong></td><td>${esc(entry.note || "—")}</td><td>${formatActionActor(entry.confirmed_by_name, entry.confirmed_at)}</td></tr>`;
-    }).join("") || `<tr><td colspan="4"><div class="empty">No feedback entries for this employee in the selected month.</div></td></tr>`;
-
-    $("feedbackEmployeeHistoryModal").classList.remove("hidden");
-}
-
-function closeFeedbackEmployeeHistoryModal() {
-    $("feedbackEmployeeHistoryModal")?.classList.add("hidden");
-}
 
 async function saveFeedbackEntry(event) {
     event.preventDefault();
@@ -1401,7 +1373,7 @@ function renderFeedbackTrackerTable(employees, filtered) {
     const index = buildFeedbackDailyIndex(filtered);
     const visibleEmployees = employees.slice(0, feedbackVisibleCount);
 
-    const head = ["<tr><th class=\"feedback-login-col\">Login</th><th class=\"feedback-name-col\">Name</th><th class=\"feedback-brigade-col\">Brigade</th><th class=\"feedback-process-col\">Process</th><th class=\"feedback-worked-col\">Worked days</th><th class=\"feedback-start-col\">Start date</th><th class=\"feedback-total-col\"><span>Feedback</span><small>Month total</small></th>"];
+    const head = ["<tr><th class=\"feedback-login-col\">Login</th><th class=\"feedback-name-col\">Name</th><th class=\"feedback-brigade-col\">Brigade</th><th class=\"feedback-process-col\">Process</th><th class=\"feedback-total-col\">Month total</th>"];
     for (let day=1; day<=days; day++) head.push(`<th class="feedback-day-col">${day}</th>`);
     head.push(`<th class="feedback-add-col">Add</th></tr>`);
     $("feedbackTableHead").innerHTML = head.join("");
@@ -1417,9 +1389,8 @@ function renderFeedbackTrackerTable(employees, filtered) {
             const title = entries.length ? entries.map(e => `${e.error_type}${e.note ? ` — ${e.note}` : ""} — ${feedbackActor(e)}`).join("\n") : "No feedback";
             cells.push(`<td class="feedback-day-cell" title="${esc(title)}"><span class="feedback-count">${count}</span></td>`);
         }
-        const workedDays = employeeWorkedDaysForMonth(employee, feedbackMonth);
-        return `<tr><td class="feedback-login-cell"><strong>${esc(employee.login)}</strong></td><td class="feedback-name-cell">${esc(employee.name)}</td><td class="feedback-brigade-cell">${esc(employee.brigade)}</td><td class="feedback-process-cell">${esc(employee.process)}</td><td class="feedback-worked-cell"><strong>${workedDays}</strong></td><td class="feedback-start-cell">${esc(employee.startDate || "—")}</td><td class="feedback-total-cell"><button class="feedback-total-chip feedback-total-button ${feedbackTotalClass(total)}" type="button" data-feedback-history="${esc(employee.login)}" aria-label="Open all feedback for ${esc(employee.name)}">${total}</button></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
-    }).join("") || `<tr><td colspan="${days+8}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+        return `<tr><td class="feedback-login-cell"><strong>${esc(employee.login)}</strong></td><td class="feedback-name-cell">${esc(employee.name)}</td><td class="feedback-brigade-cell">${esc(employee.brigade)}</td><td class="feedback-process-cell">${esc(employee.process)}</td><td class="feedback-total-cell"><span class="feedback-total-chip ${feedbackTotalClass(total)}">${total}</span></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
+    }).join("") || `<tr><td colspan="${days+3}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
 
     const moreWrap = $("feedbackMoreWrap");
     const moreButton = $("feedbackMoreBtn");
@@ -1435,7 +1406,6 @@ function renderFeedbackTrackerTable(employees, filtered) {
     }
 
     document.querySelectorAll("[data-feedback-add]").forEach(button => button.addEventListener("click", () => openFeedbackModal(button.dataset.feedbackAdd)));
-    document.querySelectorAll("[data-feedback-history]").forEach(button => button.addEventListener("click", () => openFeedbackEmployeeHistoryModal(button.dataset.feedbackHistory)));
 }
 
 function renderFeedbackHistory(filtered) {
@@ -1678,9 +1648,6 @@ function subscribeToExtraDaysRealtime() {
                     renderScheduling();
                     renderOverview();
                     updateExtraScheduleHint();
-                    if (attendanceActiveSubtab === "statistics") {
-                        renderAttendanceMonthlyStats();
-                    }
                     toast("Schedule updated.");
                 }
             }
@@ -2561,7 +2528,7 @@ function renderShiftEmployees(people) {
                 <td><strong>${workedDays}</strong></td>
                 <td>
                     <span class="shift-status-select ${statusClass}" aria-label="Status for ${esc(employee.name)}">
-                        ${data.confirmed ? "Confirmed" : "Not confirmed"}
+                        ${data.confirmed ? (String(data.status || "").trim().toLowerCase() === "absent" ? "Absent" : "Confirmed") : "Not confirmed"}
                     </span>
                 </td>
                 <td class="shift-reason-display">
@@ -4327,6 +4294,12 @@ async function saveExtraDay() {
     const key = scheduleKey(date, employee.login);
     const normal = getSchedule(employee, date).shift;
     const existing = extraDays[key];
+    const attendanceForDate = getAttendance(employee, date);
+
+    if (type === "extra-off" && attendanceForDate.confirmed) {
+        toast("Day Off cannot be applied because attendance for this date is already confirmed.");
+        return;
+    }
 
     if (!existing) {
         if (type === "extra-off" && normal === "off") {
@@ -4926,14 +4899,10 @@ function switchPage(pageId) {
         hoursAttendanceEmployeeLogin = "";
         hoursAttendanceDaySortKey = "";
         hoursAttendanceDaySortDirection = 1;
-        attendanceActiveSubtab = "tracker";
-        activateAttendanceSubtab("tracker");
         if ($("hoursAllSearch")) $("hoursAllSearch").value = "";
         setMultiFilterValues("hoursAllBrigade", []);
         setMultiFilterValues("hoursAllProcess", []);
         setMultiFilterValues("hoursAllStatus", []);
-        if ($("hoursAdvancedFilters")) $("hoursAdvancedFilters").hidden = true;
-        if ($("hoursFiltersToggle")) $("hoursFiltersToggle").setAttribute("aria-expanded", "false");
         renderHoursAttendance();
     }
 
@@ -5130,10 +5099,6 @@ function initEvents() {
         button.addEventListener("click", () => activateFeedbackSubtab(button.dataset.feedbackSubtab));
     });
 
-    document.querySelectorAll("[data-attendance-subtab]").forEach(button => {
-        button.addEventListener("click", () => activateAttendanceSubtab(button.dataset.attendanceSubtab));
-    });
-
     // Feedback Tracker
     $("feedbackMonthPrev")?.addEventListener("click", async () => {
         feedbackMonth = new Date(feedbackMonth.getFullYear(), feedbackMonth.getMonth()-1, 1, 12);
@@ -5167,9 +5132,6 @@ function initEvents() {
     $("closeFeedbackModal")?.addEventListener("click", closeFeedbackModal);
     $("cancelFeedback")?.addEventListener("click", closeFeedbackModal);
     $("feedbackModal")?.addEventListener("click", event => { if (event.target.id === "feedbackModal") closeFeedbackModal(); });
-    $("closeFeedbackEmployeeHistoryModal")?.addEventListener("click", closeFeedbackEmployeeHistoryModal);
-    $("closeFeedbackEmployeeHistory")?.addEventListener("click", closeFeedbackEmployeeHistoryModal);
-    $("feedbackEmployeeHistoryModal")?.addEventListener("click", event => { if (event.target.id === "feedbackEmployeeHistoryModal") closeFeedbackEmployeeHistoryModal(); });
 
 
 
@@ -5376,14 +5338,6 @@ $("saveSchedule").addEventListener(
             renderHoursAttendance();
         }
     });
-    $("hoursFiltersToggle")?.addEventListener("click", () => {
-        const filters = $("hoursAdvancedFilters");
-        const button = $("hoursFiltersToggle");
-        if (!filters || !button) return;
-        const show = filters.hidden;
-        filters.hidden = !show;
-        button.setAttribute("aria-expanded", String(show));
-    });
     $("hoursClearAllFilters")?.addEventListener("click", () => {
         if ($("hoursAllSearch")) $("hoursAllSearch").value = "";
         setMultiFilterValues("hoursAllBrigade", []);
@@ -5475,22 +5429,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 
 
-/* Attendance Monitoring subtabs */
-function activateAttendanceSubtab(name) {
-    attendanceActiveSubtab = name === "statistics" ? "statistics" : "tracker";
-    document.querySelectorAll("[data-attendance-subtab]").forEach(button => {
-        button.classList.toggle("active", button.dataset.attendanceSubtab === attendanceActiveSubtab);
-    });
-    document.querySelectorAll(".attendance-subtab-panel").forEach(panel => {
-        panel.classList.toggle("active", panel.id === (attendanceActiveSubtab === "tracker" ? "attendanceTrackerSubpage" : "attendanceStatisticsSubpage"));
-    });
-    if (attendanceActiveSubtab === "statistics") {
-        renderAttendanceMonthlyStats();
-    } else {
-        renderAllHoursAttendance();
-    }
-}
-
 /* Attendance Monitoring: all employees + filters + export */
 function hoursExportAllowed() {
     return canExportData();
@@ -5499,87 +5437,6 @@ function updateHoursExportVisibility() {
     const toolbar = $("hoursExportToolbar");
     if (toolbar) toolbar.hidden = !hoursExportAllowed();
 }
-function renderAttendanceMonthlyStats() {
-    const monthDate = hoursAttendanceMonth;
-    const year = monthDate.getFullYear();
-    const month = monthDate.getMonth();
-    const employees = attendanceMonitoringEmployees(monthDate);
-    const monthStart = new Date(year, month, 1, 12);
-    const monthEnd = new Date(year, month + 1, 0, 12);
-    const inMonth = (dateValue) => {
-        const d = dateValue instanceof Date ? dateValue : new Date(`${dateValue}T12:00:00`);
-        return d >= monthStart && d <= monthEnd;
-    };
-
-    let extraDayCount = 0, extraNightCount = 0, extraOffCount = 0, absentTotal = 0;
-    const dailyAbsent = new Map();
-    const dailyPlanned = new Map();
-    const extraByDate = new Map();
-
-    for (let day = 1; day <= monthEnd.getDate(); day++) {
-        const date = new Date(year, month, day, 12);
-        dailyAbsent.set(day, 0);
-        dailyPlanned.set(day, 0);
-    }
-
-    employees.forEach(employee => {
-        for (let day = 1; day <= monthEnd.getDate(); day++) {
-            const date = new Date(year, month, day, 12);
-            if (!canConfirmEmployeeDate(employee, date)) continue;
-            const planned = Number(plannedHours(employee, date) || 0);
-            if (planned <= 0) continue;
-            dailyPlanned.set(day, dailyPlanned.get(day) + 1);
-            const data = getAttendance(employee, date);
-            if (String(data.status || '').trim().toLowerCase() === 'absent') {
-                absentTotal++;
-                dailyAbsent.set(day, dailyAbsent.get(day) + 1);
-            }
-        }
-    });
-
-    // extraDays is keyed as YYYY-MM-DD_login; the date is part of the key,
-    // while the stored item intentionally contains only the exception fields.
-    // Always derive the date from the key so Supabase-loaded Extra Days are
-    // counted exactly like the Shift Scheduling screen.
-    Object.entries(extraDays || {}).forEach(([extraKey, item]) => {
-        if (!item?.type) return;
-        const split = extraKey.lastIndexOf("_");
-        const extraDate = split > 0 ? extraKey.slice(0, split) : "";
-        if (!extraDate || !inMonth(extraDate)) return;
-        const key = String(extraDate).slice(0, 10);
-        if (!extraByDate.has(key)) extraByDate.set(key, { day: 0, night: 0, off: 0 });
-        const bucket = extraByDate.get(key);
-        if (item.type === 'extra-off') { extraOffCount++; bucket.off++; }
-        else if (item.type === 'extra-work-night') { extraNightCount++; bucket.night++; }
-        else if (item.type === 'extra-work-day') { extraDayCount++; bucket.day++; }
-    });
-
-    $("attendanceStatsExtraDays") && ($("attendanceStatsExtraDays").textContent = String(extraDayCount));
-    $("attendanceStatsExtraNights") && ($("attendanceStatsExtraNights").textContent = String(extraNightCount));
-    $("attendanceStatsExtraOff") && ($("attendanceStatsExtraOff").textContent = String(extraOffCount));
-    $("attendanceStatsAbsent") && ($("attendanceStatsAbsent").textContent = String(absentTotal));
-    $("attendanceStatsAbsentDays") && ($("attendanceStatsAbsentDays").textContent = String([...dailyAbsent.values()].filter(v => v > 0).length));
-
-    const absentBody = $("attendanceStatsDailyAbsent");
-    if (absentBody) {
-        absentBody.innerHTML = Array.from(dailyAbsent.entries()).map(([day, count]) => {
-            const planned = dailyPlanned.get(day) || 0;
-            const pct = planned ? ((count / planned) * 100).toFixed(1) : '0.0';
-            const date = new Date(year, month, day, 12);
-            return `<tr><td>${String(day).padStart(2,'0')}</td><td>${date.toLocaleDateString('en-GB')}</td><td>${count}</td><td>${pct}%</td></tr>`;
-        }).join('');
-    }
-
-    const extraBody = $("attendanceStatsExtraByDate");
-    if (extraBody) {
-        const rows = [...extraByDate.entries()].sort((a,b) => a[0].localeCompare(b[0]));
-        extraBody.innerHTML = rows.map(([key, bucket]) => {
-            const date = new Date(`${key}T12:00:00`);
-            return `<tr><td>${date.toLocaleDateString('en-GB')}</td><td>${bucket.day}</td><td>${bucket.night}</td><td>${bucket.off}</td></tr>`;
-        }).join('') || `<tr><td colspan="4"><div class="empty">No Extra Days records for this month.</div></td></tr>`;
-    }
-}
-
 function getHoursEmployeeSummary(employee) {
     return getHoursAttendanceEmployeeMetrics(employee, hoursAttendanceMonth);
 }
@@ -5711,14 +5568,109 @@ function getHoursAttendanceDayHeaders(monthDate = hoursAttendanceMonth) {
     return headers;
 }
 
-function renderAllHoursAttendance() {
-    if (attendanceActiveSubtab === "statistics") {
-        renderAttendanceMonthlyStats();
-        return;
+function renderAttendanceDetailedStatistics() {
+    const body = $("attendanceDetailedStatisticsBody");
+    if (!body) return;
+
+    const year = hoursAttendanceMonth.getFullYear();
+    const month = hoursAttendanceMonth.getMonth();
+    const people = attendanceMonitoringEmployees(hoursAttendanceMonth);
+    const rows = [];
+    let totalAbsent = 0;
+    let totalExtraDay = 0;
+    let totalExtraNight = 0;
+    let totalExtraOff = 0;
+
+    for (let day = 1; day <= monthDays(hoursAttendanceMonth); day++) {
+        const date = new Date(year, month, day, 12);
+        const key = dateKey(date);
+        let absent = 0;
+        let extraDay = 0;
+        let extraNight = 0;
+        let extraOff = 0;
+
+        people.forEach(employee => {
+            const data = getAttendance(employee, date);
+            if (canConfirmEmployeeDate(employee, date)
+                && data.confirmed
+                && String(data.status || "").trim().toLowerCase() === "absent") {
+                absent++;
+            }
+        });
+
+        Object.entries(extraDays || {}).forEach(([extraKey, item]) => {
+            if (!extraKey.startsWith(`${key}_`)) return;
+            if (item?.type === "extra-work-day") extraDay++;
+            else if (item?.type === "extra-work-night") extraNight++;
+            else if (item?.type === "extra-off") extraOff++;
+        });
+
+        totalAbsent += absent;
+        totalExtraDay += extraDay;
+        totalExtraNight += extraNight;
+        totalExtraOff += extraOff;
+
+        rows.push(`
+            <tr>
+                <td><strong>${String(day).padStart(2, "0")}</strong></td>
+                <td>${esc(date.toLocaleDateString("en-US", { weekday: "short" }))}</td>
+                <td><strong>${absent}</strong></td>
+                <td>${extraDay}</td>
+                <td>${extraNight}</td>
+                <td>${extraOff}</td>
+            </tr>
+        `);
     }
+
+    if ($("attendanceStatsAbsentTotal")) $("attendanceStatsAbsentTotal").textContent = String(totalAbsent);
+    if ($("attendanceStatsExtraDay")) $("attendanceStatsExtraDay").textContent = String(totalExtraDay);
+    if ($("attendanceStatsExtraNight")) $("attendanceStatsExtraNight").textContent = String(totalExtraNight);
+    if ($("attendanceStatsExtraOff")) $("attendanceStatsExtraOff").textContent = String(totalExtraOff);
+
+    body.innerHTML = rows.join("") || `<tr><td colspan="6"><div class="empty">No statistics for the selected month.</div></td></tr>`;
+}
+
+function syncAttendanceHorizontalScroll() {
+    const top = $("hoursAttendanceHorizontalScroll");
+    const inner = $("hoursAttendanceHorizontalScrollInner");
+    const wrap = $("hoursAttendanceMatrixWrap");
+    const table = $("hoursAllTable");
+    if (!top || !inner || !wrap || !table) return;
+
+    const width = Math.max(table.scrollWidth, wrap.clientWidth);
+    inner.style.width = `${width}px`;
+
+    if (!top.dataset.bound) {
+        top.dataset.bound = "1";
+        let syncing = false;
+        top.addEventListener("scroll", () => {
+            if (syncing) return;
+            syncing = true;
+            wrap.scrollLeft = top.scrollLeft;
+            syncing = false;
+        });
+        wrap.addEventListener("scroll", () => {
+            if (syncing) return;
+            syncing = true;
+            top.scrollLeft = wrap.scrollLeft;
+            syncing = false;
+        });
+        window.addEventListener("resize", () => {
+            const t = $("hoursAttendanceHorizontalScroll"), i = $("hoursAttendanceHorizontalScrollInner"), w = $("hoursAttendanceMatrixWrap"), tb = $("hoursAllTable");
+            if (!t || !i || !w || !tb) return;
+            i.style.width = `${Math.max(tb.scrollWidth, w.clientWidth)}px`;
+            t.scrollLeft = w.scrollLeft;
+        });
+    }
+
+    top.scrollLeft = wrap.scrollLeft;
+}
+
+function renderAllHoursAttendance() {
     const body = $("hoursAllTableBody"), meta = $("hoursAllMeta"), head = $("hoursAllTableHead");
     if (!body) return;
     updateHoursExportVisibility();
+    renderAttendanceDetailedStatistics();
 
     const filteredEmployees = hoursAllFilterEmployees(false);
     const employees = sortHoursAttendanceEmployees(filteredEmployees);
@@ -5797,6 +5749,8 @@ function renderAllHoursAttendance() {
             toggleHoursAttendanceDaySort(button.dataset.hoursSortDay);
         });
     });
+
+    syncAttendanceHorizontalScroll();
 
     body.querySelectorAll("[data-hours-employee]").forEach(row => {
         const open = () => {
