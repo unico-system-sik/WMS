@@ -175,7 +175,7 @@ async function loadAuditHistory() {
     while (true) {
         const { data, error } = await supabaseClient
             .from("audit_logs")
-            .select("id, actor_id, actor_login, actor_name, action, employee_login, details, created_at")
+            .select("id, actor_id, actor_login, action, employee_login, details, created_at")
             .in("action", ["Login", "Logout"])
             .order("created_at", { ascending: false })
             .range(from, from + pageSize - 1);
@@ -209,12 +209,10 @@ async function loadCurrentUser(authUser) {
             .split("@")[0]
             .toLowerCase();
 
-    const metadata = authUser.user_metadata || {};
-
     try {
         const { data: profile, error } = await supabaseClient
             .from("profiles")
-            .select("id, login, full_name, role, active")
+            .select("id, login, role, active")
             .eq("id", authUser.id)
             .maybeSingle();
 
@@ -250,7 +248,6 @@ async function loadCurrentUser(authUser) {
         currentUser = {
             id: authUser.id,
             login: profile.login || fallbackLogin,
-            name: profile.full_name || metadata.full_name || fallbackLogin,
             role: normalizedRole,
             active: true
         };
@@ -276,7 +273,6 @@ async function addAudit(action, details = "", employeeLogin = "", actorLogin = "
         .insert({
             actor_id: actorUser.id,
             actor_login: actorLogin || actorUser.login || "SYSTEM",
-            actor_name: actorUser.name || "System",
             action: action || "",
             employee_login: employeeLogin || "",
             details: details || ""
@@ -298,12 +294,10 @@ function roleLabel(role) {
     return role || "";
 }
 
-function actorDisplay(name, login) {
-    const cleanName = String(name || "").trim();
-    const cleanLogin = String(login || "").trim();
-    if (cleanName && cleanLogin) return `${cleanName} · ${cleanLogin}`;
-    return cleanName || cleanLogin || "—";
+function actorDisplay(login, _timestamp) {
+    return String(login || "—").trim() || "—";
 }
+
 
 
 // Keep long attendance notes compact in the monthly table.
@@ -359,8 +353,8 @@ function setAuthScreen(isLoggedIn) {
     }
 
     if (isLoggedIn && currentUser) {
-        document.getElementById("currentUserName").textContent =
-            currentUser.name;
+        document.getElementById("currentUserLoginDisplay").textContent =
+            currentUser.login;
 
         document.getElementById("currentUserLogin").textContent =
             `${roleLabel(currentUser.role)} · ${currentUser.login}`;
@@ -503,7 +497,6 @@ async function renderAuditLog() {
         if (loginFilter) {
             const searchable =
                 `${item.actor_login || ""} ` +
-                `${item.actor_name || ""} ` +
                 `${item.employee_login || ""} ` +
                 `${item.details || ""}`
                     .toLowerCase();
@@ -518,11 +511,7 @@ async function renderAuditLog() {
         rows.map(item => `
             <tr>
                 <td>${new Date(item.created_at).toLocaleString("en-GB")}</td>
-                <td>
-                    <strong>${esc(item.actor_name || "System")}</strong>
-                    <br>
-                    <small>${esc(item.actor_login || "SYSTEM")}</small>
-                </td>
+                <td>${esc(item.actor_login || "SYSTEM")}</td>
                 <td><strong>${esc(item.action || "")}</strong></td>
             </tr>
         `).join("") ||
@@ -714,7 +703,7 @@ const EMPLOYEE_PROCESS_SKILLS = [
 ];
 
 let employeeSort = {
-    key: "name",
+    key: "login",
     direction: 1
 };
 
@@ -767,26 +756,19 @@ function employeeHasSkill(employee, skill) {
     return employeeSkills(employee).includes(skill);
 }
 
-function formatActionActor(name, timestamp) {
-    const cleanName = String(name || "").trim() || "—";
-    if (!timestamp) return esc(cleanName);
-
+function formatActionActor(login, timestamp) {
+    const cleanLogin = String(login || "").trim() || "—";
+    if (!timestamp) return esc(cleanLogin);
     const date = new Date(timestamp);
     const when = Number.isNaN(date.getTime())
         ? String(timestamp)
         : date.toLocaleString("en-GB", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit"
+            day: "2-digit", month: "2-digit", year: "numeric",
+            hour: "2-digit", minute: "2-digit"
         });
-
-    return `
-        <span class="action-actor-name">${esc(cleanName)}</span>
-        <small class="action-actor-time">${esc(when)}</small>
-    `;
+    return `<span class="action-actor-login">${esc(cleanLogin)}</span><small class="action-actor-time">${esc(when)}</small>`;
 }
+
 
 function isTodayOrPast(date) {
     const today = startDay(new Date());
@@ -838,6 +820,7 @@ function employeeWorkedDaysForMonth(employee, monthDate) {
         const datePart = key.slice(0, -suffix.length);
         const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(datePart);
         if (!match || Number(match[1]) !== year || Number(match[2]) !== month + 1) return;
+        if (employee && !canConfirmEmployeeDate(employee, datePart)) return;
         const confirmed = Boolean(data?.confirmed);
         const status = String(data?.status || "").trim().toLowerCase();
         if (!confirmed || status === "absent") return;
@@ -956,8 +939,8 @@ let EMPLOYEES = [];
 async function loadEmployeesFromSupabase() {
     const { data, error } = await supabaseClient
         .from("employees")
-        .select("login, name, process, brigade, start_date, end_date, reason, status, qualifications, skills")
-        .order("name", { ascending: true });
+        .select("login, process, brigade, start_date, end_date, reason, status, qualifications, skills")
+        .order("login", { ascending: true });
 
     if (error) {
         console.error("Employees load error:", error);
@@ -973,7 +956,6 @@ async function loadEmployeesFromSupabase() {
 
     EMPLOYEES = data.map(employee => ({
         login: employee.login,
-        name: employee.name,
         process: normalizeProcessName(employee.process),
         brigade: employee.brigade,
         startDate: employee.start_date || "",
@@ -1036,6 +1018,7 @@ let hoursAttendanceEmployeeLogin = "";
 let hoursModalSource = "hours";
 let hoursAttendanceDaySortKey = "";
 let hoursAttendanceDaySortDirection = 1; // 1 = A/E/P/C/O priority, -1 = reverse
+let attendanceActiveSubtab = "tracker";
 
 // V27.1 — large-list rendering optimisation.
 // Keep the first render lightweight and reveal more rows only on request.
@@ -1107,20 +1090,16 @@ async function loadFeedbackFromSupabase() {
     const last = `${feedbackMonthKey()}-${String(feedbackDays()).padStart(2,"0")}`;
     const { data, error } = await supabaseClient
         .from("feedback_entries")
-        .select("id, work_date, employee_login, error_type, note, confirmed_by, confirmed_by_login, confirmed_by_name, confirmed_at, created_at")
+        .select("id, work_date, employee_login, shift, error_type, note, confirmed_by, confirmed_by_login, confirmed_at, created_at")
         .gte("work_date", first)
         .lte("work_date", last)
         .order("work_date", { ascending: true })
         .order("created_at", { ascending: true });
     if (error) {
         console.error("Feedback load error:", error);
-        feedbackEntries = [];
-        feedbackLoaded = false;
-        return false;
+        feedbackEntries = []; feedbackLoaded = false; return false;
     }
-    feedbackEntries = Array.isArray(data)
-        ? data.map(entry => ({ ...entry, error_type: normalizeFeedbackErrorType(entry.error_type) }))
-        : [];
+    feedbackEntries = Array.isArray(data) ? data.map(entry => ({ ...entry, error_type: normalizeFeedbackErrorType(entry.error_type), shift: entry.shift === "night" ? "night" : entry.shift === "day" ? "day" : "" })) : [];
     feedbackLoaded = true;
     return true;
 }
@@ -1137,69 +1116,67 @@ function feedbackFilteredEmployees() {
     const brigades = selectedMultiValues("feedbackBrigadeFilter");
     const processes = selectedMultiValues("feedbackProcessFilter");
     return activeEmployees().filter(employee => {
-        const text = `${employee.login} ${employee.name} ${employee.process} ${employee.brigade}`.toLowerCase();
+        const text = `${employee.login} ${employee.process} ${employee.brigade}`.toLowerCase();
         if (search && !text.includes(search)) return false;
         if (brigades.length && !brigades.includes(employee.brigade)) return false;
         if (processes.length && !processes.includes(employee.process)) return false;
         return true;
-    }).sort((a,b) => a.name.localeCompare(b.name));
+    }).sort((a,b) => String(a.login).localeCompare(String(b.login)));
 }
 
-function feedbackTotalClass(total) {
-    if (total >= 6) return "high";
-    if (total >= 3) return "medium";
-    return "low";
-}
+function feedbackTotalClass(total) { if (total >= 6) return "high"; if (total >= 3) return "medium"; return "low"; }
 
 function feedbackActor(entry) {
-    const name = String(entry.confirmed_by_name || entry.confirmed_by_login || "—").trim() || "—";
+    const login = String(entry.confirmed_by_login || "—").trim() || "—";
     const time = entry.confirmed_at ? new Date(entry.confirmed_at).toLocaleString("en-GB", {day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "";
-    return time ? `${name} · ${time}` : name;
+    return time ? `${login} · ${time}` : login;
 }
 
 function openFeedbackModal(login) {
-    const employee = feedbackEntryEmployee(login);
-    if (!employee) return;
+    const employee = feedbackEntryEmployee(login); if (!employee) return;
     $("feedbackEmployeeLogin").value = login;
-    $("feedbackEmployeeLabel").textContent = `${employee.name} · ${employee.login}`;
-    $("feedbackDate").value = `${feedbackMonthKey()}-${String(Math.min(new Date().getDate(), feedbackDays())).padStart(2,"0")}`;
-    $("feedbackErrorType").value = "";
-    $("feedbackNote").value = "";
-    $("feedbackConfirmedBy").textContent = currentUser?.name || currentUser?.login || "—";
+    $("feedbackEmployeeLabel").textContent = login;
+    const date = `${feedbackMonthKey()}-${String(Math.min(new Date().getDate(), feedbackDays())).padStart(2,"0")}`;
+    $("feedbackDate").value = date;
+    const scheduled = getSchedule(employee, fromKey(date)).shift;
+    $("feedbackShift").value = scheduled === "night" ? "night" : "day";
+    $("feedbackErrorType").value = ""; $("feedbackNote").value = "";
+    $("feedbackConfirmedBy").value = currentUser?.login || "—";
     $("feedbackModal").classList.remove("hidden");
 }
 
 function closeFeedbackModal() { $("feedbackModal")?.classList.add("hidden"); }
 
+function openFeedbackEmployeeHistoryModal(login) {
+    const employee = feedbackEntryEmployee(login); if (!employee) return;
+    const monthKey = feedbackMonthKey();
+    const entries = feedbackEntries.filter(entry => String(entry.employee_login || "") === String(login) && String(entry.work_date || "").slice(0, 7) === monthKey).sort((a,b) => String(b.work_date || "").localeCompare(String(a.work_date || "")) || String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    $("feedbackEmployeeHistoryLabel").textContent = login;
+    $("feedbackEmployeeHistoryMeta").textContent = `${entries.length} feedback entr${entries.length === 1 ? "y" : "ies"} · ${feedbackMonth.toLocaleDateString("en-GB", {month:"long", year:"numeric"})}`;
+    $("feedbackEmployeeHistoryBody").innerHTML = entries.map(entry => `<tr><td>${esc(entry.work_date)}</td><td><strong>${esc(login)}</strong></td><td>${esc(entry.shift === "night" ? "NIGHT" : entry.shift === "day" ? "DAY" : "—")}</td><td><strong>${esc(entry.error_type)}</strong></td><td>${esc(entry.note || "—")}</td><td>${formatActionActor(entry.confirmed_by_login, entry.confirmed_at)}</td></tr>`).join("") || `<tr><td colspan="6"><div class="empty">No feedback entries for this employee in the selected month.</div></td></tr>`;
+    $("feedbackEmployeeHistoryModal").classList.remove("hidden");
+}
+
+function closeFeedbackEmployeeHistoryModal() { $("feedbackEmployeeHistoryModal")?.classList.add("hidden"); }
+
 async function saveFeedbackEntry(event) {
     event.preventDefault();
     const login = $("feedbackEmployeeLogin").value;
     const date = $("feedbackDate").value;
+    const shift = $("feedbackShift").value;
     const errorType = normalizeFeedbackErrorType($("feedbackErrorType").value);
     const note = $("feedbackNote").value.trim();
     const employee = feedbackEntryEmployee(login);
-    if (!employee || !date || !errorType) { toast("Select a date and error type."); return; }
+    if (!employee || !date || !errorType || !["day","night"].includes(shift)) { toast("Select a date, shift and error type."); return; }
     if (date.slice(0,7) !== feedbackMonthKey()) { toast("Select a date from the displayed month."); return; }
     if (date > dateKey(new Date())) { toast("Feedback cannot be recorded for a future date."); return; }
     if (!currentUser?.id) { toast("Current user is not available. Please sign in again."); return; }
-
-    const payload = {
-        work_date: date,
-        employee_login: login,
-        error_type: errorType,
-        note: note || null,
-        confirmed_by: currentUser.id,
-        confirmed_by_login: currentUser.login || "",
-        confirmed_by_name: currentUser.name || currentUser.login || "",
-        confirmed_at: new Date().toISOString()
-    };
-    const { data, error } = await supabaseClient.from("feedback_entries").insert(payload).select("id, work_date, employee_login, error_type, note, confirmed_by, confirmed_by_login, confirmed_by_name, confirmed_at, created_at").single();
+    const payload = { work_date: date, employee_login: login, shift, error_type: errorType, note: note || null, confirmed_by: currentUser.id, confirmed_by_login: currentUser.login || "", confirmed_at: new Date().toISOString() };
+    const { data, error } = await supabaseClient.from("feedback_entries").insert(payload).select("id, work_date, employee_login, shift, error_type, note, confirmed_by, confirmed_by_login, confirmed_at, created_at").single();
     if (error) { console.error("Feedback save error:", error); toast(`Could not save feedback: ${error.message}`); return; }
-    feedbackEntries.push(data);
-    closeFeedbackModal();
-    renderFeedbackTracker();
-    toast(`${employee.name}: feedback recorded.`);
+    feedbackEntries.push(data); closeFeedbackModal(); renderFeedbackTracker(); toast(`${employee.login}: feedback recorded.`);
 }
+
 
 function feedbackErrorTypesForMonth() {
     return [...new Set(feedbackEntries.map(entry => String(entry.error_type || "Other").trim()).filter(Boolean))].sort((a,b) => a.localeCompare(b));
@@ -1275,14 +1252,17 @@ function renderFeedbackErrorStats() {
         matrixRows.push(`<tr class="feedback-stats-percent-row"><td><strong>Daily share</strong></td>${dailyPcts.join("")}<td><strong>100.0%</strong></td><td><strong>100.0%</strong></td></tr>`);
     }
     $("feedbackStatsHead").innerHTML = head.join("");
-    $("feedbackStatsBody").innerHTML = matrixRows.join("") || `<tr><td colspan="${days+6}"><div class="empty">No feedback statistics for the selected filters.</div></td></tr>`;
+    $("feedbackStatsBody").innerHTML = matrixRows.join("") || `<tr><td colspan="${days+3}"><div class="empty">No feedback statistics for the selected filters.</div></td></tr>`;
 
     // Daily overview: useful for spotting high-error days at a glance.
     const dailyRows = [];
     for (let day=1; day<=days; day++) {
-        const count = source.filter(e => e.work_date === `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`).length;
+        const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
+        const dayCount = source.filter(e => e.work_date === date && e.shift === "day").length;
+        const nightCount = source.filter(e => e.work_date === date && e.shift === "night").length;
+        const count = dayCount + nightCount;
         const pct = monthTotal ? count / monthTotal * 100 : 0;
-        dailyRows.push(`<tr><td>${day}</td><td>${feedbackMonthKey()}-${String(day).padStart(2,"0")}</td><td><strong>${count}</strong></td><td>${pct.toFixed(1)}%</td></tr>`);
+        dailyRows.push(`<tr><td>${day}</td><td>${date}</td><td><strong>${dayCount}</strong></td><td><strong>${nightCount}</strong></td><td><strong>${count}</strong></td><td>${pct.toFixed(1)}%</td></tr>`);
     }
     const dailyBody = $("feedbackDailyStatsBody");
     if (dailyBody) dailyBody.innerHTML = dailyRows.join("");
@@ -1332,10 +1312,8 @@ function renderFeedbackAdditionalStats(source) {
     if (employeeBody) {
         const rows = [...employeeMap.entries()]
             .sort((a,b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
-            .map(([login,count]) => {
-                const e = feedbackEntryEmployee(login);
-                return `<tr><td><strong>${esc(e?.name || login)}</strong><br><small>${esc(login)}</small></td><td>${count}</td><td>${pct(count)}%</td></tr>`;
-            }).join("");
+            .map(([login,count]) => `<tr><td><strong>${esc(login)}</strong></td><td>${count}</td><td>${pct(count)}%</td></tr>`)
+            .join("");
         employeeBody.innerHTML = rows || `<tr><td colspan="3"><div class="empty">No employees with feedback.</div></td></tr>`;
     }
 }
@@ -1372,49 +1350,34 @@ function renderFeedbackTrackerTable(employees, filtered) {
     const days = feedbackDays();
     const index = buildFeedbackDailyIndex(filtered);
     const visibleEmployees = employees.slice(0, feedbackVisibleCount);
-
-    const head = ["<tr><th class=\"feedback-login-col\">Login</th><th class=\"feedback-name-col\">Name</th><th class=\"feedback-brigade-col\">Brigade</th><th class=\"feedback-process-col\">Process</th><th class=\"feedback-total-col\">Month total</th>"];
+    const head = ['<tr><th class="feedback-login-col">Login</th><th class="feedback-brigade-col">Brigade</th><th class="feedback-process-col">Process</th><th class="feedback-worked-col">Worked days</th><th class="feedback-start-col">Start date</th><th class="feedback-total-col"><span>Feedback</span><small>Month total</small></th>'];
     for (let day=1; day<=days; day++) head.push(`<th class="feedback-day-col">${day}</th>`);
     head.push(`<th class="feedback-add-col">Add</th></tr>`);
     $("feedbackTableHead").innerHTML = head.join("");
-
     $("feedbackTableBody").innerHTML = visibleEmployees.map(employee => {
-        const total = index.byEmployee.get(employee.login) || 0;
-        const cells = [];
+        const total = index.byEmployee.get(employee.login) || 0; const cells = [];
         for (let day=1; day<=days; day++) {
-            const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`;
-            const key = `${employee.login}_${date}`;
-            const entries = index.byEmployeeDayEntries.get(key) || [];
-            const count = index.byDay.get(key) || 0;
-            const title = entries.length ? entries.map(e => `${e.error_type}${e.note ? ` — ${e.note}` : ""} — ${feedbackActor(e)}`).join("\n") : "No feedback";
+            const date = `${feedbackMonthKey()}-${String(day).padStart(2,"0")}`; const key = `${employee.login}_${date}`;
+            const entries = index.byEmployeeDayEntries.get(key) || []; const count = index.byDay.get(key) || 0;
+            const title = entries.length ? entries.map(e => `${e.shift === "night" ? "NIGHT" : e.shift === "day" ? "DAY" : "—"} · ${e.error_type}${e.note ? ` — ${e.note}` : ""} — ${feedbackActor(e)}`).join("\n") : "No feedback";
             cells.push(`<td class="feedback-day-cell" title="${esc(title)}"><span class="feedback-count">${count}</span></td>`);
         }
-        return `<tr><td class="feedback-login-cell"><strong>${esc(employee.login)}</strong></td><td class="feedback-name-cell">${esc(employee.name)}</td><td class="feedback-brigade-cell">${esc(employee.brigade)}</td><td class="feedback-process-cell">${esc(employee.process)}</td><td class="feedback-total-cell"><span class="feedback-total-chip ${feedbackTotalClass(total)}">${total}</span></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.name)}">+</button></td></tr>`;
-    }).join("") || `<tr><td colspan="${days+3}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
-
-    const moreWrap = $("feedbackMoreWrap");
-    const moreButton = $("feedbackMoreBtn");
-    const hasMore = visibleEmployees.length < employees.length;
+        const workedDays = employeeWorkedDaysForMonth(employee, feedbackMonth);
+        return `<tr><td class="feedback-login-cell"><strong>${esc(employee.login)}</strong></td><td class="feedback-brigade-cell">${esc(employee.brigade)}</td><td class="feedback-process-cell">${esc(employee.process)}</td><td class="feedback-worked-cell"><strong>${workedDays}</strong></td><td class="feedback-start-cell">${esc(employee.startDate || "—")}</td><td class="feedback-total-cell"><button class="feedback-total-chip feedback-total-button ${feedbackTotalClass(total)}" type="button" data-feedback-history="${esc(employee.login)}" aria-label="Open feedback for ${esc(employee.login)}">${total}</button></td>${cells.join("")}<td class="feedback-add-cell"><button class="primary feedback-add-btn" type="button" data-feedback-add="${esc(employee.login)}" aria-label="Add feedback for ${esc(employee.login)}">+</button></td></tr>`;
+    }).join("") || `<tr><td colspan="${days+7}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+    const moreWrap = $("feedbackMoreWrap"), moreButton = $("feedbackMoreBtn"), hasMore = visibleEmployees.length < employees.length;
     if (moreWrap) moreWrap.hidden = !hasMore;
-    if (moreButton) {
-        moreButton.textContent = hasMore ? `More (${Math.min(LARGE_LIST_PAGE_SIZE, employees.length - visibleEmployees.length)})` : "More";
-        moreButton.disabled = !hasMore;
-    }
-    const meta = $("feedbackMeta");
-    if (meta) {
-        meta.textContent = `${visibleEmployees.length} of ${employees.length} employee${employees.length===1?"":"s"} shown · ${filtered.length} feedback entr${filtered.length===1?"y":"ies"}`;
-    }
-
+    if (moreButton) { moreButton.textContent = hasMore ? `More (${Math.min(LARGE_LIST_PAGE_SIZE, employees.length - visibleEmployees.length)})` : "More"; moreButton.disabled = !hasMore; }
+    const meta = $("feedbackMeta"); if (meta) meta.textContent = `${visibleEmployees.length} of ${employees.length} employee${employees.length===1?"":"s"} shown · ${filtered.length} feedback entr${filtered.length===1?"y":"ies"}`;
     document.querySelectorAll("[data-feedback-add]").forEach(button => button.addEventListener("click", () => openFeedbackModal(button.dataset.feedbackAdd)));
+    document.querySelectorAll("[data-feedback-history]").forEach(button => button.addEventListener("click", () => openFeedbackEmployeeHistoryModal(button.dataset.feedbackHistory)));
 }
 
 function renderFeedbackHistory(filtered) {
     const history = [...filtered].sort((a,b) => String(b.created_at||"").localeCompare(String(a.created_at||""))).slice(0,200);
-    $("feedbackHistoryTable").innerHTML = history.map(entry => {
-        const employee = feedbackEntryEmployee(entry.employee_login);
-        return `<tr><td>${esc(entry.work_date)}</td><td><strong>${esc(employee?.login || entry.employee_login)}</strong><br>${esc(employee?.name || "")}</td><td>${esc(entry.error_type)}</td><td>${esc(entry.note || "—")}</td><td>${formatActionActor(entry.confirmed_by_name, entry.confirmed_at)}</td></tr>`;
-    }).join("") || `<tr><td colspan="5"><div class="empty">No feedback entries for this month.</div></td></tr>`;
+    $("feedbackHistoryTable").innerHTML = history.map(entry => `<tr><td>${esc(entry.work_date)}</td><td><strong>${esc(entry.employee_login)}</strong></td><td>${esc(entry.shift === "night" ? "NIGHT" : entry.shift === "day" ? "DAY" : "—")}</td><td>${esc(entry.error_type)}</td><td>${esc(entry.note || "—")}</td><td>${formatActionActor(entry.confirmed_by_login, entry.confirmed_at)}</td></tr>`).join("") || `<tr><td colspan="6"><div class="empty">No feedback entries for this month.</div></td></tr>`;
 }
+
 
 function renderFeedbackCurrentSubtab() {
     const filtered = feedbackEntriesFilteredForView();
@@ -1573,7 +1536,7 @@ async function loadExtraDaysFromSupabase() {
 
     const { data, error } = await supabaseClient
         .from("schedule_exceptions")
-        .select("id, work_date, employee_login, type, shift, leader_id, leader_login, leader_name, created_at")
+        .select("id, work_date, employee_login, type, shift, leader_id, leader_login, created_at")
         .order("work_date", { ascending: true });
 
     if (error) {
@@ -1597,14 +1560,14 @@ async function loadExtraDaysFromSupabase() {
                 shift: item.type === "extra-off" ? null : (item.shift || "day"),
                 leader_id: currentUser.id,
                 leader_login: currentUser.login,
-                leader_name: currentUser.name || currentUser.login
+                leader_login: currentUser?.login
             };
         });
 
         const { data: migrated, error: migrateError } = await supabaseClient
             .from("schedule_exceptions")
             .upsert(legacyRows, { onConflict: "work_date,employee_login" })
-            .select("id, work_date, employee_login, type, shift, leader_id, leader_login, leader_name, created_at");
+            .select("id, work_date, employee_login, type, shift, leader_id, leader_login, created_at");
 
         if (!migrateError) {
             rows.push(...(migrated || []));
@@ -1621,7 +1584,6 @@ async function loadExtraDaysFromSupabase() {
             type: row.type,
             shift: row.shift || null,
             leaderLogin: row.leader_login || "",
-            leaderName: row.leader_name || "",
             leaderId: row.leader_id || "",
             createdAt: row.created_at || ""
         };
@@ -1648,6 +1610,9 @@ function subscribeToExtraDaysRealtime() {
                     renderScheduling();
                     renderOverview();
                     updateExtraScheduleHint();
+                    if (attendanceActiveSubtab === "statistics") {
+                        renderAttendanceMonthlyStats();
+                    }
                     toast("Schedule updated.");
                 }
             }
@@ -1966,13 +1931,11 @@ function attendanceRowFromLocal(employee, date, data) {
         confirmed: Boolean(data?.confirmed),
         confirmed_by: data?.confirmedById || (data?.confirmed ? (currentUser?.id || null) : null),
         confirmed_by_login: data?.confirmedByLogin || (data?.confirmed ? (currentUser?.login || "") : ""),
-        confirmed_by_name: data?.confirmedByName || (data?.confirmed ? (currentUser?.name || currentUser?.login || "") : ""),
         confirmed_at: data?.confirmedAt || (data?.confirmed ? new Date().toISOString() : null),
         // Edit by is server-authoritative. A normal Confirm must NOT populate it.
         // Keep any existing edit actor only when the row was actually edited.
         last_changed_by: data?.lastChangedById || null,
         last_changed_by_login: data?.lastChangedByLogin || "",
-        last_changed_by_name: data?.lastChangedByName || "",
         last_changed_at: data?.lastChangedAt || null
     };
 }
@@ -1991,10 +1954,8 @@ function localAttendanceFromRemote(row) {
         confirmedAt: row.confirmed_at || "",
         confirmedById: row.confirmed_by || "",
         confirmedByLogin: row.confirmed_by_login || "",
-        confirmedByName: row.confirmed_by_name || "",
         lastChangedById: row.last_changed_by || "",
         lastChangedByLogin: row.last_changed_by_login || "",
-        lastChangedByName: row.last_changed_by_name || "",
         lastChangedAt: row.last_changed_at || ""
     });
 }
@@ -2016,7 +1977,7 @@ async function loadAttendanceFromSupabase() {
             .select(`
                 id, work_date, employee_login, shift, planned_hours, actual_hours,
                 actual_start, actual_end, break_minutes, status, reason, reason_record, note, confirmed,
-                confirmed_by, confirmed_by_login, confirmed_by_name, confirmed_at, terminated_record, last_changed_by, last_changed_by_login, last_changed_by_name, last_changed_at, created_at, updated_at
+                confirmed_by, confirmed_by_login, confirmed_at, terminated_record, last_changed_by, last_changed_by_login, last_changed_at, created_at, updated_at
             `)
             .order("work_date", { ascending: true })
             .range(from, from + pageSize - 1);
@@ -2224,12 +2185,23 @@ function updateLiveDateTime() {
 function fillMultiFilter(id, options, allLabel, labelMap = null) {
     const root = $(id); const menu = root?.querySelector('[data-multi-menu]');
     if (!root || !menu) return;
-    menu.innerHTML = options.map(value => {
+    menu.innerHTML = `<label class="multi-filter-all-option"><input type="checkbox" value="__all__"><span>All</span></label>` + options.map(value => {
         const label = labelMap ? (labelMap[value] || value) : value;
         return `<label><input type="checkbox" value="${esc(value)}"><span>${esc(label)}</span></label>`;
     }).join('');
-    const button = root.querySelector('[data-multi-toggle]');
-    if (button) button.textContent = `All ${allLabel} ▾`;
+    const button = root.querySelector('[data-multi-toggle]'); if (button) button.textContent = `All ${allLabel} ▾`;
+    const all = menu.querySelector('input[value="__all__"]');
+    if (all) all.checked = true;
+    if (all) all.addEventListener('change', () => {
+        menu.querySelectorAll('input[type="checkbox"]:not([value="__all__"])').forEach(input => input.checked = all.checked);
+        updateMultiFilterLabel(id, allLabel);
+    });
+    menu.querySelectorAll('input[type="checkbox"]:not([value="__all__"])').forEach(input => input.addEventListener('change', () => {
+        const values = menu.querySelectorAll('input[type="checkbox"]:not([value="__all__"]):checked');
+        const allOptions = menu.querySelectorAll('input[type="checkbox"]:not([value="__all__"])');
+        if (all) all.checked = values.length === allOptions.length && allOptions.length > 0;
+        updateMultiFilterLabel(id, allLabel);
+    }));
 }
 
 function fillOverviewFilters() {
@@ -2237,7 +2209,7 @@ function fillOverviewFilters() {
     fillMultiFilter('overviewProcessFilter', PROCESSES, 'processes');
     fillMultiFilter('overviewSecondaryProcessFilter', EMPLOYEE_PROCESS_SKILLS, 'secondary processes');
     fillMultiFilter('overviewAttendanceFilter', ['confirmed', 'pending'], 'attendance', {confirmed:'Confirmed', pending:'Not confirmed'});
-    fillMultiFilter('overviewExceptionFilter', ['private-leave','forced-leave','feeling-unwell','terminated','other','absent'], 'exceptions', {'private-leave':'Private leave','forced-leave':'Forced leave','feeling-unwell':'Feeling unwell',terminated:'Terminated',other:'Other',absent:'Absent'});
+    fillMultiFilter('overviewExceptionFilter', ['private-leave','forced-leave','feeling-unwell','terminated','other','absent','late','left-early'], 'exceptions', {'private-leave':'Private leave','forced-leave':'Forced leave','feeling-unwell':'Feeling unwell',terminated:'Terminated',other:'Other',absent:'Absent',late:'Late arrival', 'left-early':'Left early'});
     updateAllMultiFilterLabels();
 }
 async function loadSystemUsers() {
@@ -2250,14 +2222,13 @@ async function loadSystemUsers() {
     const { data, error } = await supabaseClient.rpc("admin_list_profiles");
     if (error) {
         console.error("System users load error:", error);
-        table.innerHTML = `<tr><td colspan="5"><div class="empty">System users could not be loaded.<br><small>${esc(error.message)}</small></div></td></tr>`;
+        table.innerHTML = `<tr><td colspan="4"><div class="empty">System users could not be loaded.<br><small>${esc(error.message)}</small></div></td></tr>`;
         return;
     }
 
     table.innerHTML = (data || []).map(user => `
         <tr data-system-user-row="${esc(user.login)}">
             <td><strong>${esc(user.login)}</strong></td>
-            <td><input class="system-user-name-input" data-system-user-name="${esc(user.login)}" value="${esc(user.full_name || "")}" placeholder="First name Last name"></td>
             <td>
                 <select data-system-user-role="${esc(user.login)}">
                     <option value="Leader" ${String(user.role || "").toLowerCase() === "leader" ? "selected" : ""}>Leader</option>
@@ -2267,7 +2238,7 @@ async function loadSystemUsers() {
             </td>
             <td><label class="system-user-active"><input type="checkbox" data-system-user-active="${esc(user.login)}" ${user.active ? "checked" : ""}> Active</label></td>
             <td><button type="button" class="mini-btn" data-system-user-save="${esc(user.login)}">Save</button></td>
-        </tr>`).join("") || `<tr><td colspan="5"><div class="empty">No system users found.</div></td></tr>`;
+        </tr>`).join("") || `<tr><td colspan="4"><div class="empty">No system users found.</div></td></tr>`;
 
     table.querySelectorAll("[data-system-user-save]").forEach(button => {
         button.addEventListener("click", () => saveSystemUser(button.dataset.systemUserSave));
@@ -2278,20 +2249,17 @@ async function saveSystemUser(login) {
     if (String(currentUser?.role || "").trim().toLowerCase() !== "admin") return;
     const row = document.querySelector(`[data-system-user-row="${CSS.escape(login)}"]`);
     if (!row) return;
-    const fullName = row.querySelector(`[data-system-user-name="${CSS.escape(login)}"]`)?.value.trim() || "";
     const role = row.querySelector(`[data-system-user-role="${CSS.escape(login)}"]`)?.value || "Leader";
     const active = Boolean(row.querySelector(`[data-system-user-active="${CSS.escape(login)}"]`)?.checked);
-    if (!fullName) { toast("Full name is required."); return; }
-
     const { error } = await supabaseClient.rpc("admin_update_profile", {
-        p_login: login, p_full_name: fullName, p_role: role, p_active: active
+        p_login: login, p_role: role, p_active: active
     });
     if (error) {
         console.error("System user update error:", error);
         toast(`Could not update user: ${error.message}`);
         return;
     }
-    toast(`${fullName}: user profile updated.`);
+    toast(`${login}: user profile updated.`);
     await loadSystemUsers();
     if (login === currentUser.login) {
         const session = await supabaseClient.auth.getSession();
@@ -2299,6 +2267,7 @@ async function saveSystemUser(login) {
         setAuthScreen(true);
     }
 }
+
 
 function fillEmployeeFilters() {
     fillMultiFilter('employeeProcessFilter', PROCESSES, 'processes');
@@ -2316,17 +2285,22 @@ function fillAdditionalMultiFilters() {
     updateAllMultiFilterLabels();
 }
 function selectedMultiValues(id) {
-    return Array.from($(id)?.querySelectorAll('input[type="checkbox"]:checked') || []).map(x => x.value);
+    return Array.from($(id)?.querySelectorAll('input[type="checkbox"]:checked') || []).map(x => x.value).filter(value => value !== "__all__");
 }
 function setMultiFilterValues(id, values = []) {
+    const root = $(id); if (!root) return;
     const set = new Set(values);
-    $(id)?.querySelectorAll('input[type="checkbox"]').forEach(input => input.checked = set.has(input.value));
+    root.querySelectorAll('input[type="checkbox"]:not([value="__all__"])').forEach(input => input.checked = set.has(input.value));
+    const all = root.querySelector('input[value="__all__"]');
+    const options = Array.from(root.querySelectorAll('input[type="checkbox"]:not([value="__all__"])'));
+    if (all) all.checked = set.size === 0 || set.size === options.length;
     updateAllMultiFilterLabels();
 }
 function updateMultiFilterLabel(id, allLabel) {
     const root=$(id), button=root?.querySelector('[data-multi-toggle]'); if(!root||!button) return;
     const vals=selectedMultiValues(id);
-    button.textContent=vals.length ? `${vals.length} ${allLabel} selected ▾` : `All ${allLabel} ▾`;
+    const optionCount = root.querySelectorAll('input[type="checkbox"]:not([value="__all__"])').length;
+    button.textContent = (vals.length === optionCount && optionCount > 0) || vals.length === 0 ? `All ${allLabel} ▾` : `${vals.length} ${allLabel} selected ▾`;
 }
 function updateAllMultiFilterLabels() {
     const labels={feedbackBrigadeFilter:"brigades",feedbackProcessFilter:"processes",employeeProcessFilter:'processes',employeeBrigadeFilter:'brigades',employeeQualificationFilter:'qualifications',employeeProcessSkillFilter:'secondary processes',overviewBrigadeFilter:'brigades',overviewProcessFilter:'processes',overviewSecondaryProcessFilter:'secondary processes',overviewAttendanceFilter:'attendance',overviewExceptionFilter:'exceptions',extraDaysTypeFilter:'types',scheduleHistoryType:'types',hoursAllBrigade:'brigades',hoursAllProcess:'processes',hoursAllStatus:'statuses'};
@@ -2357,49 +2331,70 @@ function getHoursException(employee, date) {
     };
 }
 
+function parseClockMinutes(value) {
+    const m = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+    if (!m) return null;
+    return Number(m[1]) * 60 + Number(m[2]);
+}
+
+function getShiftTimeDeviation(employee, date, data) {
+    const schedule = getSchedule(employee, date);
+    const shift = SHIFTS[schedule.shift];
+    if (!shift || !data?.confirmed || String(data.status || "").trim().toLowerCase() === "absent") {
+        return { late: 0, leftEarly: 0, arrivalEarly: 0 };
+    }
+    const plannedStart = parseClockMinutes(shift.start);
+    const plannedEnd = parseClockMinutes(shift.end);
+    const actualStart = parseClockMinutes(data.actualStart);
+    const actualEnd = parseClockMinutes(data.actualEnd);
+    return {
+        late: plannedStart != null && actualStart != null && actualStart > plannedStart ? actualStart - plannedStart : 0,
+        leftEarly: plannedEnd != null && actualEnd != null && actualEnd < plannedEnd ? plannedEnd - actualEnd : 0,
+        arrivalEarly: plannedStart != null && actualStart != null && actualStart < plannedStart ? plannedStart - actualStart : 0
+    };
+}
+
+function formatDeviation(late, leftEarly, arrivalEarly) {
+    const parts = [];
+    if (late > 0) parts.push(`Late ${late}m`);
+    if (arrivalEarly > 0) parts.push(`Arrived early ${arrivalEarly}m`);
+    if (leftEarly > 0) parts.push(`Left early ${leftEarly}m`);
+    return parts.join(" · ") || "—";
+}
+
 function renderOverviewExceptionStats(people) {
-    const stats = {privateLeave:0,forcedLeave:0,feelingUnwell:0,terminated:0,other:0,absent:0};
+    const stats = {privateLeave:0,forcedLeave:0,feelingUnwell:0,terminated:0,other:0,absent:0,late:0,arrivalEarly:0,leftEarly:0};
     people.forEach(employee => {
         const e = getHoursException(employee, overviewDate);
-        if (e.privateLeave) stats.privateLeave++;
-        if (e.forcedLeave) stats.forcedLeave++;
-        if (e.feelingUnwell) stats.feelingUnwell++;
-        if (e.terminated) stats.terminated++;
-        if (e.other) stats.other++;
-        if (e.absent) stats.absent++;
+        if (e.privateLeave) stats.privateLeave++; if (e.forcedLeave) stats.forcedLeave++; if (e.feelingUnwell) stats.feelingUnwell++; if (e.terminated) stats.terminated++; if (e.other) stats.other++; if (e.absent) stats.absent++;
+        const deviation = getShiftTimeDeviation(employee, overviewDate, getAttendance(employee, overviewDate));
+        if (deviation.late) stats.late++; if (deviation.arrivalEarly) stats.arrivalEarly++; if (deviation.leftEarly) stats.leftEarly++;
     });
-    const map={ovPrivateLeave:stats.privateLeave,ovForcedLeave:stats.forcedLeave,ovFeelingUnwell:stats.feelingUnwell,ovTerminated:stats.terminated,ovOther:stats.other,ovAbsent:stats.absent};
+    const map={ovPrivateLeave:stats.privateLeave,ovForcedLeave:stats.forcedLeave,ovFeelingUnwell:stats.feelingUnwell,ovTerminated:stats.terminated,ovOther:stats.other,ovAbsent:stats.absent,ovLateArrival:stats.late,ovArrivedEarly:stats.arrivalEarly,ovLeftEarly:stats.leftEarly};
     Object.entries(map).forEach(([id,v])=>{if($(id)) $(id).textContent=String(v);});
 }
 
 function renderOverview() {
     $("overviewDate").value = dateKey(overviewDate);
-    const selectedShift = SHIFTS[overviewShift];
-    $("overviewShiftTime").textContent = `${selectedShift.start}–${selectedShift.end}`;
+    const selectedShift = SHIFTS[overviewShift]; $("overviewShiftTime").textContent = `${selectedShift.start}–${selectedShift.end}`;
     const overviewShiftMeta = $("overviewShiftMeta");
-    if (overviewShiftMeta) {
-        overviewShiftMeta.textContent = overviewShift === "rest"
-            ? "Rest day"
-            : `${selectedShift.presenceHours.toFixed(2)} presence · ${selectedShift.netHours.toFixed(2)} net work · 45 min break`;
-    }
+    if (overviewShiftMeta) overviewShiftMeta.textContent = overviewShift === "rest" ? "Rest day" : `${selectedShift.presenceHours.toFixed(2)} presence · ${selectedShift.netHours.toFixed(2)} net work · 45 min break`;
     const people = employeesAvailableOnDate(overviewDate).filter(employee => getSchedule(employee, overviewDate).shift === overviewShift);
-    let confirmed = 0;
-    people.forEach(employee => { const data=getAttendance(employee,overviewDate); if(data.confirmed && data.status !== "Absent") confirmed++; });
-    const pending=people.length-confirmed, rate=people.length?Math.round((confirmed/people.length)*100):0;
-    const overviewWorkedDays = people.reduce((sum, employee) => sum + employeeWorkedDaysForMonth(employee, overviewDate), 0);
-    $("ovPlanned").textContent=people.length; $("ovPresent").textContent=confirmed; $("ovMissing").textContent=pending; $("ovRate").textContent=`${rate}%`; $("ovRateCard").textContent=`${rate}%`;
-    if ($("ovWorkedDays")) $("ovWorkedDays").textContent = String(overviewWorkedDays);
-    renderOverviewExceptionStats(people);
-    renderProcessSummary(people); renderBrigadeSummary(people); renderShiftEmployees(people);
+    const present = people.filter(employee => { const data=getAttendance(employee,overviewDate); return data.confirmed && String(data.status||"").toLowerCase() !== "absent"; }).length;
+    const absent = people.filter(employee => String(getAttendance(employee,overviewDate).status||"").toLowerCase() === "absent").length;
+    const pending = people.filter(employee => !getAttendance(employee,overviewDate).confirmed).length;
+    const rate = people.length ? Math.round((present/people.length)*100) : 0;
+    $("ovPlanned").textContent=people.length; $("ovPresent").textContent=present; $("ovMissing").textContent=pending; $("ovRate").textContent=`${rate}%`; $("ovRateCard").textContent=`${rate}%`;
+    if ($("ovAbsentTotal")) $("ovAbsentTotal").textContent = String(absent);
+    renderOverviewExceptionStats(people); renderProcessSummary(people); renderBrigadeSummary(people); renderShiftEmployees(people);
 }
+
 function renderProcessSummary(people) {
     $("ovProcessTable").innerHTML =
         PROCESSES.map(process => {
             const group = people.filter(
                 employee => employee.process === process
             );
-
-            if (!group.length) return "";
 
             const confirmed = group.filter(employee => {
                 const data = getAttendance(employee, overviewDate);
@@ -2425,8 +2420,7 @@ function renderProcessSummary(people) {
                     </td>
                 </tr>
             `;
-        }).join("") ||
-        `<tr><td colspan="5"><div class="empty">No scheduled employees.</div></td></tr>`;
+        }).join("");
 }
 
 function renderBrigadeSummary(people) {
@@ -2467,94 +2461,55 @@ function renderBrigadeSummary(people) {
 }
 
 function shiftStatusClass(status, confirmed) {
+    if (status === "Absent") return "absent";
     if (!confirmed) return "pending";
-    return status === "Absent" ? "absent" : "confirmed";
+    return "confirmed";
 }
 
 function renderShiftEmployees(people) {
     const search = ($("overviewSearch")?.value || "").trim().toLowerCase();
-    const brigades = selectedMultiValues("overviewBrigadeFilter");
-    const processes = selectedMultiValues("overviewProcessFilter");
-    const secondaryProcesses = selectedMultiValues("overviewSecondaryProcessFilter");
-    const attendanceFilters = selectedMultiValues("overviewAttendanceFilter");
-    const exceptionFilters = selectedMultiValues("overviewExceptionFilter");
-
+    const brigades = selectedMultiValues("overviewBrigadeFilter"); const processes = selectedMultiValues("overviewProcessFilter");
+    const secondaryProcesses = selectedMultiValues("overviewSecondaryProcessFilter"); const attendanceFilters = selectedMultiValues("overviewAttendanceFilter"); const exceptionFilters = selectedMultiValues("overviewExceptionFilter");
     const filtered = people.filter(employee => {
-        const text = `${employee.name} ${employee.login}`.toLowerCase();
+        const text = `${employee.login} ${employee.process} ${employee.brigade}`.toLowerCase();
         if (search && !text.includes(search)) return false;
         if (brigades.length && !brigades.includes(employee.brigade)) return false;
         if (processes.length && !processes.includes(employee.process)) return false;
         if (secondaryProcesses.length && !secondaryProcesses.some(skill => employeeHasProcessSkill(employee, skill))) return false;
-
         const data = getAttendance(employee, overviewDate);
-        if (attendanceFilters.includes("confirmed") && !data.confirmed) return false;
-        if (attendanceFilters.includes("pending") && data.confirmed) return false;
-
+        if (attendanceFilters.includes("confirmed") && !data.confirmed) return false; if (attendanceFilters.includes("pending") && data.confirmed) return false;
         if (exceptionFilters.length) {
             const e = getHoursException(employee, overviewDate);
-            const matches = {
-                "private-leave": e.privateLeave,
-                "forced-leave": e.forcedLeave,
-                "feeling-unwell": e.feelingUnwell,
-                "terminated": e.terminated,
-                "other": e.other,
-                "absent": e.absent
-            };
+            const deviation = getShiftTimeDeviation(employee, overviewDate, data);
+            const matches = {"private-leave":e.privateLeave,"forced-leave":e.forcedLeave,"feeling-unwell":e.feelingUnwell,"terminated":e.terminated,"other":e.other,"absent":e.absent,"late":deviation.late > 0,"left-early":deviation.leftEarly > 0};
             if (!exceptionFilters.some(key => matches[key])) return false;
         }
         return true;
     });
-
     $("overviewEmployeeTable").innerHTML = filtered.map(employee => {
-        const schedule = getSchedule(employee, overviewDate);
-        const data = getAttendance(employee, overviewDate);
-        const planned = plannedHours(employee, overviewDate);
-        const actual = Number(data.actualHours || 0);
-        const fullConfirmed = Boolean(data.confirmed) && Math.abs(actual - planned) < 0.001;
-        const visibleReason = data.reason || (data.terminatedRecord ? "Terminated" : "");
-        const workedDays = employeeWorkedDaysForMonth(employee, overviewDate);
-        const statusClass = shiftStatusClass(data.status, data.confirmed);
-
-        return `
-            <tr>
-                <td class="check-col"><input class="employee-check" type="checkbox" data-shift-select="${esc(employee.login)}" aria-label="Select ${esc(employee.name)}"></td>
-                <td><strong>${esc(employee.name)}</strong><br><small>${esc(employee.login)}</small></td>
-                <td>${esc(employee.brigade)}</td>
-                <td>${esc(employee.process)}</td>
-                <td><div class="employee-skills compact-skills">${employeeProcessSkills(employee).map(value => `<span class="skill-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}</div></td>
-                <td><span class="shift-pill ${schedule.shift}">${SHIFTS[schedule.shift].label}</span></td>
-                <td>${planned.toFixed(2)}h</td>
-                <td>${actual.toFixed(2)}h</td>
-                <td><strong>${workedDays}</strong></td>
-                <td>
-                    <span class="shift-status-select ${statusClass}" aria-label="Status for ${esc(employee.name)}">
-                        ${data.confirmed ? (String(data.status || "").trim().toLowerCase() === "absent" ? "Absent" : "Confirmed") : "Not confirmed"}
-                    </span>
-                </td>
-                <td class="shift-reason-display">
-                    ${visibleReason ? `<span class="reason-pill">${esc(visibleReason)}</span>` : `<span class="muted">—</span>`}
-                </td>
-                <td>${data.confirmed ? formatActionActor(data.confirmedByName, data.confirmedAt) : "—"}</td>
-                <td>${data.lastChangedAt ? formatActionActor(data.lastChangedByName, data.lastChangedAt) : "—"}</td>
-                <td>
-                    ${data.confirmed
-                        ? `<button type="button" class="mini-btn" data-shift-edit="${esc(employee.login)}">Edit</button>`
-                        : "—"}
-                </td>
-            </tr>`;
-    }).join("") || `<tr><td colspan="14"><div class="empty">No employees match the selected filters.</div></td></tr>`;
-
+        const schedule = getSchedule(employee, overviewDate); const data = getAttendance(employee, overviewDate); const planned = plannedHours(employee, overviewDate); const actual = Number(data.actualHours || 0);
+        const workedDays = employeeWorkedDaysForMonth(employee, overviewDate); const absent = String(data.status || "").toLowerCase() === "absent" ? 1 : 0; const deviation = getShiftTimeDeviation(employee, overviewDate, data);
+        const visibleReason = data.reason || (data.terminatedRecord ? "Terminated" : ""); const statusClass = shiftStatusClass(data.status, data.confirmed);
+        return `<tr>
+            <td class="check-col"><input class="employee-check" type="checkbox" data-shift-select="${esc(employee.login)}" aria-label="Select ${esc(employee.login)}"></td>
+            <td><strong>${esc(employee.login)}</strong></td>
+            <td>${esc(employee.brigade)}</td>
+            <td>${esc(employee.process)}</td>
+            <td><div class="employee-skills compact-skills">${employeeProcessSkills(employee).map(value => `<span class="skill-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}</div></td>
+            <td><span class="shift-pill ${schedule.shift}">${SHIFTS[schedule.shift].label}</span></td>
+            <td>${planned.toFixed(2)}h</td><td>${actual.toFixed(2)}h</td>
+            <td><strong>${workedDays}</strong></td><td><strong>${absent}</strong></td>
+            <td class="deviation-cell">${formatDeviation(deviation.late, deviation.leftEarly, deviation.arrivalEarly)}</td>
+            <td><span class="shift-status-select ${statusClass}">${data.status === "Absent" ? "Absent" : data.confirmed ? "Confirmed" : "Not confirmed"}</span></td>
+            <td class="shift-reason-display">${visibleReason ? `<span class="reason-pill">${esc(visibleReason)}</span>` : `<span class="muted">—</span>`}</td>
+            <td>${data.confirmed ? formatActionActor(data.confirmedByLogin, data.confirmedAt) : "—"}</td>
+            <td>${data.lastChangedAt ? formatActionActor(data.lastChangedByLogin, data.lastChangedAt) : "—"}</td>
+            <td>${data.confirmed ? `<button type="button" class="mini-btn" data-shift-edit="${esc(employee.login)}">Edit</button>` : "—"}</td>
+        </tr>`;
+    }).join("") || `<tr><td colspan="16"><div class="empty">No employees match the selected filters.</div></td></tr>`;
     updateSelectionUI();
-
-    $("overviewEmployeeTable").querySelectorAll("[data-shift-select]").forEach(checkbox => {
-        checkbox.addEventListener("change", updateSelectionUI);
-    });
-    $("overviewEmployeeTable").querySelectorAll("[data-shift-edit]").forEach(button => {
-        button.addEventListener("click", () => {
-            const employee = employeeByLogin(button.dataset.shiftEdit);
-            if (employee) openHoursModal(employee, overviewDate, "overview");
-        });
-    });
+    $("overviewEmployeeTable").querySelectorAll("[data-shift-select]").forEach(checkbox => checkbox.addEventListener("change", updateSelectionUI));
+    $("overviewEmployeeTable").querySelectorAll("[data-shift-edit]").forEach(button => button.addEventListener("click", () => { const employee = employeeByLogin(button.dataset.shiftEdit); if (employee) openHoursModal(employee, overviewDate, "overview"); }));
 }
 
 function getSelectedShiftLogins() {
@@ -2636,12 +2591,10 @@ async function confirmSelectedHours() {
             confirmedAt: new Date().toISOString(),
             confirmedById: currentUser?.id || "",
             confirmedByLogin: currentUser?.login || "",
-            confirmedByName: currentUser?.name || currentUser?.login || "",
             terminatedRecord: current.terminatedRecord === true || current.reason === "Terminated" || isTerminatedOnDate(employee, overviewDate),
             // Confirm is not an edit. Edit by remains empty until a real Edit -> Save.
             lastChangedById: current.lastChangedById || "",
             lastChangedByLogin: current.lastChangedByLogin || "",
-            lastChangedByName: current.lastChangedByName || "",
             lastChangedAt: current.lastChangedAt || "",
             reason: current.reason || (current.terminatedRecord === true || isTerminatedOnDate(employee, overviewDate) ? "Terminated" : "")
         };
@@ -2716,10 +2669,8 @@ async function markSelectedAbsent() {
             confirmedAt: new Date().toISOString(),
             confirmedById: currentUser?.id || "",
             confirmedByLogin: currentUser?.login || "",
-            confirmedByName: currentUser?.name || currentUser?.login || "",
             lastChangedById: current.lastChangedById || "",
             lastChangedByLogin: current.lastChangedByLogin || "",
-            lastChangedByName: current.lastChangedByName || "",
             lastChangedAt: current.lastChangedAt || ""
         };
 
@@ -2794,7 +2745,7 @@ function openHoursModal(employee, date = overviewDate, source = "hours") {
 
     $("hoursModal").classList.remove("hidden");
     $("hoursModalEmployee").textContent =
-        `${employee.name} · ${employee.login}`;
+        `${employee.login} · ${employee.login}`;
 
     $("editLogin").value = employee.login;
     $("editDate").value = dateKey(date);
@@ -2926,7 +2877,6 @@ async function saveHoursEdit(event) {
             note: $("editNote").value.trim(),
             lastChangedById: currentUser?.id || "",
             lastChangedByLogin: currentUser?.login || "",
-            lastChangedByName: currentUser?.name || currentUser?.login || "",
             lastChangedAt: new Date().toISOString(),
             terminatedRecord: $("editReason").value === "Terminated"
                 || isTerminatedOnDate(employee, date)
@@ -2942,7 +2892,7 @@ async function saveHoursEdit(event) {
         renderOverview();
         if ($("hoursAttendancePage")) renderHoursAttendance();
         renderAuditLog();
-        toast(`${employee.name}: hours updated.`);
+        toast(`${employee.login}: hours updated.`);
         return;
     }
 
@@ -2972,10 +2922,8 @@ async function saveHoursEdit(event) {
         confirmedAt: current.confirmedAt || "",
         confirmedById: current.confirmedById || "",
         confirmedByLogin: current.confirmedByLogin || "",
-        confirmedByName: current.confirmedByName || "",
         lastChangedById: currentUser?.id || "",
         lastChangedByLogin: currentUser?.login || "",
-        lastChangedByName: currentUser?.name || currentUser?.login || "",
         lastChangedAt: new Date().toISOString()
     };
 
@@ -3058,7 +3006,7 @@ function openEmployeeCapabilitiesModal(login) {
     const employee = employeeByLogin(login);
     if (!employee || !canEditEmployeeSkills()) return;
     $("employeeCapabilitiesLogin").value = employee.login;
-    $("employeeCapabilitiesEmployee").textContent = `${employee.name} · ${employee.login}`;
+    $("employeeCapabilitiesEmployee").textContent = employee.login;
     renderCapabilityCheckboxes("employeeQualifications", EMPLOYEE_QUALIFICATIONS, employeeQualifications(employee));
     renderCapabilityCheckboxes("employeeProcessSkills", EMPLOYEE_PROCESS_SKILLS, employeeProcessSkills(employee));
     $("employeeCapabilitiesModal").classList.remove("hidden");
@@ -3108,7 +3056,7 @@ async function saveEmployeeCapabilities() {
     renderFormerEmployees();
     renderStatistics();
     renderFeedbackTracker();
-    toast(`${employee.name}: qualifications and process skills updated.`);
+    toast(`${employee.login}: qualifications and process skills updated.`);
 }
 
 function employeeEditButton(employee) {
@@ -3133,8 +3081,7 @@ function openEmployeeEditModal(login) {
     if (!employee || !canManageEmployees()) return;
     fillEmployeeEditOptions();
     $("employeeEditLogin").value = employee.login;
-    $("employeeEditEmployee").textContent = `${employee.name} · ${employee.login}`;
-    $("employeeEditName").value = employee.name || "";
+    $("employeeEditEmployee").textContent = employee.login;
     $("employeeEditBrigade").value = employee.brigade || BRIGADES[0];
     $("employeeEditProcess").value = employee.process || PROCESSES[0];
     $("employeeEditStartDate").value = employee.startDate || "";
@@ -3150,13 +3097,12 @@ function closeEmployeeEditModal() {
 async function saveEmployeeEdit() {
     if (!canManageEmployees()) return;
     const login = $("employeeEditLogin").value.trim();
-    const name = $("employeeEditName").value.trim();
     const brigade = $("employeeEditBrigade").value;
     const process = $("employeeEditProcess").value;
     const startDate = $("employeeEditStartDate").value || null;
     const qualifications = checkedCapabilityValues("employeeEditQualifications").filter(x => EMPLOYEE_QUALIFICATIONS.includes(x));
     const skills = checkedCapabilityValues("employeeEditProcessSkills").filter(x => EMPLOYEE_PROCESS_SKILLS.includes(x));
-    if (!login || !name || !BRIGADES.includes(brigade) || !PROCESSES.includes(process)) {
+    if (!login || !BRIGADES.includes(brigade) || !PROCESSES.includes(process)) {
         toast("Complete the employee data correctly.");
         return;
     }
@@ -3164,7 +3110,6 @@ async function saveEmployeeEdit() {
     if (button) button.disabled = true;
     const { data, error } = await supabaseClient.rpc("update_employee", {
         p_login: login,
-        p_name: name,
         p_brigade: brigade,
         p_process: process,
         p_start_date: startDate,
@@ -3183,7 +3128,6 @@ async function saveEmployeeEdit() {
         if (index !== -1) {
             EMPLOYEES[index] = {
                 ...EMPLOYEES[index],
-                name: updated.name,
                 brigade: updated.brigade,
                 process: updated.process,
                 startDate: updated.start_date || "",
@@ -3193,16 +3137,12 @@ async function saveEmployeeEdit() {
         }
     }
     closeEmployeeEditModal();
-    fillOverviewFilters();
-    fillEmployeeFilters();
-    fillFeedbackFilters();
-    renderEmployeeDatabase();
-    renderFormerEmployees();
-    renderStatistics();
-    renderOverview();
+    fillOverviewFilters(); fillEmployeeFilters(); fillFeedbackFilters();
+    renderEmployeeDatabase(); renderFormerEmployees(); renderStatistics(); renderOverview();
     if ($("hoursAttendancePage")?.classList.contains("active-page")) renderAllHoursAttendance();
-    toast(`${name}: employee updated.`);
+    toast(`${login}: employee updated.`);
 }
+
 
 let employeeImportRows = [];
 
@@ -3242,11 +3182,7 @@ function parseEmployeeImportRows(rawRows) {
     const existing = new Set(EMPLOYEES.map(e => String(e.login)));
     const seen = new Set();
     return rawRows.map((row, index) => {
-        let login = String(importValue(row, ["Login", "Employee login", "Employee Login", "ID"]) || "").trim();
-        let name = String(importValue(row, ["Name", "Employee", "Full name", "Full Name"]) || "").trim();
-        const firstName = String(importValue(row, ["First name", "First Name"]) || "").trim();
-        const surname = String(importValue(row, ["Surname", "Last name", "Last Name"]) || "").trim();
-        if (!name && (firstName || surname)) name = `${firstName} ${surname}`.trim();
+        const login = String(importValue(row, ["Login", "Employee login", "Employee Login", "ID"]) || "").trim();
         const brigade = String(importValue(row, ["Brigade"]) || "").trim();
         const process = String(importValue(row, ["Process", "Primary process", "Primary Process"]) || "Pick").trim();
         const startDate = normalizeImportDate(importValue(row, ["Start date", "Start Date", "Date of start"]));
@@ -3254,7 +3190,6 @@ function parseEmployeeImportRows(rawRows) {
         const skills = parseImportList(importValue(row, ["Secondary processes", "Secondary Processes", "Skills", "Process skills"]), EMPLOYEE_PROCESS_SKILLS);
         const errors = [];
         if (!login) errors.push("Missing login");
-        if (!name) errors.push("Missing name");
         if (login && seen.has(login)) errors.push("Duplicate in file");
         if (login && existing.has(login)) errors.push("Already exists");
         if (brigade && !BRIGADES.includes(brigade)) errors.push("Invalid brigade");
@@ -3262,7 +3197,9 @@ function parseEmployeeImportRows(rawRows) {
         if (!PROCESSES.includes(process)) errors.push("Invalid process");
         if (startDate === "" && importValue(row, ["Start date", "Start Date", "Date of start"])) errors.push("Invalid start date");
         if (login) seen.add(login);
-        return { rowNumber: index + 2, login, name, brigade, process, startDate, qualifications, skills, errors, importable: errors.length === 0 };
+        const forbiddenColumns = Object.keys(row).filter(key => /^(name|first name|surname|last name|full name)$/i.test(normalizeImportHeader(key)));
+        if (forbiddenColumns.length) errors.push("Remove personal identity columns from the file");
+        return { rowNumber: index + 2, login, brigade, process, startDate, qualifications, skills, errors, importable: errors.length === 0 };
     });
 }
 
@@ -3275,7 +3212,7 @@ function renderEmployeeImportPreview() {
     if (summary) summary.innerHTML = `<strong>${employeeImportRows.length}</strong> rows · <strong>${valid.length}</strong> ready to import · <strong>${errors}</strong> with errors`;
     if (confirm) confirm.disabled = valid.length === 0;
     if (!preview) return;
-    preview.innerHTML = employeeImportRows.length ? `<table><thead><tr><th>Row</th><th>Login</th><th>Name</th><th>Brigade</th><th>Process</th><th>Start date</th><th>Status</th></tr></thead><tbody>${employeeImportRows.map(r => `<tr><td>${r.rowNumber}</td><td>${esc(r.login)}</td><td>${esc(r.name)}</td><td>${esc(r.brigade)}</td><td>${esc(r.process)}</td><td>${esc(r.startDate || "—")}</td><td>${r.importable ? `<span class="import-ok">New</span>` : `<span class="import-error">${esc(r.errors.join(", "))}</span>`}</td></tr>`).join("")}</tbody></table>` : "";
+    preview.innerHTML = employeeImportRows.length ? `<table><thead><tr><th>Row</th><th>Login</th><th>Brigade</th><th>Process</th><th>Start date</th><th>Status</th></tr></thead><tbody>${employeeImportRows.map(r => `<tr><td>${r.rowNumber}</td><td>${esc(r.login)}</td><td>${esc(r.brigade)}</td><td>${esc(r.process)}</td><td>${esc(r.startDate || "—")}</td><td>${r.importable ? `<span class="import-ok">New</span>` : `<span class="import-error">${esc(r.errors.join(", "))}</span>`}</td></tr>`).join("")}</tbody></table>` : "";
 }
 
 async function handleEmployeeImportFile(file) {
@@ -3305,15 +3242,30 @@ function openEmployeeImportModal() {
     $("employeeImportModal")?.classList.remove("hidden");
 }
 
-function closeEmployeeImportModal() {
-    $("employeeImportModal")?.classList.add("hidden");
+function closeEmployeeImportModal() { $("employeeImportModal")?.classList.add("hidden"); }
+
+function currentBrigadeSchedulePayloadForImport() {
+    const payload = {};
+    BRIGADES.forEach(brigade => {
+        const row = {};
+        const totalDays = monthDays(scheduleMonth);
+        for (let day = 1; day <= totalDays; day++) {
+            const date = new Date(scheduleMonth.getFullYear(), scheduleMonth.getMonth(), day, 12);
+            const key = dateKey(date);
+            const visibleSelect = document.querySelector(
+                `[data-brigade-schedule="${CSS.escape(brigade)}"][data-schedule-date="${CSS.escape(key)}"]`
+            );
+            row[key] = visibleSelect?.value || getBrigadeMonthValue(brigade, date);
+        }
+        payload[brigade] = row;
+    });
+    return payload;
 }
 
 async function confirmEmployeeImportRows() {
     if (!canManageEmployees()) return;
     const rows = employeeImportRows.filter(r => r.importable).map(r => ({
         login: r.login,
-        name: r.name,
         brigade: r.brigade,
         process: r.process,
         start_date: r.startDate || null,
@@ -3323,7 +3275,11 @@ async function confirmEmployeeImportRows() {
     if (!rows.length) return;
     const button = $("confirmEmployeeImport");
     if (button) button.disabled = true;
-    const { data, error } = await supabaseClient.rpc("import_employees", { p_rows: rows });
+    const { data, error } = await supabaseClient.rpc("import_employees", {
+        p_rows: rows,
+        p_schedule_month: `${scheduleMonth.getFullYear()}-${String(scheduleMonth.getMonth()+1).padStart(2,"0")}-01`,
+        p_brigade_schedule: currentBrigadeSchedulePayloadForImport()
+    });
     if (error) {
         console.error("Employee import error:", error);
         if (button) button.disabled = false;
@@ -3333,22 +3289,15 @@ async function confirmEmployeeImportRows() {
     const result = Array.isArray(data) ? data[0] : data;
     closeEmployeeImportModal();
     await loadEmployeesFromSupabase();
-    fillOverviewFilters();
-    fillEmployeeFilters();
-    fillFeedbackFilters();
-    renderEmployeeDatabase();
-    renderFormerEmployees();
-    renderStatistics();
-    renderOverview();
-    toast(`Import complete: ${result?.inserted || 0} employees added.`);
+    await loadSchedulesFromSupabase();
+    fillOverviewFilters(); fillEmployeeFilters(); fillFeedbackFilters();
+    renderEmployeeDatabase(); renderFormerEmployees(); renderStatistics(); renderScheduling(); renderOverview();
+    toast(`Import complete: ${result?.inserted || 0} employees added and current brigade schedule assigned.`);
 }
 
 function exportEmployeesExcel() {
-    if (!canExportData()) {
-        toast("Only Coordinator or Admin can export.");
-        return;
-    }
-    const list = activeEmployees().slice().sort((a,b) => a.name.localeCompare(b.name));
+    if (!canExportData()) { toast("Only Coordinator or Admin can export."); return; }
+    const list = activeEmployees().slice().sort((a,b) => String(a.login).localeCompare(String(b.login)));
     const processColumns = EMPLOYEE_PROCESS_SKILLS;
     const qualificationColumns = EMPLOYEE_QUALIFICATIONS;
     const rows = list.map(employee => {
@@ -3356,20 +3305,13 @@ function exportEmployeesExcel() {
         const qualifications = employeeQualifications(employee);
         const row = {
             Login: employee.login,
-            Name: employee.name,
             "Primary process": employee.process,
             Brigade: employee.brigade,
             "Start date": employee.startDate || "",
             Status: employee.status || "Active"
         };
-        // One process/skill per spreadsheet cell/column.
-        processColumns.forEach(process => {
-            row[process] = skills.includes(process) || employee.process === process ? "✓" : "";
-        });
-        // One qualification per spreadsheet cell/column.
-        qualificationColumns.forEach(qualification => {
-            row[qualification] = qualifications.includes(qualification) ? "✓" : "";
-        });
+        processColumns.forEach(process => { row[process] = skills.includes(process) || employee.process === process ? "✓" : ""; });
+        qualificationColumns.forEach(qualification => { row[qualification] = qualifications.includes(qualification) ? "✓" : ""; });
         return row;
     });
     if (window.XLSX) {
@@ -3378,7 +3320,7 @@ function exportEmployeesExcel() {
         XLSX.utils.book_append_sheet(wb, ws, "Employees");
         XLSX.writeFile(wb, `Employees_${dateKey(new Date())}.xlsx`);
     } else {
-        const headers = Object.keys(rows[0] || {Login:"",Name:"","Primary process":"",Brigade:"","Start date":"",Status:"",Pick:"",Putaway:"",Abnormal:"",Consolidation:"",Leader:"",Instructor:"","Yard Coordinator":"","Forklift operator":""});
+        const headers = Object.keys(rows[0] || {Login:"","Primary process":"",Brigade:"","Start date":"",Status:"",Pick:"",Putaway:"",Abnormal:"",Consolidation:"",Leader:"",Instructor:"","Yard Coordinator":"","Forklift operator":""});
         const lines = [headers.map(csvCell).join(","), ...rows.map(row => headers.map(h => csvCell(row[h])).join(","))];
         const blob = new Blob(["\uFEFF" + lines.join("\n")], {type:"text/csv;charset=utf-8;"});
         const url = URL.createObjectURL(blob); const a = document.createElement("a");
@@ -3412,7 +3354,7 @@ function renderEmployeeDatabase() {
     const list = allActive
         .filter(employee => {
             const text =
-                `${employee.name} ${employee.login} ${employee.process} ${employeeQualifications(employee).join(" ")} ${employeeProcessSkills(employee).join(" ")}`
+                `${employee.login} ${employee.process} ${employeeQualifications(employee).join(" ")} ${employeeProcessSkills(employee).join(" ")}`
                     .toLowerCase();
 
             if (search && !text.includes(search)) return false;
@@ -3445,11 +3387,7 @@ function renderEmployeeDatabase() {
     $("employeeTable").innerHTML =
         list.map(employee => `
             <tr>
-                <td>
-                    <strong>${esc(employee.name)}</strong>
-                    ${employeeStatusBadge(employee)}
-                </td>
-                <td>${esc(employee.login)}</td>
+                <td><strong>${esc(employee.login)}</strong> ${employeeStatusBadge(employee)}</td>
                 <td>${esc(employee.process)}</td>
                 <td>${esc(employee.brigade)}</td>
                 <td>
@@ -3467,7 +3405,7 @@ function renderEmployeeDatabase() {
                 ${(canManageEmployees() || canEditEmployeeSkills()) ? `<td>${canEditEmployeeSkills() ? employeeEditButton(employee) : ""} ${canManageEmployees() ? employeeActionButton(employee, "former") : ""}</td>` : ""}
             </tr>
         `).join("") ||
-        `<tr><td colspan="${(canManageEmployees() || canEditEmployeeSkills()) ? 9 : 8}"><div class="empty">No employees found.</div></td></tr>`;
+        `<tr><td colspan="${(canManageEmployees() || canEditEmployeeSkills()) ? 8 : 7}"><div class="empty">No employees found.</div></td></tr>`;
 
     // Make the active sort visible on the headers.
     document.querySelectorAll("[data-employee-sort]").forEach(button => {
@@ -3483,7 +3421,7 @@ function renderFormerEmployees() {
     const workedDaysByLogin = new Map(
         formerEmployees.map(employee => [employee.login, employeeWorkedDays(employee)])
     );
-    const list = formerEmployees.sort((a,b) => a.name.localeCompare(b.name));
+    const list = formerEmployees.sort((a,b) => String(a.login).localeCompare(String(b.login)));
 
     if ($("formerEmployeeTotalCount")) $("formerEmployeeTotalCount").textContent = String(list.length);
     if ($("formerEmployeeFilteredCount")) $("formerEmployeeFilteredCount").textContent = `${list.length} shown`;
@@ -3491,8 +3429,7 @@ function renderFormerEmployees() {
     $("formerEmployeeTable").innerHTML =
         list.map(employee => `
             <tr>
-                <td><strong>${esc(employee.name)}</strong></td>
-                <td>${esc(employee.login)}</td>
+                <td><strong>${esc(employee.login)}</strong></td>
                 <td>${esc(employee.process)}</td>
                 <td>${esc(employee.brigade)}</td>
                 <td><div class="employee-skills">${employeeQualifications(employee).map(value => `<span class="qualification-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}</div></td><td><div class="employee-skills">${employeeProcessSkills(employee).map(value => `<span class="skill-badge">${esc(value)}</span>`).join("") || `<span class="muted">—</span>`}</div></td>
@@ -3503,7 +3440,7 @@ function renderFormerEmployees() {
                 ${(canManageEmployees() || canEditEmployeeSkills()) ? `<td>${canEditEmployeeSkills() ? employeeEditButton(employee) : ""} ${canManageEmployees() ? employeeActionButton(employee, "active") : ""}</td>` : ""}
             </tr>
         `).join("") ||
-        `<tr><td colspan="${(canManageEmployees() || canEditEmployeeSkills()) ? 11 : 10}"><div class="empty">No former employees.</div></td></tr>`;
+        `<tr><td colspan="${(canManageEmployees() || canEditEmployeeSkills()) ? 10 : 9}"><div class="empty">No former employees.</div></td></tr>`;
 }
 
 function openEmployeeStatusModal(login, status) {
@@ -3512,8 +3449,7 @@ function openEmployeeStatusModal(login, status) {
 
     $("employeeStatusLogin").value = employee.login;
     $("employeeStatusAction").value = status;
-    $("employeeStatusEmployee").textContent =
-        `${employee.name} · ${employee.login}`;
+    $("employeeStatusEmployee").textContent = employee.login;
 
     const isFormer = status === "Former";
     $("employeeFormerFields").classList.toggle("hidden", !isFormer);
@@ -3593,7 +3529,6 @@ async function saveEmployeeStatus() {
         if (index !== -1) {
             EMPLOYEES[index] = {
                 login: updated.login,
-                name: updated.name,
                 process: updated.process,
                 brigade: updated.brigade,
                 startDate: updated.start_date || "",
@@ -3906,11 +3841,11 @@ function renderIndividualScheduleTable() {
     const people = activeEmployees()
         .filter(employee => {
             const login = String(employee.login || "").toLowerCase();
-            const name = String(employee.name || "").toLowerCase();
+            const name = String(employee.login || "").toLowerCase();
 
             return login.includes(query) || name.includes(query);
         })
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .sort((a, b) => String(a.login).localeCompare(String(b.login)));
 
     if (!people.length) {
         body.innerHTML = `
@@ -3939,7 +3874,7 @@ function renderIndividualScheduleTable() {
                             <option value="">Select employee...</option>
                             ${people.map(employee => `
                                 <option value="${esc(employee.login)}">
-                                    ${esc(employee.name)} · ${esc(employee.login)}
+                                    ${esc(employee.login)} · ${esc(employee.login)}
                                 </option>
                             `).join("")}
                         </select>
@@ -4043,7 +3978,7 @@ function renderSelectedIndividualSchedule(login) {
     body.innerHTML = `
         <tr>
             <td class="employee-schedule-name">
-                <strong>${esc(employee.name)}</strong>
+                <strong>${esc(employee.login)}</strong>
                 <small>
                     ${esc(employee.login)}
                     · ${esc(employee.process)}
@@ -4261,7 +4196,7 @@ function updateExtraScheduleHint() {
 function syncExtraLeaderLogin() {
     const field = $("extraLeaderLogin");
     if (!field) return;
-    field.value = currentUser ? actorDisplay(currentUser.name, currentUser.login) : "";
+    field.value = currentUser?.login || "";
     field.readOnly = true;
     field.title = "Automatically taken from the currently logged-in user.";
 }
@@ -4294,12 +4229,6 @@ async function saveExtraDay() {
     const key = scheduleKey(date, employee.login);
     const normal = getSchedule(employee, date).shift;
     const existing = extraDays[key];
-    const attendanceForDate = getAttendance(employee, date);
-
-    if (type === "extra-off" && attendanceForDate.confirmed) {
-        toast("Day Off cannot be applied because attendance for this date is already confirmed.");
-        return;
-    }
 
     if (!existing) {
         if (type === "extra-off" && normal === "off") {
@@ -4319,14 +4248,13 @@ async function saveExtraDay() {
         type,
         shift: type === "extra-off" ? null : (type === "extra-work-night" ? "night" : "day"),
         leader_id: leaderId,
-        leader_login: leaderLogin,
-        leader_name: currentUser?.name || leaderLogin
+        leader_login: leaderLogin
     };
 
     const { data, error } = await supabaseClient
         .from("schedule_exceptions")
         .upsert(payload, { onConflict: "work_date,employee_login" })
-        .select("id, work_date, employee_login, type, shift, leader_id, leader_login, leader_name, created_at")
+        .select("id, work_date, employee_login, type, shift, leader_id, leader_login, created_at")
         .single();
 
     if (error) {
@@ -4340,7 +4268,6 @@ async function saveExtraDay() {
         type: data.type,
         shift: data.shift || null,
         leaderLogin: data.leader_login || leaderLogin,
-        leaderName: data.leader_name || currentUser?.name || leaderLogin,
         leaderId: data.leader_id || leaderId,
         createdAt: data.created_at || new Date().toISOString()
     };
@@ -4396,7 +4323,7 @@ function renderExtraDays() {
         const actionCell = canDeleteExtraDays()
             ? `<button class="icon-btn" type="button" data-remove-extra="${esc(key)}" title="Remove Extra Day">×</button>`
             : `—`;
-        return `<tr><td>${esc(date)}</td><td><strong>${esc(employee.name)}</strong><br><small>${esc(employee.login)}</small></td><td>${esc(employee.brigade)}</td><td>${esc(employee.process)}</td><td><span class="extra-change ${isOff ? "off" : "work"}">${esc(label)}</span></td><td>${esc(actorDisplay(item.leaderName, item.leaderLogin))}</td><td>${esc(created)}</td><td>${actionCell}</td></tr>`;
+        return `<tr><td>${esc(date)}</td><td><strong>${esc(employee.login)}</strong><br><small>${esc(employee.login)}</small></td><td>${esc(employee.brigade)}</td><td>${esc(employee.process)}</td><td><span class="extra-change ${isOff ? "off" : "work"}">${esc(label)}</span></td><td>${esc(actorDisplay(item.leaderLogin, item.leaderLogin))}</td><td>${esc(created)}</td><td>${actionCell}</td></tr>`;
     }).join("") || `<tr><td colspan="8"><div class="empty">No active Extra Days match the selected filters.</div></td></tr>`;
 
     $("extraDaysTable").querySelectorAll("[data-remove-extra]").forEach(button => button.addEventListener("click", () => removeExtraDay(button.dataset.removeExtra)));
@@ -4413,7 +4340,7 @@ async function removeExtraDay(key) {
     const employee = employeeByLogin(login);
     const item = extraDays[key];
 
-    if (!confirm(`Remove extra day for ${employee ? employee.name : login} on ${date}?`)) {
+    if (!confirm(`Remove extra day for ${employee ? employee.login : login} on ${date}?`)) {
         return;
     }
 
@@ -4466,7 +4393,7 @@ async function renderScheduleHistory() {
     let allRows = [];
     for (let from = 0; ; from += pageSize) {
         let query = supabaseClient.from("schedule_exception_history")
-            .select("id, action, work_date, employee_login, type, shift, leader_login, leader_name, changed_by_login, changed_by_name, created_at")
+            .select("id, action, work_date, employee_login, type, shift, leader_login, changed_by_login, created_at")
             .order("created_at", { ascending: false })
             .range(from, from + pageSize - 1);
         if (dateFrom) query = query.gte("work_date", dateFrom);
@@ -4484,7 +4411,7 @@ async function renderScheduleHistory() {
 
     const rows = allRows.filter(item => {
         if (loginSearch) {
-            const q = `${item.employee_login || ""} ${item.leader_login || ""} ${item.leader_name || ""} ${item.changed_by_login || ""} ${item.changed_by_name || ""}`.toLowerCase();
+            const q = `${item.employee_login || ""} ${item.leader_login || ""} ${item.leader_login || ""} ${item.changed_by_login || ""} ${item.changed_by_login || ""}`.toLowerCase();
             if (!q.includes(loginSearch)) return false;
         }
         if (typeFilters.length) {
@@ -4510,7 +4437,7 @@ async function renderScheduleHistory() {
     table.innerHTML = rows.map(item => {
         const employee = employeeByLogin(item.employee_login);
         const change = item.action === "Extra day removed" ? "Removed" : item.type === "extra-off" ? "Extra day off" : `Extra work — ${String(item.shift || "day").toUpperCase()}`;
-        return `<tr><td>${new Date(item.created_at).toLocaleString("en-GB")}</td><td><strong>${esc(item.action)}</strong></td><td>${esc(employee?.name || item.employee_login)}<br><small>${esc(item.employee_login)}</small></td><td>${esc(item.work_date)}</td><td>${esc(actorDisplay(item.leader_name, item.leader_login))}</td><td>${esc(change)}</td><td>${formatActionActor(item.changed_by_name, item.created_at)}</td></tr>`;
+        return `<tr><td>${new Date(item.created_at).toLocaleString("en-GB")}</td><td><strong>${esc(item.action)}</strong></td><td>${esc(item.employee_login)}</td><td>${esc(item.work_date)}</td><td>${esc(item.leader_login || "—")}</td><td>${esc(change)}</td><td>${formatActionActor(item.changed_by_login, item.created_at)}</td></tr>`;
     }).join("") || `<tr><td colspan="7"><div class="empty">No Extra Day history matches the selected filters.</div></td></tr>`;
 }
 function csvCell(value) {
@@ -4551,14 +4478,14 @@ function exportSchedule() {
 
     rows.push([]);
     rows.push(["Employee schedule"]);
-    rows.push(["Login", "Name", "Process", "Brigade", ...headers]);
+    rows.push(["Login", "Process", "Brigade", ...headers]);
 
     activeEmployees()
-        .sort((a, b) => a.name.localeCompare(b.name))
+        .sort((a, b) => String(a.login).localeCompare(String(b.login)))
         .forEach(employee => {
             const row = [
                 employee.login,
-                employee.name,
+                employee.login,
                 employee.process,
                 employee.brigade
             ];
@@ -4648,11 +4575,9 @@ async function confirmHoursDay(employee, date) {
         confirmedAt: new Date().toISOString(),
         confirmedById: currentUser.id || "",
         confirmedByLogin: currentUser.login || "",
-        confirmedByName: currentUser.name || currentUser.login || "",
         // Confirm is not an edit. Edit by stays blank until Save is used in Edit.
         lastChangedById: current.lastChangedById || "",
         lastChangedByLogin: current.lastChangedByLogin || "",
-        lastChangedByName: current.lastChangedByName || "",
         lastChangedAt: current.lastChangedAt || ""
     };
 
@@ -4665,7 +4590,7 @@ async function confirmHoursDay(employee, date) {
     renderOverview();
     renderHoursAttendance();
     renderAuditLog();
-    toast(`${employee.name}: hours confirmed.`);
+    toast(`${employee.login}: hours confirmed.`);
 }
 
 function renderHoursAttendance() {
@@ -4687,8 +4612,8 @@ function renderHoursAttendance() {
 
     summary.classList.add("show");
 
-    $("hoursEmployeeName").innerHTML =
-        `${esc(employee.name)} ${employeeStatusBadge(employee)}`;
+    $("hoursEmployeeLoginHeading").innerHTML =
+        `${esc(employee.login)} ${employeeStatusBadge(employee)}`;
 
     $("hoursEmployeeMeta").innerHTML =
         `${esc(employee.login)} · ${esc(employee.process)} · Brigade ${esc(employee.brigade)}`
@@ -4784,8 +4709,8 @@ function renderHoursAttendance() {
                 <td>${data.confirmed && Number(data.breakMinutes || 0) ? "45 min" : "—"}</td>
                 <td><span class="${statusClass}">${esc(detailStatus)}</span></td>
                 <td>${esc(detailReason)}</td>
-                <td>${formatActionActor(data.confirmedByName, data.confirmedAt)}</td>
-                <td>${formatActionActor(data.lastChangedByName, data.lastChangedAt)}</td>
+                <td>${formatActionActor(data.confirmedByLogin, data.confirmedAt)}</td>
+                <td>${formatActionActor(data.lastChangedByLogin, data.lastChangedAt)}</td>
                 <td class="hours-note" title="${esc(data.note || "")}">${esc(notePreview(data.note, 8))}</td>
                 <td>
                     ${(p > 0 || a > 0 || data.confirmed || data.status === "Absent" || data.reason)
@@ -4899,10 +4824,14 @@ function switchPage(pageId) {
         hoursAttendanceEmployeeLogin = "";
         hoursAttendanceDaySortKey = "";
         hoursAttendanceDaySortDirection = 1;
+        attendanceActiveSubtab = "tracker";
+        activateAttendanceSubtab("tracker");
         if ($("hoursAllSearch")) $("hoursAllSearch").value = "";
         setMultiFilterValues("hoursAllBrigade", []);
         setMultiFilterValues("hoursAllProcess", []);
         setMultiFilterValues("hoursAllStatus", []);
+        if ($("hoursAdvancedFilters")) $("hoursAdvancedFilters").hidden = true;
+        if ($("hoursFiltersToggle")) $("hoursFiltersToggle").setAttribute("aria-expanded", "false");
         renderHoursAttendance();
     }
 
@@ -5099,6 +5028,10 @@ function initEvents() {
         button.addEventListener("click", () => activateFeedbackSubtab(button.dataset.feedbackSubtab));
     });
 
+    document.querySelectorAll("[data-attendance-subtab]").forEach(button => {
+        button.addEventListener("click", () => activateAttendanceSubtab(button.dataset.attendanceSubtab));
+    });
+
     // Feedback Tracker
     $("feedbackMonthPrev")?.addEventListener("click", async () => {
         feedbackMonth = new Date(feedbackMonth.getFullYear(), feedbackMonth.getMonth()-1, 1, 12);
@@ -5132,6 +5065,9 @@ function initEvents() {
     $("closeFeedbackModal")?.addEventListener("click", closeFeedbackModal);
     $("cancelFeedback")?.addEventListener("click", closeFeedbackModal);
     $("feedbackModal")?.addEventListener("click", event => { if (event.target.id === "feedbackModal") closeFeedbackModal(); });
+    $("closeFeedbackEmployeeHistoryModal")?.addEventListener("click", closeFeedbackEmployeeHistoryModal);
+    $("closeFeedbackEmployeeHistory")?.addEventListener("click", closeFeedbackEmployeeHistoryModal);
+    $("feedbackEmployeeHistoryModal")?.addEventListener("click", event => { if (event.target.id === "feedbackEmployeeHistoryModal") closeFeedbackEmployeeHistoryModal(); });
 
 
 
@@ -5218,7 +5154,7 @@ $("saveSchedule").addEventListener(
                 !login
                     ? "Enter an employee login."
                     : employee
-                        ? `${employee.name} · ${employee.process} · Brigade ${employee.brigade}`
+                        ? `${employee.login} · ${employee.process} · Brigade ${employee.brigade}`
                         : "Employee not found.";
 
             updateExtraScheduleHint();
@@ -5338,6 +5274,14 @@ $("saveSchedule").addEventListener(
             renderHoursAttendance();
         }
     });
+    $("hoursFiltersToggle")?.addEventListener("click", () => {
+        const filters = $("hoursAdvancedFilters");
+        const button = $("hoursFiltersToggle");
+        if (!filters || !button) return;
+        const show = filters.hidden;
+        filters.hidden = !show;
+        button.setAttribute("aria-expanded", String(show));
+    });
     $("hoursClearAllFilters")?.addEventListener("click", () => {
         if ($("hoursAllSearch")) $("hoursAllSearch").value = "";
         setMultiFilterValues("hoursAllBrigade", []);
@@ -5429,6 +5373,38 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 
 
+/* Attendance Monitoring subtabs */
+function activateAttendanceSubtab(name) {
+    attendanceActiveSubtab = name === "statistics" ? "statistics" : "tracker";
+    document.querySelectorAll("[data-attendance-subtab]").forEach(button => {
+        button.classList.toggle("active", button.dataset.attendanceSubtab === attendanceActiveSubtab);
+    });
+    document.querySelectorAll(".attendance-subtab-panel").forEach(panel => {
+        panel.classList.toggle("active", panel.id === (attendanceActiveSubtab === "tracker" ? "attendanceTrackerSubpage" : "attendanceStatisticsSubpage"));
+    });
+    if (attendanceActiveSubtab === "statistics") {
+        renderAttendanceMonthlyStats();
+    } else {
+        renderAllHoursAttendance();
+    }
+}
+
+function syncHoursMatrixHorizontalScroll() {
+    const top = $("hoursMatrixTopScroll"); const inner = $("hoursMatrixTopScrollInner"); const wrap = $("hoursAllTableScroll"); const table = $("hoursAllTable");
+    if (!top || !inner || !wrap || !table) return;
+    inner.style.width = `${table.scrollWidth}px`;
+    top.scrollLeft = wrap.scrollLeft;
+}
+
+function initHoursMatrixHorizontalScroll() {
+    const top = $("hoursMatrixTopScroll"); const wrap = $("hoursAllTableScroll");
+    if (!top || !wrap || top.dataset.bound === "1") return;
+    top.dataset.bound = "1";
+    top.addEventListener("scroll", () => { if (Math.abs(wrap.scrollLeft - top.scrollLeft) > 1) wrap.scrollLeft = top.scrollLeft; });
+    wrap.addEventListener("scroll", () => { if (Math.abs(top.scrollLeft - wrap.scrollLeft) > 1) top.scrollLeft = wrap.scrollLeft; });
+    window.addEventListener("resize", syncHoursMatrixHorizontalScroll);
+}
+
 /* Attendance Monitoring: all employees + filters + export */
 function hoursExportAllowed() {
     return canExportData();
@@ -5437,6 +5413,87 @@ function updateHoursExportVisibility() {
     const toolbar = $("hoursExportToolbar");
     if (toolbar) toolbar.hidden = !hoursExportAllowed();
 }
+function renderAttendanceMonthlyStats() {
+    const monthDate = hoursAttendanceMonth;
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const employees = attendanceMonitoringEmployees(monthDate);
+    const monthStart = new Date(year, month, 1, 12);
+    const monthEnd = new Date(year, month + 1, 0, 12);
+    const inMonth = (dateValue) => {
+        const d = dateValue instanceof Date ? dateValue : new Date(`${dateValue}T12:00:00`);
+        return d >= monthStart && d <= monthEnd;
+    };
+
+    let extraDayCount = 0, extraNightCount = 0, extraOffCount = 0, absentTotal = 0;
+    const dailyAbsent = new Map();
+    const dailyPlanned = new Map();
+    const extraByDate = new Map();
+
+    for (let day = 1; day <= monthEnd.getDate(); day++) {
+        const date = new Date(year, month, day, 12);
+        dailyAbsent.set(day, 0);
+        dailyPlanned.set(day, 0);
+    }
+
+    employees.forEach(employee => {
+        for (let day = 1; day <= monthEnd.getDate(); day++) {
+            const date = new Date(year, month, day, 12);
+            if (!canConfirmEmployeeDate(employee, date)) continue;
+            const planned = Number(plannedHours(employee, date) || 0);
+            if (planned <= 0) continue;
+            dailyPlanned.set(day, dailyPlanned.get(day) + 1);
+            const data = getAttendance(employee, date);
+            if (String(data.status || '').trim().toLowerCase() === 'absent') {
+                absentTotal++;
+                dailyAbsent.set(day, dailyAbsent.get(day) + 1);
+            }
+        }
+    });
+
+    // extraDays is keyed as YYYY-MM-DD_login; the date is part of the key,
+    // while the stored item intentionally contains only the exception fields.
+    // Always derive the date from the key so Supabase-loaded Extra Days are
+    // counted exactly like the Shift Scheduling screen.
+    Object.entries(extraDays || {}).forEach(([extraKey, item]) => {
+        if (!item?.type) return;
+        const split = extraKey.lastIndexOf("_");
+        const extraDate = split > 0 ? extraKey.slice(0, split) : "";
+        if (!extraDate || !inMonth(extraDate)) return;
+        const key = String(extraDate).slice(0, 10);
+        if (!extraByDate.has(key)) extraByDate.set(key, { day: 0, night: 0, off: 0 });
+        const bucket = extraByDate.get(key);
+        if (item.type === 'extra-off') { extraOffCount++; bucket.off++; }
+        else if (item.type === 'extra-work-night') { extraNightCount++; bucket.night++; }
+        else if (item.type === 'extra-work-day') { extraDayCount++; bucket.day++; }
+    });
+
+    $("attendanceStatsExtraDays") && ($("attendanceStatsExtraDays").textContent = String(extraDayCount));
+    $("attendanceStatsExtraNights") && ($("attendanceStatsExtraNights").textContent = String(extraNightCount));
+    $("attendanceStatsExtraOff") && ($("attendanceStatsExtraOff").textContent = String(extraOffCount));
+    $("attendanceStatsAbsent") && ($("attendanceStatsAbsent").textContent = String(absentTotal));
+    $("attendanceStatsAbsentDays") && ($("attendanceStatsAbsentDays").textContent = String([...dailyAbsent.values()].filter(v => v > 0).length));
+
+    const absentBody = $("attendanceStatsDailyAbsent");
+    if (absentBody) {
+        absentBody.innerHTML = Array.from(dailyAbsent.entries()).map(([day, count]) => {
+            const planned = dailyPlanned.get(day) || 0;
+            const pct = planned ? ((count / planned) * 100).toFixed(1) : '0.0';
+            const date = new Date(year, month, day, 12);
+            return `<tr><td>${String(day).padStart(2,'0')}</td><td>${date.toLocaleDateString('en-GB')}</td><td>${count}</td><td>${pct}%</td></tr>`;
+        }).join('');
+    }
+
+    const extraBody = $("attendanceStatsExtraByDate");
+    if (extraBody) {
+        const rows = [...extraByDate.entries()].sort((a,b) => a[0].localeCompare(b[0]));
+        extraBody.innerHTML = rows.map(([key, bucket]) => {
+            const date = new Date(`${key}T12:00:00`);
+            return `<tr><td>${date.toLocaleDateString('en-GB')}</td><td>${bucket.day}</td><td>${bucket.night}</td><td>${bucket.off}</td></tr>`;
+        }).join('') || `<tr><td colspan="4"><div class="empty">No Extra Days records for this month.</div></td></tr>`;
+    }
+}
+
 function getHoursEmployeeSummary(employee) {
     return getHoursAttendanceEmployeeMetrics(employee, hoursAttendanceMonth);
 }
@@ -5455,7 +5512,7 @@ function sortHoursAttendanceEmployees(employees) {
         const rankA = getHoursAttendanceDaySortRank(a, hoursAttendanceDaySortKey);
         const rankB = getHoursAttendanceDaySortRank(b, hoursAttendanceDaySortKey);
         if (rankA !== rankB) return (rankA - rankB) * direction;
-        return String(a.name || a.login || "").localeCompare(String(b.name || b.login || ""), undefined, { sensitivity: "base" });
+        return String(a.login || "").localeCompare(String(b.login || ""), undefined, { sensitivity: "base" });
     });
 }
 
@@ -5477,7 +5534,7 @@ function hoursAllFilterEmployees(ignoreFilters = false) {
     const brigades = selectedMultiValues("hoursAllBrigade");
     const processes = selectedMultiValues("hoursAllProcess");
     const statuses = selectedMultiValues("hoursAllStatus");
-    if (search) list = list.filter(e => String(e.login).toLowerCase().includes(search) || String(e.name).toLowerCase().includes(search));
+    if (search) list = list.filter(e => String(e.login).toLowerCase().includes(search));
     if (brigades.length) list = list.filter(e => brigades.includes(e.brigade));
     if (processes.length) list = list.filter(e => processes.includes(e.process));
     if (statuses.length) list = list.filter(e => statuses.some(status => {
@@ -5568,109 +5625,14 @@ function getHoursAttendanceDayHeaders(monthDate = hoursAttendanceMonth) {
     return headers;
 }
 
-function renderAttendanceDetailedStatistics() {
-    const body = $("attendanceDetailedStatisticsBody");
-    if (!body) return;
-
-    const year = hoursAttendanceMonth.getFullYear();
-    const month = hoursAttendanceMonth.getMonth();
-    const people = attendanceMonitoringEmployees(hoursAttendanceMonth);
-    const rows = [];
-    let totalAbsent = 0;
-    let totalExtraDay = 0;
-    let totalExtraNight = 0;
-    let totalExtraOff = 0;
-
-    for (let day = 1; day <= monthDays(hoursAttendanceMonth); day++) {
-        const date = new Date(year, month, day, 12);
-        const key = dateKey(date);
-        let absent = 0;
-        let extraDay = 0;
-        let extraNight = 0;
-        let extraOff = 0;
-
-        people.forEach(employee => {
-            const data = getAttendance(employee, date);
-            if (canConfirmEmployeeDate(employee, date)
-                && data.confirmed
-                && String(data.status || "").trim().toLowerCase() === "absent") {
-                absent++;
-            }
-        });
-
-        Object.entries(extraDays || {}).forEach(([extraKey, item]) => {
-            if (!extraKey.startsWith(`${key}_`)) return;
-            if (item?.type === "extra-work-day") extraDay++;
-            else if (item?.type === "extra-work-night") extraNight++;
-            else if (item?.type === "extra-off") extraOff++;
-        });
-
-        totalAbsent += absent;
-        totalExtraDay += extraDay;
-        totalExtraNight += extraNight;
-        totalExtraOff += extraOff;
-
-        rows.push(`
-            <tr>
-                <td><strong>${String(day).padStart(2, "0")}</strong></td>
-                <td>${esc(date.toLocaleDateString("en-US", { weekday: "short" }))}</td>
-                <td><strong>${absent}</strong></td>
-                <td>${extraDay}</td>
-                <td>${extraNight}</td>
-                <td>${extraOff}</td>
-            </tr>
-        `);
-    }
-
-    if ($("attendanceStatsAbsentTotal")) $("attendanceStatsAbsentTotal").textContent = String(totalAbsent);
-    if ($("attendanceStatsExtraDay")) $("attendanceStatsExtraDay").textContent = String(totalExtraDay);
-    if ($("attendanceStatsExtraNight")) $("attendanceStatsExtraNight").textContent = String(totalExtraNight);
-    if ($("attendanceStatsExtraOff")) $("attendanceStatsExtraOff").textContent = String(totalExtraOff);
-
-    body.innerHTML = rows.join("") || `<tr><td colspan="6"><div class="empty">No statistics for the selected month.</div></td></tr>`;
-}
-
-function syncAttendanceHorizontalScroll() {
-    const top = $("hoursAttendanceHorizontalScroll");
-    const inner = $("hoursAttendanceHorizontalScrollInner");
-    const wrap = $("hoursAttendanceMatrixWrap");
-    const table = $("hoursAllTable");
-    if (!top || !inner || !wrap || !table) return;
-
-    const width = Math.max(table.scrollWidth, wrap.clientWidth);
-    inner.style.width = `${width}px`;
-
-    if (!top.dataset.bound) {
-        top.dataset.bound = "1";
-        let syncing = false;
-        top.addEventListener("scroll", () => {
-            if (syncing) return;
-            syncing = true;
-            wrap.scrollLeft = top.scrollLeft;
-            syncing = false;
-        });
-        wrap.addEventListener("scroll", () => {
-            if (syncing) return;
-            syncing = true;
-            top.scrollLeft = wrap.scrollLeft;
-            syncing = false;
-        });
-        window.addEventListener("resize", () => {
-            const t = $("hoursAttendanceHorizontalScroll"), i = $("hoursAttendanceHorizontalScrollInner"), w = $("hoursAttendanceMatrixWrap"), tb = $("hoursAllTable");
-            if (!t || !i || !w || !tb) return;
-            i.style.width = `${Math.max(tb.scrollWidth, w.clientWidth)}px`;
-            t.scrollLeft = w.scrollLeft;
-        });
-    }
-
-    top.scrollLeft = wrap.scrollLeft;
-}
-
 function renderAllHoursAttendance() {
+    if (attendanceActiveSubtab === "statistics") {
+        renderAttendanceMonthlyStats();
+        return;
+    }
     const body = $("hoursAllTableBody"), meta = $("hoursAllMeta"), head = $("hoursAllTableHead");
     if (!body) return;
     updateHoursExportVisibility();
-    renderAttendanceDetailedStatistics();
 
     const filteredEmployees = hoursAllFilterEmployees(false);
     const employees = sortHoursAttendanceEmployees(filteredEmployees);
@@ -5698,7 +5660,7 @@ function renderAllHoursAttendance() {
 
     if (head) {
         head.innerHTML = `<tr>
-            <th class="hours-matrix-employee-col">Employee</th>
+            <th class="hours-matrix-employee-col">Login</th>
             <th class="hours-matrix-brigade-col">Brigade</th>
             <th class="hours-matrix-process-col">Process</th>
             ${dayHeaders.map(({label, fullLabel, key}) => {
@@ -5729,7 +5691,7 @@ function renderAllHoursAttendance() {
         }).join("");
 
         return `<tr class="hours-employee-row" data-hours-employee="${esc(employee.login)}" tabindex="0" title="Open attendance record">
-            <td class="hours-matrix-employee"><strong>${esc(employee.name)}</strong><br><small>${esc(employee.login)}</small></td>
+            <td class="hours-matrix-employee"><strong>${esc(employee.login)}</strong></td>
             <td class="hours-matrix-brigade">${esc(employee.brigade)}</td>
             <td class="hours-matrix-process">${esc(employee.process)}</td>
             ${dayCells}
@@ -5750,8 +5712,6 @@ function renderAllHoursAttendance() {
         });
     });
 
-    syncAttendanceHorizontalScroll();
-
     body.querySelectorAll("[data-hours-employee]").forEach(row => {
         const open = () => {
             hoursAttendanceEmployeeLogin = row.dataset.hoursEmployee;
@@ -5766,6 +5726,9 @@ function renderAllHoursAttendance() {
             }
         });
     });
+
+    initHoursMatrixHorizontalScroll();
+    requestAnimationFrame(syncHoursMatrixHorizontalScroll);
 
     const moreWrap = $("hoursAllMoreWrap");
     const moreButton = $("hoursAllMoreBtn");
@@ -5789,7 +5752,7 @@ function hoursExportRows(ignoreFilters) {
     for (const employee of employees) for (let day=1; day<=monthDays(hoursAttendanceMonth); day++) {
         const date=new Date(hoursAttendanceMonth.getFullYear(),hoursAttendanceMonth.getMonth(),day,12), schedule=getSchedule(employee,date), data=getAttendance(employee,date), planned=plannedHours(employee,date);
         const actual=data.confirmed ? Number(data.actualHours||0) : "", difference=actual === "" ? "" : actual-planned;
-        rows.push([employee.login,employee.name,employee.brigade,employee.process,date.toLocaleDateString("en-GB"),date.toLocaleDateString("en-US",{weekday:"long"}),schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "R" : "OFF",planned.toFixed(2),actual === "" ? "" : actual.toFixed(2),difference === "" ? "" : difference.toFixed(2),data.confirmed ? (data.status || "Confirmed") : (planned>0 ? "Pending" : "OFF"),data.reason||"",data.note||""]);
+        rows.push([employee.login,employee.brigade,employee.process,date.toLocaleDateString("en-GB"),date.toLocaleDateString("en-US",{weekday:"long"}),schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "R" : "OFF",planned.toFixed(2),actual === "" ? "" : actual.toFixed(2),difference === "" ? "" : difference.toFixed(2),data.confirmed ? (data.status || "Confirmed") : (planned>0 ? "Pending" : "OFF"),data.reason||"",data.note||""]);
     }
     return rows;
 }
@@ -5798,8 +5761,7 @@ function hoursExportRows(ignoreFilters) {
 /* Attendance Monitoring XLSX export
    Matrix layout:
    A = Login
-   B = Name
-   C+ = every calendar day of selected month
+   B+ = every calendar day of selected month
    Unconfirmed = 0 (confirmed-hours matrix; detailed sheet keeps status/reason)
 */
 function xlsxEscape(value) {
@@ -5907,7 +5869,7 @@ function buildHoursAttendanceXlsx(employees) {
     const month = hoursAttendanceMonth.getMonth();
     const totalDays = monthDays(hoursAttendanceMonth);
 
-    const header = ["Login", "Name"];
+    const header = ["Login"];
     for (let day = 1; day <= totalDays; day++) {
         header.push(
             `${String(day).padStart(2, "0")}.${String(month + 1).padStart(2, "0")}.${year}`
@@ -5917,7 +5879,7 @@ function buildHoursAttendanceXlsx(employees) {
     const matrix = [header];
 
     for (const employee of employees) {
-        const row = [employee.login, employee.name];
+        const row = [employee.login];
 
         for (let day = 1; day <= totalDays; day++) {
             const date = new Date(year, month, day, 12);
@@ -5935,7 +5897,7 @@ function buildHoursAttendanceXlsx(employees) {
         matrix.push(row);
     }
 
-    const lastCol = xlsxColName(totalDays + 2);
+    const lastCol = xlsxColName(totalDays + 1);
     const lastRow = matrix.length;
 
     const rowsXml = matrix.map((row, rIndex) => {
@@ -5943,7 +5905,7 @@ function buildHoursAttendanceXlsx(employees) {
         const cells = row.map((value, cIndex) => {
             const ref = `${xlsxColName(cIndex + 1)}${excelRow}`;
 
-            if (rIndex === 0 || cIndex < 2) {
+            if (rIndex === 0 || cIndex < 1) {
                 return `<c r="${ref}" s="${rIndex === 0 ? 1 : 2}" t="inlineStr"><is><t>${xlsxEscape(value)}</t></is></c>`;
             }
 
@@ -5958,14 +5920,13 @@ function buildHoursAttendanceXlsx(employees) {
 <dimension ref="A1:${lastCol}${lastRow}"/>
 <sheetViews>
 <sheetView workbookViewId="0">
-<pane xSplit="2" ySplit="1" topLeftCell="C2" activePane="bottomRight" state="frozen"/>
+<pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/>
 </sheetView>
 </sheetViews>
 <sheetFormatPr defaultRowHeight="18"/>
 <cols>
 <col min="1" max="1" width="14" customWidth="1"/>
-<col min="2" max="2" width="28" customWidth="1"/>
-<col min="3" max="${totalDays + 2}" width="12" customWidth="1"/>
+<col min="2" max="${totalDays + 1}" width="12" customWidth="1"/>
 </cols>
 <sheetData>${rowsXml}</sheetData>
 <autoFilter ref="A1:${lastCol}${lastRow}"/>
@@ -6036,7 +5997,7 @@ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 }
 
 function buildShiftEmployeesXlsx(people) {
-    const headers = ["Login", "Name", "Brigade", "Process", "Shift", "Worked days", "Planned", "Actual", "Underworked", "Break", "Status", "Confirmed by", "Last changed by", "Note"];
+    const headers = ["Login", "Brigade", "Process", "Shift", "Worked days", "Planned", "Actual", "Underworked", "Break", "Status", "Confirmed by", "Last changed by", "Note"];
     const rows = [headers];
     const seen = new Set();
 
@@ -6051,7 +6012,6 @@ function buildShiftEmployeesXlsx(people) {
         const underworked = data.confirmed && !isAbsent && planned > actual ? planned - actual : 0;
         rows.push([
             employee.login,
-            employee.name,
             employee.brigade,
             employee.process,
             schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "R" : "OFF",
@@ -6061,8 +6021,8 @@ function buildShiftEmployeesXlsx(people) {
             underworked.toFixed(2),
             data.confirmed ? Number(data.breakMinutes || 0) : 0,
             data.confirmed ? (data.status || "Confirmed") : "Not confirmed",
-            data.confirmedByName || "",
-            data.lastChangedByName || "",
+            data.confirmedByLogin || "",
+            data.lastChangedByLogin || "",
             data.note || ""
         ]);
     }
@@ -6075,7 +6035,7 @@ function buildShiftEmployeesXlsx(people) {
             const ref = `${xlsxColName(cIndex + 1)}${excelRow}`;
             const text = xlsxEscape(value);
             if (rIndex === 0) return `<c r="${ref}" s="1" t="inlineStr"><is><t>${text}</t></is></c>`;
-            const numeric = [5,6,7,8,9].includes(cIndex);
+            const numeric = [4,5,6,7,8].includes(cIndex);
             return numeric
                 ? `<c r="${ref}" s="3" t="n"><v>${Number(value) || 0}</v></c>`
                 : `<c r="${ref}" s="2" t="inlineStr"><is><t>${text}</t></is></c>`;
@@ -6085,9 +6045,9 @@ function buildShiftEmployeesXlsx(people) {
     const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <dimension ref="A1:${lastCol}${lastRow}"/>
-<sheetViews><sheetView workbookViewId="0"><pane xSplit="2" ySplit="1" topLeftCell="C2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>
+<sheetViews><sheetView workbookViewId="0"><pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>
 <sheetFormatPr defaultRowHeight="18"/>
-<cols><col min="1" max="1" width="14" customWidth="1"/><col min="2" max="2" width="28" customWidth="1"/><col min="3" max="4" width="14" customWidth="1"/><col min="5" max="14" width="16" customWidth="1"/></cols>
+<cols><col min="1" max="1" width="14" customWidth="1"/><col min="2" max="2" width="12" customWidth="1"/><col min="3" max="3" width="14" customWidth="1"/><col min="4" max="13" width="16" customWidth="1"/></cols>
 <sheetData>${rowsXml}</sheetData><autoFilter ref="A1:${lastCol}${lastRow}"/></worksheet>`;
 
     const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -6184,7 +6144,6 @@ function buildHoursAttendanceWorkbook(employees) {
                 date.toISOString().slice(0, 10),
                 date.toLocaleDateString("en-US", { weekday: "long" }),
                 employee.login,
-                employee.name,
                 employee.brigade,
                 employee.process,
                 schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "R" : "OFF",
@@ -6196,9 +6155,9 @@ function buildHoursAttendanceWorkbook(employees) {
                 data.actualEnd || "",
                 Number((leftEarly ? planned - safeActual : 0).toFixed(2)),
                 data.reason || (isAbsent ? "Absent" : leftEarly ? "Left early" : ""),
-                data.confirmedByName || "",
+                data.confirmedByLogin || "",
                 data.confirmedAt || "",
-                data.lastChangedByName || "",
+                data.lastChangedByLogin || "",
                 data.lastChangedAt || "",
                 data.note || ""
             ]);
@@ -6207,7 +6166,6 @@ function buildHoursAttendanceWorkbook(employees) {
         const differenceTotal = confirmedTotal - plannedTotal;
         dailyRows.push([
             employee.login,
-            employee.name,
             employee.brigade,
             employee.process,
             ...daily,
@@ -6223,7 +6181,6 @@ function buildHoursAttendanceWorkbook(employees) {
         const differenceDays = workedDaysTotal - plannedDaysTotal;
         matrixRows.push([
             employee.login,
-            employee.name,
             employee.brigade,
             employee.process,
             ...matrix,
@@ -6238,7 +6195,6 @@ function buildHoursAttendanceWorkbook(employees) {
 
         summaryRows.push([
             employee.login,
-            employee.name,
             employee.brigade,
             employee.process,
             plannedDaysTotal,
@@ -6257,7 +6213,7 @@ function buildHoursAttendanceWorkbook(employees) {
 
     // Sheet 1: visual attendance matrix (schedule-style).
     const matrixHeader = [
-        "Login", "Name", "Brigade", "Process",
+        "Login", "Brigade", "Process",
         ...dayHeaders,
         "Planned days", "Worked days", "Difference days", "Absent days", "Pending days", "Underworked hours", "Attendance %"
     ];
@@ -6265,7 +6221,7 @@ function buildHoursAttendanceWorkbook(employees) {
     matrixSheet["!freeze"] = { xSplit: 4, ySplit: 1 };
     matrixSheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: matrixRows.length, c: matrixHeader.length - 1 } }) };
     matrixSheet["!cols"] = [
-        { wch: 14 }, { wch: 26 }, { wch: 10 }, { wch: 18 },
+        { wch: 14 }, { wch: 10 }, { wch: 18 },
         ...dayHeaders.map(() => ({ wch: 8 })),
         { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }
     ];
@@ -6285,7 +6241,7 @@ function buildHoursAttendanceWorkbook(employees) {
 
     // Sheet 3: daily actual-hour matrix.
     const dailyHeader = [
-        "Login", "Name", "Brigade", "Process",
+        "Login", "Brigade", "Process",
         ...dayHeaders,
         "Confirmed total", "Planned total", "Difference", "Underworked hours", "Absent days", "Pending days", "Worked days"
     ];
@@ -6293,7 +6249,7 @@ function buildHoursAttendanceWorkbook(employees) {
     dailySheet["!freeze"] = { xSplit: 4, ySplit: 1 };
     dailySheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: dailyRows.length, c: dailyHeader.length - 1 } }) };
     dailySheet["!cols"] = [
-        { wch: 14 }, { wch: 26 }, { wch: 10 }, { wch: 18 },
+        { wch: 14 }, { wch: 10 }, { wch: 18 },
         ...dayHeaders.map(() => ({ wch: 11 })),
         { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 14 }
     ];
@@ -6301,7 +6257,7 @@ function buildHoursAttendanceWorkbook(employees) {
 
     // Sheet 3: one row per employee/day, designed for Excel filtering.
     const detailHeader = [
-        "Date", "Day", "Login", "Name", "Brigade", "Process", "Shift",
+        "Date", "Day", "Login", "Brigade", "Process", "Shift",
         "Planned hours", "Actual hours", "Difference", "Status", "Actual start", "Actual end", "Underworked hours", "Reason",
         "Confirmed by", "Confirmed at", "Edit by", "Edited at", "Note"
     ];
@@ -6309,19 +6265,19 @@ function buildHoursAttendanceWorkbook(employees) {
     detailSheet["!freeze"] = { xSplit: 4, ySplit: 1 };
     detailSheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: detailRows.length, c: detailHeader.length - 1 } }) };
     detailSheet["!cols"] = [
-        { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 26 }, { wch: 10 }, { wch: 18 },
+        { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 18 },
         { wch: 10 }, { wch: 14 }, { wch: 13 }, { wch: 12 }, { wch: 16 }, { wch: 20 },
         { wch: 24 }, { wch: 22 }, { wch: 24 }, { wch: 22 }, { wch: 35 }
     ];
     XLSX.utils.book_append_sheet(wb, detailSheet, "Daily Details");
 
     // Sheet 4: compact employee-level totals.
-    const summaryHeader = ["Login", "Name", "Brigade", "Process", "Planned days", "Worked days", "Difference days", "Absent days", "Pending days", "Underworked hours", "Attendance %", "Planned hours", "Confirmed hours"];
+    const summaryHeader = ["Login", "Brigade", "Process", "Planned days", "Worked days", "Difference days", "Absent days", "Pending days", "Underworked hours", "Attendance %", "Planned hours", "Confirmed hours"];
     const summarySheet = XLSX.utils.aoa_to_sheet([summaryHeader, ...summaryRows]);
     summarySheet["!freeze"] = { xSplit: 4, ySplit: 1 };
     summarySheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: summaryRows.length, c: summaryHeader.length - 1 } }) };
     summarySheet["!cols"] = [
-        { wch: 14 }, { wch: 26 }, { wch: 10 }, { wch: 18 },
+        { wch: 14 }, { wch: 10 }, { wch: 18 },
         { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
         { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 15 }
     ];

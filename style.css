@@ -1350,7 +1350,7 @@ th {
     background:rgba(255,255,255,.07);
 }
 .current-user-box.hidden{display:none !important;}
-.current-user-name{color:#fff;font-size:13px;font-weight:800}
+.current-user-login{color:#fff;font-size:13px;font-weight:800}
 .current-user-login{margin-top:3px;color:#9ba8bd;font-size:11px}
 .logout-button{
     width:100%;
@@ -1655,7 +1655,6 @@ th {
 
 
 /* V24 — Admin system user directory */
-.system-user-name-input { min-width: 220px; }
 .system-user-active { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .admin-only-tab[hidden] { display: none !important; }
 
@@ -1718,7 +1717,7 @@ th {
     font-weight: 700;
 }
 
-.action-actor-name {
+.action-actor-login {
     display: block;
     font-weight: 600;
 }
@@ -1776,6 +1775,14 @@ th {
 .feedback-total-chip.low { background:#ecfdf3; color:#166534; border-color:#bbf7d0; }
 .feedback-total-chip.medium { background:#fffbeb; color:#92400e; border-color:#fde68a; }
 .feedback-total-chip.high { background:#fef2f2; color:#991b1b; border-color:#fecaca; }
+.feedback-total-button { cursor:pointer; font:inherit; }
+.feedback-total-button:hover { filter:brightness(.97); transform:translateY(-1px); }
+.feedback-total-button:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
+.feedback-employee-history-card { width:min(900px, calc(100vw - 32px)); max-width:900px; }
+.feedback-employee-history-meta { margin:0 0 12px; color:#667085; font-size:13px; }
+.feedback-employee-history-wrap { max-height:55vh; overflow:auto; }
+.feedback-employee-history-wrap table { width:100%; }
+.feedback-employee-history-wrap th, .feedback-employee-history-wrap td { white-space:normal; vertical-align:top; }
 .feedback-table-wrap { overflow-x:auto; }
 .feedback-table { min-width:max-content; }
 .feedback-table th, .feedback-table td { white-space:nowrap; }
@@ -1783,10 +1790,14 @@ th {
 .feedback-name-col, .feedback-name-cell { min-width:190px; width:190px; position:sticky; left:110px; z-index:3; }
 .feedback-brigade-col, .feedback-brigade-cell { min-width:95px; width:95px; text-align:center; position:sticky; left:300px; z-index:3; }
 .feedback-process-col, .feedback-process-cell { min-width:145px; width:145px; position:sticky; left:395px; z-index:3; }
-.feedback-login-cell, .feedback-name-cell, .feedback-brigade-cell, .feedback-process-cell, .feedback-total-cell { background:var(--surface,#fff); }
+.feedback-worked-col, .feedback-worked-cell { min-width:105px; width:105px; text-align:center; position:sticky; left:540px; z-index:3; }
+.feedback-start-col, .feedback-start-cell { min-width:110px; width:110px; text-align:center; position:sticky; left:645px; z-index:3; }
+.feedback-login-cell, .feedback-name-cell, .feedback-brigade-cell, .feedback-process-cell, .feedback-worked-cell, .feedback-start-cell, .feedback-total-cell { background:var(--surface,#fff); }
 .feedback-login-cell, .feedback-name-cell, .feedback-process-cell { text-align:left; }
-.feedback-total-col { min-width:95px; position:sticky; left:540px; z-index:3; }
-.feedback-total-cell { min-width:95px; text-align:center; position:sticky; left:540px; z-index:2; }
+.feedback-total-col { min-width:110px; position:sticky; left:755px; z-index:3; text-align:center; }
+.feedback-total-col span, .feedback-total-col small { display:block; line-height:1.15; }
+.feedback-total-col small { font-size:10px; font-weight:600; opacity:.72; margin-top:2px; }
+.feedback-total-cell { min-width:110px; text-align:center; position:sticky; left:755px; z-index:2; }
 .feedback-day-col, .feedback-day-cell { width:38px; min-width:38px; text-align:center; }
 .feedback-day-cell { font-weight:700; cursor:default; }
 .feedback-count { display:inline-flex; align-items:center; justify-content:center; min-width:24px; height:24px; border-radius:7px; background:rgba(100,116,139,.10); }
@@ -1798,7 +1809,9 @@ th {
     .feedback-name-col, .feedback-name-cell { min-width:165px; width:165px; left:100px; }
     .feedback-brigade-col, .feedback-brigade-cell { min-width:85px; width:85px; left:265px; }
     .feedback-process-col, .feedback-process-cell { min-width:125px; width:125px; left:350px; }
-    .feedback-total-col, .feedback-total-cell { left:475px; }
+    .feedback-worked-col, .feedback-worked-cell { min-width:95px; width:95px; left:475px; }
+    .feedback-start-col, .feedback-start-cell { min-width:100px; width:100px; left:570px; }
+    .feedback-total-col, .feedback-total-cell { min-width:105px; left:670px; }
 }
 
 /* V26.3 Feedback statistics */
@@ -2037,28 +2050,6 @@ th {
 .attendance-code.pending { background: #eef2f7; color: #475569; border-color: #cbd5e1; }
 .attendance-code.off { background: #f8fafc; color: #94a3b8; border-color: #e2e8f0; }
 
-.hours-attendance-horizontal-scroll {
-    overflow-x: auto;
-    overflow-y: hidden;
-    height: 16px;
-    margin: 2px 0 6px;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    background: #f8fafc;
-    scrollbar-width: auto;
-    -webkit-overflow-scrolling: touch;
-    position: sticky;
-    top: 8px;
-    z-index: 9;
-}
-.hours-attendance-horizontal-scroll > div {
-    height: 1px;
-    min-width: 100%;
-}
-.hours-attendance-horizontal-scroll::-webkit-scrollbar { height: 12px; }
-.hours-attendance-horizontal-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 8px; }
-.hours-attendance-horizontal-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; border: 2px solid #f1f5f9; }
-.hours-attendance-horizontal-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 .hours-attendance-matrix-wrap {
     overflow-x: auto;
     overflow-y: hidden;
@@ -2151,20 +2142,150 @@ th {
     .hours-attendance-matrix .hours-matrix-process { left: 237px; }
 }
 
-/* V27.10 — Attendance Monitoring detailed statistics and always-visible filters */
-.hours-advanced-filters { display: grid !important; }
-.hours-advanced-filters[hidden] { display: grid !important; }
-.attendance-detailed-statistics-panel { margin-top: 16px; }
-.attendance-detail-stats-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.attendance-detailed-statistics-wrap { overflow-x: auto; }
-.attendance-detailed-statistics-table { min-width: 720px; }
-.attendance-detailed-statistics-table th,
-.attendance-detailed-statistics-table td { text-align: center; }
-.attendance-detailed-statistics-table th:first-child,
-.attendance-detailed-statistics-table td:first-child { text-align: left; }
-@media (max-width: 900px) {
-    .attendance-detail-stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* V28.3 — Feedback Tracker / Detailed Statistics alignment */
+.feedback-table.feedback-stats-summary-table { width:100%; min-width:620px; table-layout:fixed; }
+.feedback-stats-summary-table th:nth-child(1), .feedback-stats-summary-table td:nth-child(1) { width:52%; text-align:left; }
+.feedback-stats-summary-table th:nth-child(2), .feedback-stats-summary-table td:nth-child(2) { width:20%; text-align:center; }
+.feedback-stats-summary-table th:nth-child(3), .feedback-stats-summary-table td:nth-child(3) { width:28%; text-align:center; }
+
+.feedback-table.feedback-daily-summary-table { width:100%; min-width:760px; table-layout:fixed; }
+.feedback-daily-summary-table th:nth-child(1), .feedback-daily-summary-table td:nth-child(1) { width:12%; text-align:center; }
+.feedback-daily-summary-table th:nth-child(2), .feedback-daily-summary-table td:nth-child(2) { width:28%; text-align:center; }
+.feedback-daily-summary-table th:nth-child(3), .feedback-daily-summary-table td:nth-child(3) { width:30%; text-align:center; }
+.feedback-daily-summary-table th:nth-child(4), .feedback-daily-summary-table td:nth-child(4) { width:30%; text-align:center; }
+
+.feedback-table.feedback-stats-table { width:max-content; min-width:100%; }
+.feedback-stats-table th, .feedback-stats-table td { height:42px; vertical-align:middle; }
+.feedback-stats-table th:first-child, .feedback-stats-table td:first-child { min-width:190px; width:190px; }
+.feedback-stats-table th:last-child, .feedback-stats-table td:last-child { min-width:82px; width:82px; }
+.feedback-stats-table th:nth-last-child(2), .feedback-stats-table td:nth-last-child(2) { min-width:82px; width:82px; }
+
+/* Keep the first seven Feedback Tracker columns visually stable and aligned. */
+.feedback-table.feedback-table-main { table-layout:fixed; width:max-content; min-width:100%; }
+.feedback-table-main .feedback-login-col, .feedback-table-main .feedback-login-cell { width:110px; min-width:110px; }
+.feedback-table-main .feedback-name-col, .feedback-table-main .feedback-name-cell { width:190px; min-width:190px; }
+.feedback-table-main .feedback-brigade-col, .feedback-table-main .feedback-brigade-cell { width:95px; min-width:95px; }
+.feedback-table-main .feedback-process-col, .feedback-table-main .feedback-process-cell { width:145px; min-width:145px; }
+.feedback-table-main .feedback-worked-col, .feedback-table-main .feedback-worked-cell { width:105px; min-width:105px; }
+.feedback-table-main .feedback-start-col, .feedback-table-main .feedback-start-cell { width:110px; min-width:110px; }
+.feedback-table-main .feedback-total-col, .feedback-table-main .feedback-total-cell { width:110px; min-width:110px; }
+.feedback-table-main .feedback-day-col, .feedback-table-main .feedback-day-cell { width:38px; min-width:38px; }
+.feedback-table-main .feedback-add-col, .feedback-table-main .feedback-add-cell { width:52px; min-width:52px; }
+.feedback-total-col span, .feedback-total-col small { text-align:center; }
+.feedback-total-button { border:1px solid transparent; background:transparent; }
+
+/* V28.4 — Attendance Monitoring monthly statistics */
+.attendance-monthly-stats-panel { margin-bottom: 16px; }
+.attendance-stats-cards { margin-bottom: 16px; }
+.attendance-stats-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.attendance-stat-box { border:1px solid #e3e9f1; border-radius:12px; background:#fff; overflow:hidden; }
+.attendance-stat-box .panel-title { padding:14px 16px 10px; }
+.attendance-stat-box .panel-title h4 { margin:0 0 4px; }
+.attendance-stat-box .panel-title p { margin:0; }
+.attendance-stats-table { width:100%; table-layout:fixed; }
+.attendance-stats-table th, .attendance-stats-table td { text-align:center; vertical-align:middle; }
+.attendance-stats-table th:first-child, .attendance-stats-table td:first-child { width:18%; }
+.attendance-stats-table th:nth-child(2), .attendance-stats-table td:nth-child(2) { width:32%; }
+.attendance-stats-table th:nth-child(3), .attendance-stats-table td:nth-child(3) { width:25%; }
+.attendance-stats-table th:nth-child(4), .attendance-stats-table td:nth-child(4) { width:25%; }
+@media (max-width: 900px) { .attendance-stats-grid { grid-template-columns:1fr; } }
+
+/* V28.5 — Attendance Monitoring subtabs, matching Feedback Tracker */
+.attendance-subtabs{display:flex;gap:8px;margin:0 0 14px;padding:5px;background:#eef2f8;border:1px solid #dbe2ec;border-radius:10px;width:max-content;max-width:100%;}
+.attendance-subtab-panel{display:none;}
+.attendance-subtab-panel.active{display:block;}
+@media(max-width:1000px){.attendance-subtabs{width:100%;}.attendance-subtabs .subtab{flex:1;}}
+
+
+/* V29 — privacy-first identity and fixed attendance/feedback scroll behavior */
+.multi-filter-all-option {
+    border-bottom: 1px solid #e5eaf1;
+    margin-bottom: 4px;
+    padding-bottom: 9px !important;
+    font-weight: 800;
+    background: #f8fafc;
 }
-@media (max-width: 600px) {
-    .attendance-detail-stats-cards { grid-template-columns: 1fr; }
+.multi-filter-all-option:hover { background: #eef4fb !important; }
+
+.hours-matrix-top-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    width: 100%;
+    height: 14px;
+    margin: 0 0 6px;
+    border-radius: 999px;
+    background: #eef2f6;
+    border: 1px solid #dbe2ea;
+    position: sticky;
+    top: 0;
+    z-index: 12;
+}
+.hours-matrix-top-scroll > div { height: 1px; min-width: 1px; }
+.hours-matrix-top-scroll::-webkit-scrollbar { height: 10px; }
+.hours-matrix-top-scroll::-webkit-scrollbar-thumb { background: #9aa8b8; border-radius: 999px; }
+.hours-matrix-top-scroll::-webkit-scrollbar-track { background: #eef2f6; }
+.hours-attendance-matrix-wrap { scrollbar-width: thin; }
+.hours-attendance-matrix .hours-matrix-employee-col,
+.hours-attendance-matrix .hours-matrix-employee { min-width: 130px; width: 130px; left: 0; }
+.hours-attendance-matrix .hours-matrix-brigade-col,
+.hours-attendance-matrix .hours-matrix-brigade { min-width: 78px; width: 78px; left: 130px; }
+.hours-attendance-matrix .hours-matrix-process-col,
+.hours-attendance-matrix .hours-matrix-process { min-width: 150px; width: 150px; left: 208px; box-shadow: 8px 0 12px -10px rgba(23,32,51,.38); }
+.hours-attendance-matrix th.hours-matrix-employee-col,
+.hours-attendance-matrix th.hours-matrix-brigade-col,
+.hours-attendance-matrix th.hours-matrix-process-col { background: #fff; z-index: 9; }
+.hours-attendance-matrix td.hours-matrix-employee,
+.hours-attendance-matrix td.hours-matrix-brigade,
+.hours-attendance-matrix td.hours-matrix-process { background: #fff; z-index: 8; }
+.hours-attendance-matrix tbody tr:hover td.hours-matrix-employee,
+.hours-attendance-matrix tbody tr:hover td.hours-matrix-brigade,
+.hours-attendance-matrix tbody tr:hover td.hours-matrix-process { background: #f4f7fb; }
+
+.feedback-table.feedback-table-main { table-layout: fixed; }
+.feedback-table-main .feedback-login-col, .feedback-table-main .feedback-login-cell { width: 120px; min-width: 120px; left: 0; }
+.feedback-table-main .feedback-brigade-col, .feedback-table-main .feedback-brigade-cell { width: 82px; min-width: 82px; left: 120px; }
+.feedback-table-main .feedback-process-col, .feedback-table-main .feedback-process-cell { width: 140px; min-width: 140px; left: 202px; }
+.feedback-table-main .feedback-worked-col, .feedback-table-main .feedback-worked-cell { width: 100px; min-width: 100px; left: 342px; }
+.feedback-table-main .feedback-start-col, .feedback-table-main .feedback-start-cell { width: 105px; min-width: 105px; left: 442px; }
+.feedback-table-main .feedback-total-col, .feedback-table-main .feedback-total-cell { width: 105px; min-width: 105px; left: 547px; }
+.feedback-table-main .feedback-login-cell,
+.feedback-table-main .feedback-brigade-cell,
+.feedback-table-main .feedback-process-cell,
+.feedback-table-main .feedback-worked-cell,
+.feedback-table-main .feedback-start-cell,
+.feedback-table-main .feedback-total-cell { background: #fff; z-index: 8; }
+.feedback-table-main .feedback-login-col,
+.feedback-table-main .feedback-brigade-col,
+.feedback-table-main .feedback-process-col,
+.feedback-table-main .feedback-worked-col,
+.feedback-table-main .feedback-start-col,
+.feedback-table-main .feedback-total-col { background: #fff; z-index: 9; }
+.feedback-table-main .feedback-total-col,
+.feedback-table-main .feedback-total-cell { box-shadow: 8px 0 12px -10px rgba(23,32,51,.38); }
+.feedback-table-main .feedback-name-col, .feedback-table-main .feedback-name-cell { display:none !important; }
+.feedback-stats-summary-table, .feedback-daily-summary-table { overflow: hidden; }
+.feedback-daily-summary-table { min-width: 620px !important; table-layout: fixed; }
+.feedback-daily-summary-table th, .feedback-daily-summary-table td { text-align:center; }
+.feedback-daily-summary-table th:nth-child(1), .feedback-daily-summary-table td:nth-child(1) { width: 70px; }
+.feedback-daily-summary-table th:nth-child(2), .feedback-daily-summary-table td:nth-child(2) { width: 120px; }
+.feedback-daily-summary-table th:nth-child(3), .feedback-daily-summary-table td:nth-child(3),
+.feedback-daily-summary-table th:nth-child(4), .feedback-daily-summary-table td:nth-child(4),
+.feedback-daily-summary-table th:nth-child(5), .feedback-daily-summary-table td:nth-child(5) { width: 90px; }
+.feedback-daily-summary-table th:nth-child(6), .feedback-daily-summary-table td:nth-child(6) { width: 140px; }
+.feedback-extra-grid > div { min-width: 0; }
+
+@media (max-width: 900px) {
+    .hours-attendance-matrix .hours-matrix-employee-col,
+    .hours-attendance-matrix .hours-matrix-employee { min-width: 115px; width: 115px; }
+    .hours-attendance-matrix .hours-matrix-brigade-col,
+    .hours-attendance-matrix .hours-matrix-brigade { left: 115px; min-width: 70px; width: 70px; }
+    .hours-attendance-matrix .hours-matrix-process-col,
+    .hours-attendance-matrix .hours-matrix-process { left: 185px; min-width: 125px; width: 125px; }
+    .feedback-table-main .feedback-login-col, .feedback-table-main .feedback-login-cell { width: 105px; min-width:105px; }
+    .feedback-table-main .feedback-brigade-col, .feedback-table-main .feedback-brigade-cell { left:105px; width:75px; min-width:75px; }
+    .feedback-table-main .feedback-process-col, .feedback-table-main .feedback-process-cell { left:180px; width:125px; min-width:125px; }
+    .feedback-table-main .feedback-worked-col, .feedback-table-main .feedback-worked-cell { left:305px; width:95px; min-width:95px; }
+    .feedback-table-main .feedback-start-col, .feedback-table-main .feedback-start-cell { left:400px; width:98px; min-width:98px; }
+    .feedback-table-main .feedback-total-col, .feedback-table-main .feedback-total-cell { left:498px; width:100px; min-width:100px; }
 }

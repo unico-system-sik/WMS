@@ -7,7 +7,7 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://ipmyxkhnwijpdweeztgb.supabase.co wss://ipmyxkhnwijpdweeztgb.supabase.co; worker-src 'self' blob:;">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=29.0">
 </head>
 <body>
 
@@ -59,7 +59,7 @@
 <aside class="sidebar">
 
 <div id="currentUserBox" class="current-user-box hidden">
-  <div id="currentUserName" class="current-user-name">—</div>
+  <div id="currentUserLoginDisplay" class="current-user-login">—</div>
   <div id="currentUserLogin" class="current-user-login">—</div>
   <button id="logoutButton" class="logout-button" type="button">Log out</button>
 </div>
@@ -134,9 +134,9 @@
             <small>confirmed / planned</small>
         </div>
         <div class="card">
-            <span>Worked days</span>
-            <strong id="ovWorkedDays">0</strong>
-            <small>confirmed days this month</small>
+            <span>Absent</span>
+            <strong id="ovAbsentTotal">0</strong>
+            <small>confirmed absent employees</small>
         </div>
     </div>
 
@@ -149,6 +149,9 @@
             <div class="quick-stat"><span>Terminated</span><strong id="ovTerminated">0</strong><small>reason</small></div>
             <div class="quick-stat"><span>Other</span><strong id="ovOther">0</strong><small>reason</small></div>
             <div class="quick-stat"><span>Absent</span><strong id="ovAbsent">0</strong><small>reason</small></div>
+            <div class="quick-stat"><span>Late arrival</span><strong id="ovLateArrival">0</strong><small>time deviation</small></div>
+            <div class="quick-stat"><span>Arrived early</span><strong id="ovArrivedEarly">0</strong><small>time deviation</small></div>
+            <div class="quick-stat"><span>Left early</span><strong id="ovLeftEarly">0</strong><small>time deviation</small></div>
         </div>
     </section>
 
@@ -191,7 +194,7 @@
             </div>
             <button id="exportShiftEmployees" class="secondary" type="button" title="Coordinator/Admin only">Export Excel</button>
             <div class="filters">
-                <input id="overviewSearch" placeholder="Search name or login">
+                <input id="overviewSearch" placeholder="Search employee login">
                 <div class="multi-filter filter-control" id="overviewBrigadeFilter">
                     <button type="button" class="multi-filter-button" data-multi-toggle="overviewBrigadeFilter">All brigades ▾</button>
                     <div class="multi-filter-menu" data-multi-menu="overviewBrigadeFilter"></div>
@@ -236,7 +239,7 @@
                         <th class="check-col">
                             <input id="selectAllShiftEmployees" type="checkbox" aria-label="Select all employees">
                         </th>
-                        <th>Employee</th>
+                        <th>Login</th>
                         <th>Brigade</th>
                         <th>Process</th>
                         <th>Secondary processes</th>
@@ -244,6 +247,8 @@
                         <th>Planned</th>
                         <th>Actual</th>
                         <th>Worked days</th>
+                        <th>Absent</th>
+                        <th>Late / early</th>
                         <th>Status</th>
                         <th>Reason</th>
                         <th>Confirmed by</th>
@@ -280,7 +285,7 @@
     <section id="employeeDatabaseTab" class="subpage active-subpage">
         <div class="panel">
             <div class="filters">
-                <input id="employeeSearch" placeholder="Search by login or name">
+                <input id="employeeSearch" placeholder="Search by login">
                 <div class="multi-filter" id="employeeProcessFilter">
                     <button type="button" class="multi-filter-button" data-multi-toggle="employeeProcessFilter">All processes ▾</button>
                     <div class="multi-filter-menu" data-multi-menu="employeeProcessFilter"></div>
@@ -304,7 +309,6 @@
                 <table>
                     <thead>
                         <tr>
-                            <th><button type="button" class="table-sort" data-employee-sort="name" data-employee-label="Name">Name</button></th>
                             <th><button type="button" class="table-sort" data-employee-sort="login" data-employee-label="Login">Login</button></th>
                             <th><button type="button" class="table-sort" data-employee-sort="process" data-employee-label="Process">Process</button></th>
                             <th><button type="button" class="table-sort" data-employee-sort="brigade" data-employee-label="Brigade">Brigade</button></th>
@@ -333,7 +337,6 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>Name</th>
                             <th>Login</th>
                             <th>Process</th>
                             <th>Brigade</th>
@@ -357,13 +360,13 @@
             <div class="panel-title">
                 <div>
                     <h3>System Users</h3>
-                    <p>Admin-only directory for Leaders, Coordinators and Admins. Full name is shown throughout the WMS as the actor identity.</p>
+                    <p>Admin-only directory for Leaders, Coordinators and Admins. Employee identity is represented only by login.</p>
                 </div>
                 <button id="reloadSystemUsers" type="button" class="secondary">Reload</button>
             </div>
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th>Login</th><th>Full name</th><th>Role</th><th>Active</th><th>Action</th></tr></thead>
+                    <thead><tr><th>Login</th><th>Role</th><th>Active</th><th>Action</th></tr></thead>
                     <tbody id="systemUsersTable"></tbody>
                 </table>
             </div>
@@ -462,7 +465,7 @@
                     <p>Search by login and change only the selected employee. Individual changes have priority over the brigade schedule.</p>
                 </div>
                 <div class="individual-schedule-actions">
-                    <input id="individualScheduleSearch" class="individual-schedule-search" type="search" placeholder="Search by login or name" autocomplete="off">
+                    <input id="individualScheduleSearch" class="individual-schedule-search" type="search" placeholder="Search by login" autocomplete="off">
                     <button id="individualScheduleSearchBtn" type="button" class="secondary">Search</button>
                     <button id="clearIndividualScheduleSearch" type="button" class="secondary">Clear</button>
                     <button id="saveIndividualSchedule" type="button" class="primary">Save individual changes</button>
@@ -508,7 +511,7 @@
 
         <div class="panel-title extra-history-inline-title"><div><h3>Current Extra Days</h3><p>All active exceptions, ordered by date and latest action.</p></div></div>
         <div class="table-wrap">
-            <table><thead><tr><th>Date</th><th>Employee</th><th>Brigade</th><th>Process</th><th>Change</th><th>Approved by</th><th>Created</th><th>Action</th></tr></thead>
+            <table><thead><tr><th>Date</th><th>Login</th><th>Brigade</th><th>Process</th><th>Change</th><th>Approved by</th><th>Created</th><th>Action</th></tr></thead>
             <tbody id="extraDaysTable"></tbody></table>
         </div>
     </section>
@@ -534,7 +537,7 @@
             <button id="clearScheduleHistoryFilters" class="secondary" type="button">Clear</button>
         </div>
         <div class="table-wrap">
-            <table><thead><tr><th>Created at</th><th>Action</th><th>Employee</th><th>Work date</th><th>Approved by</th><th>Change</th><th>Changed by</th></tr></thead>
+            <table><thead><tr><th>Created at</th><th>Action</th><th>Login</th><th>Work date</th><th>Approved by</th><th>Change</th><th>Changed by</th></tr></thead>
             <tbody id="scheduleHistoryTable"></tbody></table>
         </div>
     </section>
@@ -600,7 +603,7 @@
     <div id="feedbackTrackerSubpage" class="feedback-subtab-panel active">
     <section class="panel feedback-controls-panel">
         <div class="filters">
-            <input id="feedbackSearch" placeholder="Search employee by login or name">
+            <input id="feedbackSearch" placeholder="Search employee by login">
             <div class="multi-filter" id="feedbackBrigadeFilter">
                 <button type="button" class="multi-filter-button" data-multi-toggle="feedbackBrigadeFilter">All brigades ▾</button>
                 <div class="multi-filter-menu" data-multi-menu="feedbackBrigadeFilter"></div>
@@ -630,7 +633,7 @@
 
         </div>
         <div class="table-wrap feedback-table-wrap">
-            <table class="feedback-table">
+            <table class="feedback-table feedback-table-main">
                 <thead id="feedbackTableHead"></thead>
                 <tbody id="feedbackTableBody"></tbody>
             </table>
@@ -678,7 +681,7 @@
             <h4>Daily summary</h4>
             <div class="table-wrap feedback-table-wrap">
                 <table class="feedback-table feedback-daily-summary-table">
-                    <thead><tr><th>Day</th><th>Date</th><th>Feedback count</th><th>% of monthly errors</th></tr></thead>
+                    <thead><tr><th>Day</th><th>Date</th><th>DAY</th><th>NIGHT</th><th>Total</th><th>% of monthly errors</th></tr></thead>
                     <tbody id="feedbackDailyStatsBody"></tbody>
                 </table>
             </div>
@@ -689,7 +692,7 @@
         <div class="feedback-extra-grid">
             <div><h4>By brigade</h4><div class="table-wrap"><table class="feedback-table"><thead><tr><th>Brigade</th><th>Count</th><th>%</th></tr></thead><tbody id="feedbackStatsBrigadeBody"></tbody></table></div></div>
             <div><h4>By primary process</h4><div class="table-wrap"><table class="feedback-table"><thead><tr><th>Process</th><th>Count</th><th>%</th></tr></thead><tbody id="feedbackStatsProcessBody"></tbody></table></div></div>
-            <div><h4>Employees with feedback</h4><div class="table-wrap"><table class="feedback-table"><thead><tr><th>Employee</th><th>Count</th><th>%</th></tr></thead><tbody id="feedbackStatsEmployeeBody"></tbody></table></div></div>
+            <div><h4>Employees with feedback</h4><div class="table-wrap"><table class="feedback-table"><thead><tr><th>Login</th><th>Count</th><th>%</th></tr></thead><tbody id="feedbackStatsEmployeeBody"></tbody></table></div></div>
         </div>
     </section>
     </div>
@@ -704,7 +707,7 @@
         </div>
         <div class="table-wrap">
             <table>
-                <thead><tr><th>Date</th><th>Employee</th><th>Error type</th><th>Note</th><th>Confirmed by</th></tr></thead>
+                <thead><tr><th>Date</th><th>Login</th><th>Shift</th><th>Error type</th><th>Note</th><th>Confirmed by</th></tr></thead>
                 <tbody id="feedbackHistoryTable"></tbody>
             </table>
         </div>
@@ -727,11 +730,17 @@
         </div>
     </header>
 
+<div class="subtabs attendance-subtabs">
+        <button type="button" class="subtab active" data-attendance-subtab="tracker">Tracker</button>
+        <button type="button" class="subtab" data-attendance-subtab="statistics">Detailed Statistics</button>
+    </div>
+
+    <div id="attendanceTrackerSubpage" class="attendance-subtab-panel active">
 <section id="hoursEmployeeSummary" class="hidden-section">
         <div class="hours-employee-header panel">
             <div>
                 <span class="muted">Selected employee</span>
-                <h3 id="hoursEmployeeName">—</h3>
+                <h3 id="hoursEmployeeLoginHeading">—</h3>
                 <p id="hoursEmployeeMeta">—</p>
             </div>
             <button id="hoursClearEmployee" class="secondary" type="button">Clear</button>
@@ -802,12 +811,13 @@
         <div class="hours-all-search-row">
             <div class="hours-all-search-field">
                 <label class="control-label" for="hoursAllSearch">Search employee</label>
-                <input id="hoursAllSearch" type="search" placeholder="Name or login" autocomplete="off">
+                <input id="hoursAllSearch" type="search" placeholder="Employee login" autocomplete="off">
             </div>
+            <button id="hoursFiltersToggle" class="secondary" type="button" aria-expanded="false">Filters</button>
             <button id="hoursClearAllFilters" class="secondary" type="button">Clear</button>
         </div>
 
-        <div id="hoursAdvancedFilters" class="hours-all-filters hours-advanced-filters">
+        <div id="hoursAdvancedFilters" class="hours-all-filters hours-advanced-filters" hidden>
             <div class="filter-control"><label class="control-label">Brigade</label><div class="multi-filter" id="hoursAllBrigade"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllBrigade">All brigades ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllBrigade"></div></div></div>
             <div class="filter-control"><label class="control-label">Process</label><div class="multi-filter" id="hoursAllProcess"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllProcess">All processes ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllProcess"></div></div></div>
             <div class="filter-control"><label class="control-label">Attendance</label><div class="multi-filter" id="hoursAllStatus"><button type="button" class="multi-filter-button" data-multi-toggle="hoursAllStatus">All statuses ▾</button><div class="multi-filter-menu" data-multi-menu="hoursAllStatus"></div></div></div>
@@ -821,10 +831,8 @@
             <span><strong class="attendance-code pending">P</strong> Pending</span>
             <span><strong class="attendance-code off">O</strong> Day off / no planned shift</span>
         </div>
-        <div class="hours-attendance-horizontal-scroll" id="hoursAttendanceHorizontalScroll" aria-label="Horizontal table scroll">
-            <div id="hoursAttendanceHorizontalScrollInner"></div>
-        </div>
-        <div class="table-wrap hours-attendance-matrix-wrap" id="hoursAttendanceMatrixWrap">
+        <div class="hours-matrix-top-scroll" id="hoursMatrixTopScroll" aria-label="Horizontal attendance scroll"><div id="hoursMatrixTopScrollInner"></div></div>
+        <div class="table-wrap hours-attendance-matrix-wrap" id="hoursAllTableScroll">
             <table id="hoursAllTable" class="hours-attendance-matrix">
                 <thead id="hoursAllTableHead"></thead>
                 <tbody id="hoursAllTableBody"></tbody>
@@ -833,37 +841,48 @@
         <div id="hoursAllMoreWrap" class="table-more-wrap" hidden>
             <button id="hoursAllMoreBtn" class="secondary" type="button">More</button>
         </div>
-
-        <section class="panel attendance-detailed-statistics-panel">
-            <div class="panel-title">
-                <div>
-                    <h3>Detailed Statistics</h3>
-                    <p>Daily absence and Extra Days for the selected month, including DAY (DS) and NIGHT (NS) work.</p>
-                </div>
-            </div>
-            <div class="cards four attendance-detail-stats-cards">
-                <div class="card"><span>Daily absence</span><strong id="attendanceStatsAbsentTotal">0</strong><small>absent records</small></div>
-                <div class="card"><span>Extra work — DS</span><strong id="attendanceStatsExtraDay">0</strong><small>extra DAY records</small></div>
-                <div class="card"><span>Extra work — NS</span><strong id="attendanceStatsExtraNight">0</strong><small>extra NIGHT records</small></div>
-                <div class="card"><span>Extra day off</span><strong id="attendanceStatsExtraOff">0</strong><small>extra OFF records</small></div>
-            </div>
-            <div class="table-wrap attendance-detailed-statistics-wrap">
-                <table class="attendance-detailed-statistics-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Day</th>
-                            <th>Daily absence</th>
-                            <th>Extra work DS</th>
-                            <th>Extra work NS</th>
-                            <th>Extra day off</th>
-                        </tr>
-                    </thead>
-                    <tbody id="attendanceDetailedStatisticsBody"></tbody>
-                </table>
-            </div>
-        </section>
     </section>
+    </div>
+
+    <div id="attendanceStatisticsSubpage" class="attendance-subtab-panel">
+    <section id="attendanceMonthlyStats" class="panel attendance-monthly-stats-panel">
+        <div class="panel-title">
+            <div>
+                <h3>Monthly Attendance Statistics</h3>
+                <p>Quick view for Coordinators and Leaders: extra days, extra days off and absences by day.</p>
+            </div>
+        </div>
+        <div class="cards five attendance-stats-cards">
+            <div class="card"><span>Extra days</span><strong id="attendanceStatsExtraDays">0</strong><small>extra work days</small></div>
+            <div class="card"><span>Extra nights</span><strong id="attendanceStatsExtraNights">0</strong><small>extra work nights</small></div>
+            <div class="card"><span>Extra days off</span><strong id="attendanceStatsExtraOff">0</strong><small>extra OFF records</small></div>
+            <div class="card"><span>Absent</span><strong id="attendanceStatsAbsent">0</strong><small>confirmed absent days</small></div>
+            <div class="card"><span>Days with absence</span><strong id="attendanceStatsAbsentDays">0</strong><small>calendar days with absent employees</small></div>
+        </div>
+        <div class="attendance-stats-grid">
+            <section class="attendance-stat-box">
+                <div class="panel-title"><div><h4>Daily absence</h4><p>How many employees were absent on each day.</p></div></div>
+                <div class="table-wrap">
+                    <table class="attendance-stats-table">
+                        <thead><tr><th>Day</th><th>Date</th><th>Absent</th><th>% of planned</th></tr></thead>
+                        <tbody id="attendanceStatsDailyAbsent"></tbody>
+                    </table>
+                </div>
+            </section>
+            <section class="attendance-stat-box">
+                <div class="panel-title"><div><h4>Extra days by date</h4><p>Extra DAY, NIGHT and OFF records in the selected month.</p></div></div>
+                <div class="table-wrap">
+                    <table class="attendance-stats-table">
+                        <thead><tr><th>Date</th><th>Extra DAY</th><th>Extra NIGHT</th><th>Extra OFF</th></tr></thead>
+                        <tbody id="attendanceStatsExtraByDate"></tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </section>
+    </div>
+
+
 </section>
 
 </main>
@@ -915,7 +934,6 @@
         <form id="employeeEditForm">
             <input id="employeeEditLogin" type="hidden">
             <div class="form-grid">
-                <label>Name<input id="employeeEditName" type="text" maxlength="120" required></label>
                 <label>Brigade<select id="employeeEditBrigade" required></select></label>
                 <label>Primary process<select id="employeeEditProcess" required></select></label>
                 <label>Start date<input id="employeeEditStartDate" type="date"></label>
@@ -948,7 +966,7 @@
         <label class="import-file-label">
             Employee file
             <input id="employeeImportFile" type="file" accept=".xlsx,.xls,.csv">
-            <small>Supported columns: Login, Name (or Name + Surname), Brigade, Process, Start date, Qualifications, Secondary processes.</small>
+            <small>Supported columns: Login, Brigade, Process, Start date, Qualifications, Secondary processes. Personal identity columns are not supported.</small>
         </label>
         <div id="employeeImportSummary" class="import-summary muted">Choose a file to preview.</div>
         <div id="employeeImportPreview" class="table-wrap import-preview-wrap"></div>
@@ -1005,6 +1023,13 @@
                 <input id="feedbackDate" type="date" required>
             </label>
             <label>
+                Shift
+                <select id="feedbackShift" required>
+                    <option value="day">DAY</option>
+                    <option value="night">NIGHT</option>
+                </select>
+            </label>
+            <label>
                 Error type
                 <select id="feedbackErrorType" required>
                     <option value="">Select error type</option>
@@ -1035,6 +1060,35 @@
                 <button type="submit" class="primary">Confirm feedback</button>
             </div>
         </form>
+    </div>
+</div>
+
+<div id="feedbackEmployeeHistoryModal" class="modal hidden">
+    <div class="modal-card feedback-employee-history-card">
+        <div class="panel-title">
+            <div>
+                <h3>Employee Feedback</h3>
+                <p id="feedbackEmployeeHistoryLabel" class="modal-subtitle"></p>
+            </div>
+            <button id="closeFeedbackEmployeeHistoryModal" class="icon-btn" type="button">×</button>
+        </div>
+        <div class="feedback-employee-history-meta" id="feedbackEmployeeHistoryMeta"></div>
+        <div class="table-wrap feedback-employee-history-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Error type</th>
+                        <th>Note</th>
+                        <th>Confirmed by</th>
+                    </tr>
+                </thead>
+                <tbody id="feedbackEmployeeHistoryBody"></tbody>
+            </table>
+        </div>
+        <div class="modal-actions">
+            <button type="button" id="closeFeedbackEmployeeHistory" class="secondary">Close</button>
+        </div>
     </div>
 </div>
 
@@ -1125,7 +1179,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js"></script>
+<script src="script.js?v=29.0"></script>
 
 </body>
 </html>
