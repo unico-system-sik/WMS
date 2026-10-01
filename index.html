@@ -887,125 +887,14 @@
 
 <section id="analyticsPage" class="page">
     <header class="page-header">
-        <div>
-            <h2>Analytics</h2>
-            <p>Daily warehouse analysis by date and shift. All figures are based on the selected filters and the same schedule used by Shift Overview.</p>
-        </div>
-        <div class="toolbar">
-            <button id="analyticsMonthPrev" class="secondary" type="button">←</button>
-            <strong id="analyticsMonthLabel" class="month-label"></strong>
-            <button id="analyticsMonthNext" class="secondary" type="button">→</button>
-            <button id="exportAnalytics" class="secondary" type="button" title="Coordinator/Admin only">Export Excel</button>
-        </div>
+        <div><h2>Analytics</h2><p>Daily warehouse analysis. Choose a month and click any DAY/NIGHT row to see full shift details.</p></div>
+        <div class="toolbar"><button id="analyticsMonthPrev" class="secondary" type="button">←</button><strong id="analyticsMonthLabel" class="month-label"></strong><button id="analyticsMonthNext" class="secondary" type="button">→</button><button id="exportAnalytics" class="secondary" type="button" title="Coordinator/Admin only">Export Excel</button></div>
     </header>
-
-    <section class="panel analytics-controls-panel">
-        <div class="filters analytics-filters">
-            <div class="multi-filter filter-control" id="analyticsBrigadeFilter">
-                <button type="button" class="multi-filter-button" data-multi-toggle="analyticsBrigadeFilter">All brigades ▾</button>
-                <div class="multi-filter-menu" data-multi-menu="analyticsBrigadeFilter"></div>
-            </div>
-            <div class="multi-filter filter-control" id="analyticsProcessFilter">
-                <button type="button" class="multi-filter-button" data-multi-toggle="analyticsProcessFilter">All processes ▾</button>
-                <div class="multi-filter-menu" data-multi-menu="analyticsProcessFilter"></div>
-            </div>
-            <div class="multi-filter filter-control" id="analyticsShiftFilter">
-                <button type="button" class="multi-filter-button" data-multi-toggle="analyticsShiftFilter">All shifts ▾</button>
-                <div class="multi-filter-menu" data-multi-menu="analyticsShiftFilter"></div>
-            </div>
-            <button id="clearAnalyticsFilters" type="button" class="secondary">Clear</button>
-            <button id="applyAnalyticsFilters" type="button" class="primary filter-search-btn">Search</button>
-        </div>
-    </section>
-
-    <section class="cards analytics-kpis">
-        <div class="card"><span>Planned</span><strong id="analyticsPlanned">0</strong><small>employee-shifts</small></div>
-        <div class="card"><span>Present</span><strong id="analyticsPresent">0</strong><small>confirmed and not absent</small></div>
-        <div class="card"><span>Absent</span><strong id="analyticsAbsent">0</strong><small>did not come</small></div>
-        <div class="card"><span>Arrived / left early</span><strong id="analyticsEarlyChange">0</strong><small>early arrival or early leave</small></div>
-        <div class="card"><span>Pending</span><strong id="analyticsPending">0</strong><small>waiting for confirmation</small></div>
-        <div class="card"><span>Attendance</span><strong id="analyticsRate">0%</strong><small>present / planned</small></div>
-        <div class="card"><span>Feedback</span><strong id="analyticsFeedback">0</strong><small>entries issued</small></div>
-        <div class="card"><span>Terminated</span><strong id="analyticsTerminated">0</strong><small>termination records</small></div>
-        <div class="card"><span>Extra day off</span><strong id="analyticsExtraOff">0</strong><small>extra OFF records</small></div>
-    </section>
-
     <section class="panel">
-        <div class="panel-title">
-            <div>
-                <h3>Daily / Shift analysis</h3>
-                <p>One row per calendar day and shift. Percentages use the planned headcount for that row.</p>
-            </div>
-            <span id="analyticsMeta" class="muted">0 rows</span>
-        </div>
-        <div class="table-wrap analytics-table-wrap">
-            <table class="analytics-table">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Day</th>
-                        <th>Shift</th>
-                        <th>Planned</th>
-                        <th>Present</th>
-                        <th>Absent</th>
-                        <th>Arrived early</th>
-                        <th>Late</th>
-                        <th>Left early</th>
-                        <th>Pending</th>
-                        <th>Attendance %</th>
-                        <th>Feedback</th>
-                        <th>Terminated</th>
-                        <th>Extra work</th>
-                        <th>Extra OFF</th>
-                    </tr>
-                </thead>
-                <tbody id="analyticsDailyBody"></tbody>
-            </table>
-        </div>
+        <div class="panel-title"><div><h3>Daily</h3><p>Date and shift are shown directly. Click a row to open the full shift detail.</p></div><span id="analyticsMeta" class="muted">0 shifts</span></div>
+        <div class="table-wrap analytics-table-wrap"><table class="analytics-table analytics-daily-table"><thead><tr><th>Date</th><th>Day</th><th>Shift</th><th>Planned</th><th>Present</th><th>Absent</th><th>Arrived / left early</th><th>Pending</th><th>Feedback</th><th>Terminated</th><th>Extra OFF</th></tr></thead><tbody id="analyticsDailyBody"></tbody></table></div>
     </section>
-
-    <section class="panel">
-        <div class="panel-title">
-            <div>
-                <h3>Process analysis</h3>
-                <p>Monthly totals across the selected days/shifts, with attendance and feedback percentages.</p>
-            </div>
-        </div>
-        <div class="table-wrap analytics-table-wrap">
-            <table class="analytics-table analytics-process-table">
-                <thead>
-                    <tr>
-                        <th>Process</th>
-                        <th>Planned</th>
-                        <th>Present</th>
-                        <th>Absent</th>
-                        <th>Early / late</th>
-                        <th>Pending</th>
-                        <th>Attendance %</th>
-                        <th>Feedback</th>
-                        <th>Feedback % of all</th>
-                    </tr>
-                </thead>
-                <tbody id="analyticsProcessBody"></tbody>
-            </table>
-        </div>
-    </section>
-
-    <section class="panel analytics-legend-panel">
-        <div class="panel-title">
-            <div><h3>How the metrics are counted</h3><p>Definitions keep the analytical report consistent with the operational WMS screens.</p></div>
-        </div>
-        <div class="analytics-definition-grid">
-            <div><strong>Planned</strong><span>Employees with a DAY/NIGHT schedule and a valid start date for the selected date.</span></div>
-            <div><strong>Present</strong><span>Attendance confirmed and final status is not Absent.</span></div>
-            <div><strong>Absent</strong><span>Attendance confirmed with status Absent.</span></div>
-            <div><strong>Arrived / left early</strong><span>At least one early-arrival or early-departure deviation.</span></div>
-            <div><strong>Pending</strong><span>Planned employees whose hours are not confirmed.</span></div>
-            <div><strong>Feedback</strong><span>Feedback entries recorded for the exact date and shift.</span></div>
-            <div><strong>Terminated</strong><span>Employee termination date or termination attendance record falls on the exact date.</span></div>
-            <div><strong>Extra OFF</strong><span>Extra day-off records for the selected date, attributed to the employee's underlying shift.</span></div>
-        </div>
-    </section>
+    <section id="analyticsDetailPanel" class="panel analytics-detail-panel" hidden></section>
 </section>
 
 </main>

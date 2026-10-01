@@ -1843,6 +1843,14 @@ function individualScheduleValue(employee, date) {
 
 function getSchedule(employee, date) {
     const key = scheduleKey(date, employee.login);
+
+    // Before the employee's official start date they are outside the WMS
+    // operational schedule: always show OFF and ignore individual/extra overrides.
+    // This keeps Scheduling, Shift Overview, Attendance and Analytics consistent.
+    if (!canConfirmEmployeeDate(employee, date)) {
+        return { shift: "off", source: "before-start" };
+    }
+
     const individual = individualSchedules[key];
     const extra = extraDays[key];
 
@@ -2293,9 +2301,6 @@ function fillAdditionalMultiFilters() {
     fillMultiFilter('hoursAllBrigade', BRIGADES, 'brigades', Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
     fillMultiFilter('hoursAllProcess', PROCESSES, 'processes');
     fillMultiFilter('hoursAllStatus', ['Complete','Pending','Has difference','Absent','Left early'], 'statuses');
-    fillMultiFilter('analyticsBrigadeFilter', BRIGADES, 'brigades', Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
-    fillMultiFilter('analyticsProcessFilter', PROCESSES, 'processes');
-    fillMultiFilter('analyticsShiftFilter', ['day','night'], 'shifts', {day:'DAY', night:'NIGHT'});
     updateAllMultiFilterLabels();
 }
 function selectedMultiValues(id) {
@@ -4012,20 +4017,21 @@ function renderSelectedIndividualSchedule(login) {
             12
         );
 
-        const override = individualScheduleValue(employee, date);
-        const effective = getSchedule(employee, date).shift;
-
-        const displayClass = override || effective || "off";
+        const beforeStart = !canConfirmEmployeeDate(employee, date);
+        const override = beforeStart ? "" : individualScheduleValue(employee, date);
+        const effective = beforeStart ? "off" : getSchedule(employee, date).shift;
+        const displayClass = beforeStart ? "off" : (override || effective || "off");
 
         return `
-            <td class="schedule-cell individual-schedule-cell ${override ? "has-override" : ""}">
+            <td class="schedule-cell individual-schedule-cell ${override ? "has-override" : ""} ${beforeStart ? "before-start" : ""}">
                 <select
                     class="${displayClass}"
                     data-individual-schedule="${esc(employee.login)}"
                     data-schedule-date="${dateKey(date)}"
                     data-effective-shift="${effective || ""}"
-                    title="${override ? `Override: ${override}` : `Brigade: ${effective || "off"}`}">
-                    ${scheduleOptionHtml(override || "")}
+                    title="${beforeStart ? `Before start date ${employee.startDate} · not scheduled` : (override ? `Override: ${override}` : `Brigade: ${effective || "off"}`)}"
+                    ${beforeStart ? "disabled" : ""}>
+                    ${beforeStart ? '<option value="off" selected>O</option>' : scheduleOptionHtml(override || "")}
                 </select>
             </td>
         `;
@@ -4900,9 +4906,6 @@ function switchPage(pageId) {
     }
 
     if (pageId === "analyticsPage") {
-        setMultiFilterValues("analyticsBrigadeFilter", []);
-        setMultiFilterValues("analyticsProcessFilter", []);
-        setMultiFilterValues("analyticsShiftFilter", []);
         loadAnalyticsFeedbackFromSupabase().finally(renderAnalytics);
     }
 }
@@ -4937,18 +4940,13 @@ async function loadAnalyticsFeedbackFromSupabase() {
 }
 
 function analyticsSelectedEmployees() {
-    const brigades = selectedMultiValues("analyticsBrigadeFilter");
-    const processes = selectedMultiValues("analyticsProcessFilter");
-    return attendanceMonitoringEmployees(analyticsMonth).filter(employee => {
-        if (brigades.length && !brigades.includes(employee.brigade)) return false;
-        if (processes.length && !processes.includes(employee.process)) return false;
-        return true;
-    });
+    // Analytics intentionally has no employee filters. It always represents
+    // the full operational population for the selected date/shift.
+    return attendanceMonitoringEmployees(analyticsMonth);
 }
 
 function analyticsSelectedShifts() {
-    const shifts = selectedMultiValues("analyticsShiftFilter");
-    return shifts.length ? shifts : ["day", "night"];
+    return ["day", "night"];
 }
 
 function underlyingShiftBeforeExtraOff(employee, date) {
@@ -4961,6 +4959,8 @@ function underlyingShiftBeforeExtraOff(employee, date) {
 function analyticsExtraCounts(date, shift) {
     let extraWork = 0;
     let extraOff = 0;
+    const extraOffLogins = [];
+    const extraWorkLogins = [];
     const targetDate = dateKey(date);
     Object.entries(extraDays || {}).forEach(([extraKey, item]) => {
         if (!item?.type) return;
@@ -4970,38 +4970,33 @@ function analyticsExtraCounts(date, shift) {
         const login = extraKey.slice(split + 1);
         if (rowDate !== targetDate) return;
         const employee = employeeByLogin(login);
-        if (!employee) return;
+        if (!employee || !canConfirmEmployeeDate(employee, date)) return;
         if (item.type === "extra-off") {
-            if (underlyingShiftBeforeExtraOff(employee, date) === shift) extraOff += 1;
+            if (underlyingShiftBeforeExtraOff(employee, date) === shift) {
+                extraOff += 1;
+                extraOffLogins.push(login);
+            }
         } else if (item.type === "extra-work-day" && shift === "day") {
             extraWork += 1;
+            extraWorkLogins.push(login);
         } else if (item.type === "extra-work-night" && shift === "night") {
             extraWork += 1;
+            extraWorkLogins.push(login);
         }
     });
-    return { extraWork, extraOff };
+    return { extraWork, extraOff, extraOffLogins, extraWorkLogins };
 }
 
 function analyticsRowFor(date, shift, employees) {
     const row = {
-        date,
-        shift,
-        planned: 0,
-        present: 0,
-        absent: 0,
-        arrivalEarly: 0,
-        late: 0,
-        leftEarly: 0,
-        pending: 0,
-        feedback: 0,
-        terminated: 0,
-        extraWork: 0,
-        extraOff: 0,
-        earlyChange: 0,
-        process: new Map()
+        date: dateKey(date), shift, planned: 0, present: 0, absent: 0,
+        arrivalEarly: 0, late: 0, leftEarly: 0, earlyChange: 0, pending: 0,
+        feedback: 0, terminated: 0, extraWork: 0, extraOff: 0,
+        absentLogins: [], presentLogins: [], earlyLogins: [], pendingLogins: [],
+        feedbackLogins: [], terminatedLogins: [], extraWorkLogins: [], extraOffLogins: []
     };
+    const dateText = row.date;
 
-    const dateText = dateKey(date);
     employees.forEach(employee => {
         if (!canConfirmEmployeeDate(employee, date)) return;
         const schedule = getSchedule(employee, date);
@@ -5010,138 +5005,135 @@ function analyticsRowFor(date, shift, employees) {
         if (planned <= 0) return;
 
         row.planned += 1;
+        const login = String(employee.login);
         const data = getAttendance(employee, date);
         const status = String(data.status || "").trim().toLowerCase();
         const isAbsent = status === "absent";
-        if (isAbsent) row.absent += 1;
-        else if (data.confirmed) row.present += 1;
-        else row.pending += 1;
+        if (isAbsent) {
+            row.absent += 1;
+            row.absentLogins.push(login);
+        } else if (data.confirmed) {
+            row.present += 1;
+            row.presentLogins.push(login);
+        } else {
+            row.pending += 1;
+            row.pendingLogins.push(login);
+        }
 
         const deviation = getShiftTimeDeviation(employee, date, data);
         if (deviation.arrivalEarly > 0) row.arrivalEarly += 1;
         if (deviation.late > 0) row.late += 1;
         if (deviation.leftEarly > 0) row.leftEarly += 1;
-        if (deviation.arrivalEarly > 0 || deviation.leftEarly > 0) row.earlyChange += 1;
-
-        if (String(employee.endDate || "") === dateText || (isAbsent && String(data.reason || "").trim() === "Terminated")) row.terminated += 1;
-
-        let process = row.process.get(employee.process);
-        if (!process) {
-            process = { planned: 0, present: 0, absent: 0, earlyLate: 0, pending: 0 };
-            row.process.set(employee.process, process);
+        if (deviation.arrivalEarly > 0 || deviation.leftEarly > 0) {
+            row.earlyChange += 1;
+            row.earlyLogins.push(login);
         }
-        process.planned += 1;
-        if (isAbsent) process.absent += 1;
-        else if (data.confirmed) process.present += 1;
-        else process.pending += 1;
-        if (deviation.arrivalEarly > 0 || deviation.late > 0 || deviation.leftEarly > 0) process.earlyLate += 1;
+
+        if (String(employee.endDate || "") === dateText || (isAbsent && String(data.reason || "").trim() === "Terminated")) {
+            row.terminated += 1;
+            row.terminatedLogins.push(login);
+        }
     });
 
-    row.feedback = analyticsFeedbackEntries.filter(entry => {
-        if (String(entry.work_date || "") !== dateText || String(entry.shift || "") !== shift) return false;
-        return employees.some(employee => employee.login === entry.employee_login);
-    }).length;
+    analyticsFeedbackEntries.forEach(entry => {
+        if (String(entry.work_date || "") !== dateText || String(entry.shift || "") !== shift) return;
+        if (!employees.some(employee => employee.login === entry.employee_login)) return;
+        row.feedback += 1;
+        row.feedbackLogins.push(String(entry.employee_login));
+    });
 
     const extra = analyticsExtraCounts(date, shift);
     row.extraWork = extra.extraWork;
     row.extraOff = extra.extraOff;
+    row.extraWorkLogins = extra.extraWorkLogins;
+    row.extraOffLogins = extra.extraOffLogins;
     return row;
+}
+
+function analyticsPct(value, total) {
+    return total ? `${((value / total) * 100).toFixed(1)}%` : "0.0%";
+}
+
+function analyticsMetricCell(value, total) {
+    return `<strong>${value}</strong> <span class="analytics-pct">${analyticsPct(value, total)}</span>`;
+}
+
+function renderAnalyticsDetail(row) {
+    const panel = $("analyticsDetailPanel");
+    if (!panel) return;
+    const date = fromKey(row.date);
+    const shiftLabel = row.shift === "day" ? "DAY" : "NIGHT";
+    const uniqueFeedback = [...new Set(row.feedbackLogins)];
+    const list = (items, empty = "None") => items.length ? items.map(login => `<span class="analytics-login-chip">${esc(login)}</span>`).join("") : `<span class="muted">${empty}</span>`;
+    panel.innerHTML = `
+        <div class="panel-title analytics-detail-title">
+            <div><h3>${esc(date.toLocaleDateString("en-GB"))} · ${shiftLabel}</h3><p>Detailed information for the selected shift.</p></div>
+            <button type="button" class="secondary" id="closeAnalyticsDetail">Close</button>
+        </div>
+        <div class="analytics-detail-kpis">
+            <div><strong>${row.planned}</strong><span>Planned</span></div>
+            <div><strong>${row.present}</strong><span>Present · ${analyticsPct(row.present,row.planned)}</span></div>
+            <div><strong>${row.absent}</strong><span>Absent · ${analyticsPct(row.absent,row.planned)}</span></div>
+            <div><strong>${row.earlyChange}</strong><span>Early change · ${analyticsPct(row.earlyChange,row.planned)}</span></div>
+            <div><strong>${row.pending}</strong><span>Pending · ${analyticsPct(row.pending,row.planned)}</span></div>
+            <div><strong>${row.feedback}</strong><span>Feedback · ${analyticsPct(row.feedback,row.planned)}</span></div>
+            <div><strong>${row.terminated}</strong><span>Terminated · ${analyticsPct(row.terminated,row.planned)}</span></div>
+            <div><strong>${row.extraOff}</strong><span>Extra OFF · ${analyticsPct(row.extraOff,row.planned)}</span></div>
+        </div>
+        <div class="analytics-detail-grid">
+            <section><h4>Absent (${row.absent})</h4><div class="analytics-login-list">${list(row.absentLogins)}</div></section>
+            <section><h4>Feedback (${uniqueFeedback.length} employees / ${row.feedback} entries)</h4><div class="analytics-login-list">${list(uniqueFeedback)}</div></section>
+            <section><h4>Terminated (${row.terminated})</h4><div class="analytics-login-list">${list(row.terminatedLogins)}</div></section>
+            <section><h4>Arrived / left early (${row.earlyChange})</h4><div class="analytics-login-list">${list(row.earlyLogins)}</div></section>
+            <section><h4>Pending (${row.pending})</h4><div class="analytics-login-list">${list(row.pendingLogins)}</div></section>
+            <section><h4>Extra OFF (${row.extraOff})</h4><div class="analytics-login-list">${list(row.extraOffLogins)}</div></section>
+        </div>`;
+    panel.hidden = false;
+    $("closeAnalyticsDetail")?.addEventListener("click", () => { panel.hidden = true; });
 }
 
 function renderAnalytics() {
     $("analyticsMonthLabel").textContent = analyticsMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
     const employees = analyticsSelectedEmployees();
-    const selectedShifts = analyticsSelectedShifts();
     const rows = [];
-
     for (let day = 1; day <= analyticsDays(); day++) {
         const date = new Date(analyticsMonth.getFullYear(), analyticsMonth.getMonth(), day, 12);
-        selectedShifts.forEach(shift => rows.push(analyticsRowFor(date, shift, employees)));
+        ["day", "night"].forEach(shift => rows.push(analyticsRowFor(date, shift, employees)));
     }
 
-    const totals = rows.reduce((acc, row) => {
-        Object.entries(row).forEach(([key, value]) => {
-            if (typeof value === "number") acc[key] += value;
-        });
-        return acc;
-    }, { planned: 0, present: 0, absent: 0, arrivalEarly: 0, late: 0, leftEarly: 0, earlyChange: 0, pending: 0, feedback: 0, terminated: 0, extraWork: 0, extraOff: 0 });
-
-    const rate = totals.planned ? (totals.present / totals.planned) * 100 : 0;
-    $("analyticsPlanned").textContent = String(totals.planned);
-    $("analyticsPresent").textContent = String(totals.present);
-    $("analyticsAbsent").textContent = String(totals.absent);
-    $("analyticsEarlyChange").textContent = String(totals.earlyChange);
-    $("analyticsPending").textContent = String(totals.pending);
-    $("analyticsRate").textContent = `${rate.toFixed(1)}%`;
-    $("analyticsFeedback").textContent = String(totals.feedback);
-    $("analyticsTerminated").textContent = String(totals.terminated);
-    $("analyticsExtraOff").textContent = String(totals.extraOff);
-
     const dailyBody = $("analyticsDailyBody");
-    dailyBody.innerHTML = rows.map(row => {
+    dailyBody.innerHTML = rows.map((row, index) => {
         const date = fromKey(row.date);
-        const pct = row.planned ? (row.present / row.planned) * 100 : 0;
-        return `<tr>
-            <td>${esc(date.toLocaleDateString("en-GB"))}</td>
+        const shiftLabel = row.shift === "day" ? "DAY" : "NIGHT";
+        return `<tr class="analytics-clickable-row" data-analytics-row="${index}">
+            <td><strong>${esc(date.toLocaleDateString("en-GB"))}</strong></td>
             <td>${esc(date.toLocaleDateString("en-US", { weekday: "long" }))}</td>
-            <td><span class="shift-pill ${esc(row.shift)}">${row.shift === "day" ? "DAY" : "NIGHT"}</span></td>
-            <td>${row.planned}</td>
-            <td>${row.present}</td>
-            <td>${row.absent}</td>
-            <td>${row.arrivalEarly}</td>
-            <td>${row.late}</td>
-            <td>${row.leftEarly}</td>
-            <td>${row.pending}</td>
-            <td>${pct.toFixed(1)}%</td>
-            <td>${row.feedback}</td>
-            <td>${row.terminated}</td>
-            <td>${row.extraWork}</td>
-            <td>${row.extraOff}</td>
+            <td><span class="shift-pill ${esc(row.shift)}">${shiftLabel}</span></td>
+            <td>${analyticsMetricCell(row.planned,row.planned)}</td>
+            <td>${analyticsMetricCell(row.present,row.planned)}</td>
+            <td>${analyticsMetricCell(row.absent,row.planned)}</td>
+            <td>${analyticsMetricCell(row.earlyChange,row.planned)}</td>
+            <td>${analyticsMetricCell(row.pending,row.planned)}</td>
+            <td>${analyticsMetricCell(row.feedback,row.planned)}</td>
+            <td>${analyticsMetricCell(row.terminated,row.planned)}</td>
+            <td>${analyticsMetricCell(row.extraOff,row.planned)}</td>
         </tr>`;
-    }).join("") || `<tr><td colspan="15"><div class="empty">No analytics data for the selected filters.</div></td></tr>`;
-
-    const processTotals = new Map(PROCESSES.map(process => [process, { planned: 0, present: 0, absent: 0, earlyLate: 0, pending: 0, feedback: 0 }]));
-    const selectedSet = new Set(employees.map(employee => employee.login));
-    rows.forEach(row => {
-        row.process.forEach((value, process) => {
-            const target = processTotals.get(process) || { planned: 0, present: 0, absent: 0, earlyLate: 0, pending: 0, feedback: 0 };
-            target.planned += value.planned;
-            target.present += value.present;
-            target.absent += value.absent;
-            target.earlyLate += value.earlyLate;
-            target.pending += value.pending;
-            processTotals.set(process, target);
-        });
-    });
-    analyticsFeedbackEntries.forEach(entry => {
-        const employee = employeeByLogin(entry.employee_login);
-        if (!employee || !selectedSet.has(employee.login)) return;
-        if (!selectedShifts.includes(entry.shift)) return;
-        const target = processTotals.get(employee.process);
-        if (target) target.feedback += 1;
-    });
-
-    const processBody = $("analyticsProcessBody");
-    processBody.innerHTML = PROCESSES.map(process => {
-        const data = processTotals.get(process) || { planned: 0, present: 0, absent: 0, earlyLate: 0, pending: 0, feedback: 0 };
-        const pct = data.planned ? (data.present / data.planned) * 100 : 0;
-        const feedbackPct = totals.feedback ? (data.feedback / totals.feedback) * 100 : 0;
-        return `<tr><td><strong>${esc(process)}</strong></td><td>${data.planned}</td><td>${data.present}</td><td>${data.absent}</td><td>${data.earlyLate}</td><td>${data.pending}</td><td>${pct.toFixed(1)}%</td><td>${data.feedback}</td><td>${feedbackPct.toFixed(1)}%</td></tr>`;
     }).join("");
-
+    dailyBody.querySelectorAll("[data-analytics-row]").forEach(tr => tr.addEventListener("click", () => renderAnalyticsDetail(rows[Number(tr.dataset.analyticsRow)])));
     const meta = $("analyticsMeta");
-    if (meta) meta.textContent = `${rows.length} day/shift rows · ${employees.length} employees in filter`;
+    if (meta) meta.textContent = `${rows.length} shifts · click a row for details`;
+    const detail = $("analyticsDetailPanel");
+    if (detail) detail.hidden = true;
 }
 
 function exportAnalyticsExcel() {
     if (!canExportData()) { toast("Only Coordinator or Admin can export."); return; }
     if (typeof XLSX === "undefined") { toast("Excel export library is not available."); return; }
     const employees = analyticsSelectedEmployees();
-    const selectedShifts = analyticsSelectedShifts();
     const rows = [];
     for (let day = 1; day <= analyticsDays(); day++) {
         const date = new Date(analyticsMonth.getFullYear(), analyticsMonth.getMonth(), day, 12);
-        selectedShifts.forEach(shift => rows.push(analyticsRowFor(date, shift, employees)));
+        ["day", "night"].forEach(shift => rows.push(analyticsRowFor(date, shift, employees)));
     }
     const daily = rows.map(row => [
         row.date,
@@ -5150,22 +5142,19 @@ function exportAnalyticsExcel() {
         row.planned,
         row.present,
         row.absent,
-        row.arrivalEarly,
-        row.late,
-        row.leftEarly,
+        row.earlyChange,
         row.pending,
         row.planned ? Number(((row.present / row.planned) * 100).toFixed(1)) : 0,
         row.feedback,
+        row.planned ? Number(((row.feedback / row.planned) * 100).toFixed(1)) : 0,
         row.terminated,
-        row.extraWork,
         row.extraOff
     ]);
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([["Date","Day","Shift","Planned","Present","Absent","Arrived early","Late","Left early","Pending","Attendance %","Feedback","Terminated","Extra work","Extra OFF"], ...daily]);
+    const ws = XLSX.utils.aoa_to_sheet([["Date","Day","Shift","Planned","Present","Absent","Arrived / left early","Pending","Attendance %","Feedback","Feedback %","Terminated","Extra OFF"], ...daily]);
     ws["!freeze"] = { xSplit: 3, ySplit: 1 };
-    XLSX.utils.book_append_sheet(wb, ws, "Daily Shift Analytics");
+    XLSX.utils.book_append_sheet(wb, ws, "Daily Analytics");
     XLSX.writeFile(wb, `WMS_Analytics_${analyticsMonthKey()}.xlsx`);
-    toast("Analytics exported to Excel.");
 }
 
 function initEvents() {
@@ -5401,13 +5390,6 @@ function initEvents() {
     $("analyticsMonthNext")?.addEventListener("click", async () => {
         analyticsMonth = new Date(analyticsMonth.getFullYear(), analyticsMonth.getMonth() + 1, 1, 12);
         await loadAnalyticsFeedbackFromSupabase();
-        renderAnalytics();
-    });
-    $("applyAnalyticsFilters")?.addEventListener("click", renderAnalytics);
-    $("clearAnalyticsFilters")?.addEventListener("click", () => {
-        setMultiFilterValues("analyticsBrigadeFilter", []);
-        setMultiFilterValues("analyticsProcessFilter", []);
-        setMultiFilterValues("analyticsShiftFilter", []);
         renderAnalytics();
     });
     $("exportAnalytics")?.addEventListener("click", exportAnalyticsExcel);
