@@ -79,6 +79,7 @@
         <button class="nav-btn" data-page="schedulingPage">📅 <span>Shift Scheduling</span></button>
         <button class="nav-btn" data-page="hoursAttendancePage">⏱️ <span>Attendance Monitoring</span></button>
         <button class="nav-btn" data-page="feedbackTrackerPage">📝 <span>Feedback Tracker</span></button>
+        <button class="nav-btn" data-page="analyticsPage">📈 <span>Analytics</span></button>
     </nav>
 </aside>
 
@@ -112,16 +113,21 @@
         </div>
     </div>
 
-    <div class="cards five">
+    <div class="cards five overview-main-kpis">
         <div class="card">
             <span>Should be working</span>
             <strong id="ovPlanned">0</strong>
             <small>scheduled employees</small>
         </div>
         <div class="card">
-            <span>Confirmed</span>
-            <strong id="ovPresent">0</strong>
-            <small>hours confirmed</small>
+            <span>Absent</span>
+            <strong id="ovAbsentTotal">0</strong>
+            <small>did not come</small>
+        </div>
+        <div class="card">
+            <span>Arrived / left early</span>
+            <strong id="ovEarlyChange">0</strong>
+            <small>time deviation</small>
         </div>
         <div class="card">
             <span>Pending</span>
@@ -129,29 +135,21 @@
             <small>waiting for confirmation</small>
         </div>
         <div class="card">
-            <span>Coverage</span>
+            <span>Attendance</span>
             <strong id="ovRateCard">0%</strong>
-            <small>confirmed / planned</small>
-        </div>
-        <div class="card">
-            <span>Absent</span>
-            <strong id="ovAbsentTotal">0</strong>
-            <small>confirmed absent employees</small>
+            <small>present / scheduled</small>
         </div>
     </div>
 
-    <section class="panel quick-stats-panel">
-        <div class="panel-title"><div><h3>Hours exceptions</h3><p>Quick view for the selected date and shift.</p></div></div>
-        <div class="quick-stats-grid">
-            <div class="quick-stat"><span>Private leave</span><strong id="ovPrivateLeave">0</strong><small>reason</small></div>
-            <div class="quick-stat"><span>Forced leave</span><strong id="ovForcedLeave">0</strong><small>reason</small></div>
-            <div class="quick-stat"><span>Feeling unwell</span><strong id="ovFeelingUnwell">0</strong><small>reason</small></div>
-            <div class="quick-stat"><span>Terminated</span><strong id="ovTerminated">0</strong><small>reason</small></div>
-            <div class="quick-stat"><span>Other</span><strong id="ovOther">0</strong><small>reason</small></div>
-            <div class="quick-stat"><span>Absent</span><strong id="ovAbsent">0</strong><small>reason</small></div>
-            <div class="quick-stat"><span>Late arrival</span><strong id="ovLateArrival">0</strong><small>time deviation</small></div>
-            <div class="quick-stat"><span>Arrived early</span><strong id="ovArrivedEarly">0</strong><small>time deviation</small></div>
-            <div class="quick-stat"><span>Left early</span><strong id="ovLeftEarly">0</strong><small>time deviation</small></div>
+    <section class="panel quick-stats-panel overview-early-reasons-panel">
+        <div class="panel-title"><div><h3>Left early — reasons</h3><p>Reasons recorded for employees who left before the planned end of the shift.</p></div></div>
+        <div class="quick-stats-grid overview-early-reasons-grid">
+            <div class="quick-stat"><span>Private leave</span><strong id="ovEarlyPrivateLeave">0</strong><small>reason</small></div>
+            <div class="quick-stat"><span>Forced leave</span><strong id="ovEarlyForcedLeave">0</strong><small>reason</small></div>
+            <div class="quick-stat"><span>Feeling unwell</span><strong id="ovEarlyFeelingUnwell">0</strong><small>reason</small></div>
+            <div class="quick-stat"><span>Terminated</span><strong id="ovEarlyTerminated">0</strong><small>reason</small></div>
+            <div class="quick-stat"><span>Other</span><strong id="ovEarlyOther">0</strong><small>reason</small></div>
+            <div class="quick-stat"><span>No reason recorded</span><strong id="ovEarlyNoReason">0</strong><small>reason</small></div>
         </div>
     </section>
 
@@ -215,7 +213,9 @@
                     <button type="button" class="multi-filter-button" data-multi-toggle="overviewExceptionFilter">All exceptions ▾</button>
                     <div class="multi-filter-menu" data-multi-menu="overviewExceptionFilter"></div>
                 </div>
-                <button id="applyOverviewFilters" type="button" class="primary filter-search-btn">Search</button>
+                <div class="overview-filter-search-wrap">
+                    <button id="applyOverviewFilters" type="button" class="primary filter-search-btn">Search</button>
+                </div>
             </div>
         </div>
 
@@ -885,6 +885,129 @@
 
 </section>
 
+<section id="analyticsPage" class="page">
+    <header class="page-header">
+        <div>
+            <h2>Analytics</h2>
+            <p>Daily warehouse analysis by date and shift. All figures are based on the selected filters and the same schedule used by Shift Overview.</p>
+        </div>
+        <div class="toolbar">
+            <button id="analyticsMonthPrev" class="secondary" type="button">←</button>
+            <strong id="analyticsMonthLabel" class="month-label"></strong>
+            <button id="analyticsMonthNext" class="secondary" type="button">→</button>
+            <button id="exportAnalytics" class="secondary" type="button" title="Coordinator/Admin only">Export Excel</button>
+        </div>
+    </header>
+
+    <section class="panel analytics-controls-panel">
+        <div class="filters analytics-filters">
+            <div class="multi-filter filter-control" id="analyticsBrigadeFilter">
+                <button type="button" class="multi-filter-button" data-multi-toggle="analyticsBrigadeFilter">All brigades ▾</button>
+                <div class="multi-filter-menu" data-multi-menu="analyticsBrigadeFilter"></div>
+            </div>
+            <div class="multi-filter filter-control" id="analyticsProcessFilter">
+                <button type="button" class="multi-filter-button" data-multi-toggle="analyticsProcessFilter">All processes ▾</button>
+                <div class="multi-filter-menu" data-multi-menu="analyticsProcessFilter"></div>
+            </div>
+            <div class="multi-filter filter-control" id="analyticsShiftFilter">
+                <button type="button" class="multi-filter-button" data-multi-toggle="analyticsShiftFilter">All shifts ▾</button>
+                <div class="multi-filter-menu" data-multi-menu="analyticsShiftFilter"></div>
+            </div>
+            <button id="clearAnalyticsFilters" type="button" class="secondary">Clear</button>
+            <button id="applyAnalyticsFilters" type="button" class="primary filter-search-btn">Search</button>
+        </div>
+    </section>
+
+    <section class="cards analytics-kpis">
+        <div class="card"><span>Planned</span><strong id="analyticsPlanned">0</strong><small>employee-shifts</small></div>
+        <div class="card"><span>Present</span><strong id="analyticsPresent">0</strong><small>confirmed and not absent</small></div>
+        <div class="card"><span>Absent</span><strong id="analyticsAbsent">0</strong><small>did not come</small></div>
+        <div class="card"><span>Arrived / left early</span><strong id="analyticsEarlyChange">0</strong><small>early arrival or early leave</small></div>
+        <div class="card"><span>Pending</span><strong id="analyticsPending">0</strong><small>waiting for confirmation</small></div>
+        <div class="card"><span>Attendance</span><strong id="analyticsRate">0%</strong><small>present / planned</small></div>
+        <div class="card"><span>Feedback</span><strong id="analyticsFeedback">0</strong><small>entries issued</small></div>
+        <div class="card"><span>Terminated</span><strong id="analyticsTerminated">0</strong><small>termination records</small></div>
+        <div class="card"><span>Extra day off</span><strong id="analyticsExtraOff">0</strong><small>extra OFF records</small></div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-title">
+            <div>
+                <h3>Daily / Shift analysis</h3>
+                <p>One row per calendar day and shift. Percentages use the planned headcount for that row.</p>
+            </div>
+            <span id="analyticsMeta" class="muted">0 rows</span>
+        </div>
+        <div class="table-wrap analytics-table-wrap">
+            <table class="analytics-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Day</th>
+                        <th>Shift</th>
+                        <th>Planned</th>
+                        <th>Present</th>
+                        <th>Absent</th>
+                        <th>Arrived early</th>
+                        <th>Late</th>
+                        <th>Left early</th>
+                        <th>Pending</th>
+                        <th>Attendance %</th>
+                        <th>Feedback</th>
+                        <th>Terminated</th>
+                        <th>Extra work</th>
+                        <th>Extra OFF</th>
+                    </tr>
+                </thead>
+                <tbody id="analyticsDailyBody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-title">
+            <div>
+                <h3>Process analysis</h3>
+                <p>Monthly totals across the selected days/shifts, with attendance and feedback percentages.</p>
+            </div>
+        </div>
+        <div class="table-wrap analytics-table-wrap">
+            <table class="analytics-table analytics-process-table">
+                <thead>
+                    <tr>
+                        <th>Process</th>
+                        <th>Planned</th>
+                        <th>Present</th>
+                        <th>Absent</th>
+                        <th>Early / late</th>
+                        <th>Pending</th>
+                        <th>Attendance %</th>
+                        <th>Feedback</th>
+                        <th>Feedback % of all</th>
+                    </tr>
+                </thead>
+                <tbody id="analyticsProcessBody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel analytics-legend-panel">
+        <div class="panel-title">
+            <div><h3>How the metrics are counted</h3><p>Definitions keep the analytical report consistent with the operational WMS screens.</p></div>
+        </div>
+        <div class="analytics-definition-grid">
+            <div><strong>Planned</strong><span>Employees with a DAY/NIGHT schedule and a valid start date for the selected date.</span></div>
+            <div><strong>Present</strong><span>Attendance confirmed and final status is not Absent.</span></div>
+            <div><strong>Absent</strong><span>Attendance confirmed with status Absent.</span></div>
+            <div><strong>Arrived / left early</strong><span>At least one early-arrival or early-departure deviation.</span></div>
+            <div><strong>Pending</strong><span>Planned employees whose hours are not confirmed.</span></div>
+            <div><strong>Feedback</strong><span>Feedback entries recorded for the exact date and shift.</span></div>
+            <div><strong>Terminated</strong><span>Employee termination date or termination attendance record falls on the exact date.</span></div>
+            <div><strong>Extra OFF</strong><span>Extra day-off records for the selected date, attributed to the employee's underlying shift.</span></div>
+        </div>
+    </section>
+</section>
+
 </main>
 
 <div id="employeeStatusModal" class="modal hidden">
@@ -1179,7 +1302,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=29.0"></script>
+<script src="script.js?v=30.0"></script>
 
 </body>
 </html>

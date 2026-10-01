@@ -2289,3 +2289,71 @@ th {
     .feedback-table-main .feedback-start-col, .feedback-table-main .feedback-start-cell { left:400px; width:98px; min-width:98px; }
     .feedback-table-main .feedback-total-col, .feedback-table-main .feedback-total-cell { left:498px; width:100px; min-width:100px; }
 }
+
+
+/* V30 — redesigned Shift Overview KPI rows + Analytics */
+.overview-main-kpis { margin-top: 16px; }
+.overview-early-reasons-panel { margin-top: 0; }
+.overview-early-reasons-grid { grid-template-columns: repeat(6, minmax(120px, 1fr)); }
+.overview-filter-search-wrap {
+    position: sticky;
+    right: 0;
+    z-index: 25;
+    flex: 0 0 auto;
+    padding-left: 8px;
+    background: #fff;
+}
+.analytics-controls-panel { margin-bottom: 16px; }
+.analytics-filters { align-items: end; }
+.analytics-kpis {
+    grid-template-columns: repeat(5, minmax(150px, 1fr));
+    margin-bottom: 16px;
+}
+.analytics-kpis .card strong { font-size: 24px; }
+.analytics-table-wrap { overflow-x: auto; }
+.analytics-table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse;
+}
+.analytics-table th,
+.analytics-table td {
+    white-space: nowrap;
+    vertical-align: middle;
+    text-align: center;
+}
+.analytics-table th:first-child,
+.analytics-table td:first-child,
+.analytics-table th:nth-child(2),
+.analytics-table td:nth-child(2) { text-align: left; }
+.analytics-process-table th:first-child,
+.analytics-process-table td:first-child { min-width: 180px; }
+.analytics-definition-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+.analytics-definition-grid > div {
+    border: 1px solid #dfe5ee;
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: #fff;
+}
+.analytics-definition-grid strong { display: block; font-size: 12px; color: #14233b; margin-bottom: 4px; }
+.analytics-definition-grid span { display: block; color: #718096; font-size: 11px; line-height: 1.45; }
+@media (max-width: 1200px) {
+    .overview-early-reasons-grid { grid-template-columns: repeat(3, minmax(120px, 1fr)); }
+    .analytics-kpis { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+    .analytics-definition-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+    .overview-filter-search-wrap { position: static; padding-left: 0; }
+    .overview-early-reasons-grid,
+    .analytics-kpis,
+    .analytics-definition-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 480px) {
+    .overview-early-reasons-grid,
+    .analytics-kpis,
+    .analytics-definition-grid { grid-template-columns: 1fr; }
+}

@@ -1,4 +1,4 @@
-/* WMS BASELINE 2026-09-25 — canonical frontend baseline. */
+/* WMS V30.0 — 2026-10-02 analytics + Shift Overview refinements. */
 
 /* =========================================================
    AUTHENTICATION — SUPABASE
@@ -1073,6 +1073,9 @@ let feedbackEntries = [];
 let feedbackRealtimeChannel = null;
 let feedbackLoaded = false;
 
+let analyticsMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12);
+let analyticsFeedbackEntries = [];
+
 function feedbackMonthKey() {
     return `${feedbackMonth.getFullYear()}-${String(feedbackMonth.getMonth()+1).padStart(2,"0")}`;
 }
@@ -1425,6 +1428,10 @@ function subscribeToFeedbackRealtime() {
             if ($("feedbackTrackerPage")?.classList.contains("active-page")) {
                 renderFeedbackTracker();
             }
+            if ($("analyticsPage")?.classList.contains("active-page")) {
+                await loadAnalyticsFeedbackFromSupabase();
+                renderAnalytics();
+            }
         })
         .subscribe(status => console.info("Feedback realtime status:", status));
 }
@@ -1508,6 +1515,7 @@ function subscribeToEmployeesRealtime() {
                     feedbackVisibleCount = Math.min(feedbackVisibleCount, LARGE_LIST_PAGE_SIZE);
                     renderFeedbackTracker();
                 }
+                if ($("analyticsPage")?.classList.contains("active-page")) renderAnalytics();
             }
         })
         .subscribe(status => console.info("Employees realtime status:", status));
@@ -1613,6 +1621,7 @@ function subscribeToExtraDaysRealtime() {
                     if (attendanceActiveSubtab === "statistics") {
                         renderAttendanceMonthlyStats();
                     }
+                    if ($("analyticsPage")?.classList.contains("active-page")) renderAnalytics();
                     toast("Schedule updated.");
                 }
             }
@@ -1733,6 +1742,7 @@ function scheduleRealtimeRefresh() {
                 setSchedulingTab(tabToKeep);
                 renderOverview();
                 renderHoursAttendance();
+                if ($("analyticsPage")?.classList.contains("active-page")) renderAnalytics();
             }
         } finally {
             scheduleRealtimeReloadInProgress = false;
@@ -1808,6 +1818,7 @@ function individualScheduleRealtimeRefresh() {
                 renderScheduling();
                 renderOverview();
                 renderHoursAttendance();
+                if ($("analyticsPage")?.classList.contains("active-page")) renderAnalytics();
             }
         } finally {
             individualScheduleRealtimeReloadInProgress = false;
@@ -2282,6 +2293,9 @@ function fillAdditionalMultiFilters() {
     fillMultiFilter('hoursAllBrigade', BRIGADES, 'brigades', Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
     fillMultiFilter('hoursAllProcess', PROCESSES, 'processes');
     fillMultiFilter('hoursAllStatus', ['Complete','Pending','Has difference','Absent','Left early'], 'statuses');
+    fillMultiFilter('analyticsBrigadeFilter', BRIGADES, 'brigades', Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
+    fillMultiFilter('analyticsProcessFilter', PROCESSES, 'processes');
+    fillMultiFilter('analyticsShiftFilter', ['day','night'], 'shifts', {day:'DAY', night:'NIGHT'});
     updateAllMultiFilterLabels();
 }
 function selectedMultiValues(id) {
@@ -2303,7 +2317,7 @@ function updateMultiFilterLabel(id, allLabel) {
     button.textContent = (vals.length === optionCount && optionCount > 0) || vals.length === 0 ? `All ${allLabel} ▾` : `${vals.length} ${allLabel} selected ▾`;
 }
 function updateAllMultiFilterLabels() {
-    const labels={feedbackBrigadeFilter:"brigades",feedbackProcessFilter:"processes",employeeProcessFilter:'processes',employeeBrigadeFilter:'brigades',employeeQualificationFilter:'qualifications',employeeProcessSkillFilter:'secondary processes',overviewBrigadeFilter:'brigades',overviewProcessFilter:'processes',overviewSecondaryProcessFilter:'secondary processes',overviewAttendanceFilter:'attendance',overviewExceptionFilter:'exceptions',extraDaysTypeFilter:'types',scheduleHistoryType:'types',hoursAllBrigade:'brigades',hoursAllProcess:'processes',hoursAllStatus:'statuses'};
+    const labels={feedbackBrigadeFilter:"brigades",feedbackProcessFilter:"processes",employeeProcessFilter:'processes',employeeBrigadeFilter:'brigades',employeeQualificationFilter:'qualifications',employeeProcessSkillFilter:'secondary processes',overviewBrigadeFilter:'brigades',overviewProcessFilter:'processes',overviewSecondaryProcessFilter:'secondary processes',overviewAttendanceFilter:'attendance',overviewExceptionFilter:'exceptions',extraDaysTypeFilter:'types',scheduleHistoryType:'types',hoursAllBrigade:'brigades',hoursAllProcess:'processes',hoursAllStatus:'statuses',analyticsBrigadeFilter:'brigades',analyticsProcessFilter:'processes',analyticsShiftFilter:'shifts'};
     Object.entries(labels).forEach(([id,label])=>updateMultiFilterLabel(id,label));
 }
 function updateEmployeeMultiFilterLabels() {
@@ -2362,31 +2376,73 @@ function formatDeviation(late, leftEarly, arrivalEarly) {
     return parts.join(" · ") || "—";
 }
 
-function renderOverviewExceptionStats(people) {
-    const stats = {privateLeave:0,forcedLeave:0,feelingUnwell:0,terminated:0,other:0,absent:0,late:0,arrivalEarly:0,leftEarly:0};
+function earlyLeaveReasonKey(data) {
+    const reason = String(data?.reason || "").trim();
+    if (["Private leave", "Forced leave", "Feeling unwell", "Terminated", "Other"].includes(reason)) return reason;
+    if (data?.terminatedRecord === true || String(data?.status || "").trim().toLowerCase() === "terminated") return "Terminated";
+    return "No reason recorded";
+}
+
+function renderOverviewEarlyLeaveReasons(people) {
+    const stats = {
+        "Private leave": 0,
+        "Forced leave": 0,
+        "Feeling unwell": 0,
+        "Terminated": 0,
+        "Other": 0,
+        "No reason recorded": 0
+    };
     people.forEach(employee => {
-        const e = getHoursException(employee, overviewDate);
-        if (e.privateLeave) stats.privateLeave++; if (e.forcedLeave) stats.forcedLeave++; if (e.feelingUnwell) stats.feelingUnwell++; if (e.terminated) stats.terminated++; if (e.other) stats.other++; if (e.absent) stats.absent++;
-        const deviation = getShiftTimeDeviation(employee, overviewDate, getAttendance(employee, overviewDate));
-        if (deviation.late) stats.late++; if (deviation.arrivalEarly) stats.arrivalEarly++; if (deviation.leftEarly) stats.leftEarly++;
+        const data = getAttendance(employee, overviewDate);
+        const deviation = getShiftTimeDeviation(employee, overviewDate, data);
+        if (deviation.leftEarly <= 0) return;
+        stats[earlyLeaveReasonKey(data)] += 1;
     });
-    const map={ovPrivateLeave:stats.privateLeave,ovForcedLeave:stats.forcedLeave,ovFeelingUnwell:stats.feelingUnwell,ovTerminated:stats.terminated,ovOther:stats.other,ovAbsent:stats.absent,ovLateArrival:stats.late,ovArrivedEarly:stats.arrivalEarly,ovLeftEarly:stats.leftEarly};
-    Object.entries(map).forEach(([id,v])=>{if($(id)) $(id).textContent=String(v);});
+    const map = {
+        ovEarlyPrivateLeave: stats["Private leave"],
+        ovEarlyForcedLeave: stats["Forced leave"],
+        ovEarlyFeelingUnwell: stats["Feeling unwell"],
+        ovEarlyTerminated: stats["Terminated"],
+        ovEarlyOther: stats["Other"],
+        ovEarlyNoReason: stats["No reason recorded"]
+    };
+    Object.entries(map).forEach(([id, value]) => { if ($(id)) $(id).textContent = String(value); });
 }
 
 function renderOverview() {
     $("overviewDate").value = dateKey(overviewDate);
-    const selectedShift = SHIFTS[overviewShift]; $("overviewShiftTime").textContent = `${selectedShift.start}–${selectedShift.end}`;
+    const selectedShift = SHIFTS[overviewShift];
+    $("overviewShiftTime").textContent = `${selectedShift.start}–${selectedShift.end}`;
     const overviewShiftMeta = $("overviewShiftMeta");
     if (overviewShiftMeta) overviewShiftMeta.textContent = overviewShift === "rest" ? "Rest day" : `${selectedShift.presenceHours.toFixed(2)} presence · ${selectedShift.netHours.toFixed(2)} net work · 45 min break`;
+
     const people = employeesAvailableOnDate(overviewDate).filter(employee => getSchedule(employee, overviewDate).shift === overviewShift);
-    const present = people.filter(employee => { const data=getAttendance(employee,overviewDate); return data.confirmed && String(data.status||"").toLowerCase() !== "absent"; }).length;
-    const absent = people.filter(employee => String(getAttendance(employee,overviewDate).status||"").toLowerCase() === "absent").length;
-    const pending = people.filter(employee => !getAttendance(employee,overviewDate).confirmed).length;
-    const rate = people.length ? Math.round((present/people.length)*100) : 0;
-    $("ovPlanned").textContent=people.length; $("ovPresent").textContent=present; $("ovMissing").textContent=pending; $("ovRate").textContent=`${rate}%`; $("ovRateCard").textContent=`${rate}%`;
+    const present = people.filter(employee => {
+        const data = getAttendance(employee, overviewDate);
+        return data.confirmed && String(data.status || "").toLowerCase() !== "absent";
+    }).length;
+    const absent = people.filter(employee => String(getAttendance(employee, overviewDate).status || "").toLowerCase() === "absent").length;
+    const pending = people.filter(employee => {
+        const data = getAttendance(employee, overviewDate);
+        return !data.confirmed && plannedHours(employee, overviewDate) > 0;
+    }).length;
+    const earlyChange = people.filter(employee => {
+        const deviation = getShiftTimeDeviation(employee, overviewDate, getAttendance(employee, overviewDate));
+        return deviation.arrivalEarly > 0 || deviation.leftEarly > 0;
+    }).length;
+    const rate = people.length ? Math.round((present / people.length) * 100) : 0;
+
+    $("ovPlanned").textContent = String(people.length);
+    $("ovMissing").textContent = String(pending);
+    $("ovRate").textContent = `${rate}%`;
+    $("ovRateCard").textContent = `${rate}%`;
     if ($("ovAbsentTotal")) $("ovAbsentTotal").textContent = String(absent);
-    renderOverviewExceptionStats(people); renderProcessSummary(people); renderBrigadeSummary(people); renderShiftEmployees(people);
+    if ($("ovEarlyChange")) $("ovEarlyChange").textContent = String(earlyChange);
+
+    renderOverviewEarlyLeaveReasons(people);
+    renderProcessSummary(people);
+    renderBrigadeSummary(people);
+    renderShiftEmployees(people);
 }
 
 function renderProcessSummary(people) {
@@ -4842,6 +4898,274 @@ function switchPage(pageId) {
         activateFeedbackSubtab("tracker");
         renderFeedbackTracker();
     }
+
+    if (pageId === "analyticsPage") {
+        setMultiFilterValues("analyticsBrigadeFilter", []);
+        setMultiFilterValues("analyticsProcessFilter", []);
+        setMultiFilterValues("analyticsShiftFilter", []);
+        loadAnalyticsFeedbackFromSupabase().finally(renderAnalytics);
+    }
+}
+
+
+function analyticsMonthKey() {
+    return `${analyticsMonth.getFullYear()}-${String(analyticsMonth.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function analyticsDays() {
+    return monthDays(analyticsMonth);
+}
+
+async function loadAnalyticsFeedbackFromSupabase() {
+    if (!currentUser) return false;
+    const first = `${analyticsMonthKey()}-01`;
+    const last = `${analyticsMonthKey()}-${String(analyticsDays()).padStart(2, "0")}`;
+    const { data, error } = await supabaseClient
+        .from("feedback_entries")
+        .select("id, work_date, employee_login, shift, error_type, note, confirmed_by_login, confirmed_at, created_at")
+        .gte("work_date", first)
+        .lte("work_date", last)
+        .order("work_date", { ascending: true })
+        .order("created_at", { ascending: true });
+    if (error) {
+        console.error("Analytics feedback load error:", error);
+        analyticsFeedbackEntries = [];
+        return false;
+    }
+    analyticsFeedbackEntries = Array.isArray(data) ? data : [];
+    return true;
+}
+
+function analyticsSelectedEmployees() {
+    const brigades = selectedMultiValues("analyticsBrigadeFilter");
+    const processes = selectedMultiValues("analyticsProcessFilter");
+    return attendanceMonitoringEmployees(analyticsMonth).filter(employee => {
+        if (brigades.length && !brigades.includes(employee.brigade)) return false;
+        if (processes.length && !processes.includes(employee.process)) return false;
+        return true;
+    });
+}
+
+function analyticsSelectedShifts() {
+    const shifts = selectedMultiValues("analyticsShiftFilter");
+    return shifts.length ? shifts : ["day", "night"];
+}
+
+function underlyingShiftBeforeExtraOff(employee, date) {
+    const key = scheduleKey(date, employee.login);
+    if (individualSchedules[key] === "day" || individualSchedules[key] === "night") return individualSchedules[key];
+    if (schedules[key] === "day" || schedules[key] === "night") return schedules[key];
+    return ["N1", "N2"].includes(employee.brigade) ? "night" : "day";
+}
+
+function analyticsExtraCounts(date, shift) {
+    let extraWork = 0;
+    let extraOff = 0;
+    const targetDate = dateKey(date);
+    Object.entries(extraDays || {}).forEach(([extraKey, item]) => {
+        if (!item?.type) return;
+        const split = extraKey.lastIndexOf("_");
+        if (split <= 0) return;
+        const rowDate = extraKey.slice(0, split);
+        const login = extraKey.slice(split + 1);
+        if (rowDate !== targetDate) return;
+        const employee = employeeByLogin(login);
+        if (!employee) return;
+        if (item.type === "extra-off") {
+            if (underlyingShiftBeforeExtraOff(employee, date) === shift) extraOff += 1;
+        } else if (item.type === "extra-work-day" && shift === "day") {
+            extraWork += 1;
+        } else if (item.type === "extra-work-night" && shift === "night") {
+            extraWork += 1;
+        }
+    });
+    return { extraWork, extraOff };
+}
+
+function analyticsRowFor(date, shift, employees) {
+    const row = {
+        date,
+        shift,
+        planned: 0,
+        present: 0,
+        absent: 0,
+        arrivalEarly: 0,
+        late: 0,
+        leftEarly: 0,
+        pending: 0,
+        feedback: 0,
+        terminated: 0,
+        extraWork: 0,
+        extraOff: 0,
+        earlyChange: 0,
+        process: new Map()
+    };
+
+    const dateText = dateKey(date);
+    employees.forEach(employee => {
+        if (!canConfirmEmployeeDate(employee, date)) return;
+        const schedule = getSchedule(employee, date);
+        if (schedule.shift !== shift) return;
+        const planned = Number(plannedHours(employee, date) || 0);
+        if (planned <= 0) return;
+
+        row.planned += 1;
+        const data = getAttendance(employee, date);
+        const status = String(data.status || "").trim().toLowerCase();
+        const isAbsent = status === "absent";
+        if (isAbsent) row.absent += 1;
+        else if (data.confirmed) row.present += 1;
+        else row.pending += 1;
+
+        const deviation = getShiftTimeDeviation(employee, date, data);
+        if (deviation.arrivalEarly > 0) row.arrivalEarly += 1;
+        if (deviation.late > 0) row.late += 1;
+        if (deviation.leftEarly > 0) row.leftEarly += 1;
+        if (deviation.arrivalEarly > 0 || deviation.leftEarly > 0) row.earlyChange += 1;
+
+        if (String(employee.endDate || "") === dateText || (isAbsent && String(data.reason || "").trim() === "Terminated")) row.terminated += 1;
+
+        let process = row.process.get(employee.process);
+        if (!process) {
+            process = { planned: 0, present: 0, absent: 0, earlyLate: 0, pending: 0 };
+            row.process.set(employee.process, process);
+        }
+        process.planned += 1;
+        if (isAbsent) process.absent += 1;
+        else if (data.confirmed) process.present += 1;
+        else process.pending += 1;
+        if (deviation.arrivalEarly > 0 || deviation.late > 0 || deviation.leftEarly > 0) process.earlyLate += 1;
+    });
+
+    row.feedback = analyticsFeedbackEntries.filter(entry => {
+        if (String(entry.work_date || "") !== dateText || String(entry.shift || "") !== shift) return false;
+        return employees.some(employee => employee.login === entry.employee_login);
+    }).length;
+
+    const extra = analyticsExtraCounts(date, shift);
+    row.extraWork = extra.extraWork;
+    row.extraOff = extra.extraOff;
+    return row;
+}
+
+function renderAnalytics() {
+    $("analyticsMonthLabel").textContent = analyticsMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+    const employees = analyticsSelectedEmployees();
+    const selectedShifts = analyticsSelectedShifts();
+    const rows = [];
+
+    for (let day = 1; day <= analyticsDays(); day++) {
+        const date = new Date(analyticsMonth.getFullYear(), analyticsMonth.getMonth(), day, 12);
+        selectedShifts.forEach(shift => rows.push(analyticsRowFor(date, shift, employees)));
+    }
+
+    const totals = rows.reduce((acc, row) => {
+        Object.entries(row).forEach(([key, value]) => {
+            if (typeof value === "number") acc[key] += value;
+        });
+        return acc;
+    }, { planned: 0, present: 0, absent: 0, arrivalEarly: 0, late: 0, leftEarly: 0, earlyChange: 0, pending: 0, feedback: 0, terminated: 0, extraWork: 0, extraOff: 0 });
+
+    const rate = totals.planned ? (totals.present / totals.planned) * 100 : 0;
+    $("analyticsPlanned").textContent = String(totals.planned);
+    $("analyticsPresent").textContent = String(totals.present);
+    $("analyticsAbsent").textContent = String(totals.absent);
+    $("analyticsEarlyChange").textContent = String(totals.earlyChange);
+    $("analyticsPending").textContent = String(totals.pending);
+    $("analyticsRate").textContent = `${rate.toFixed(1)}%`;
+    $("analyticsFeedback").textContent = String(totals.feedback);
+    $("analyticsTerminated").textContent = String(totals.terminated);
+    $("analyticsExtraOff").textContent = String(totals.extraOff);
+
+    const dailyBody = $("analyticsDailyBody");
+    dailyBody.innerHTML = rows.map(row => {
+        const date = fromKey(row.date);
+        const pct = row.planned ? (row.present / row.planned) * 100 : 0;
+        return `<tr>
+            <td>${esc(date.toLocaleDateString("en-GB"))}</td>
+            <td>${esc(date.toLocaleDateString("en-US", { weekday: "long" }))}</td>
+            <td><span class="shift-pill ${esc(row.shift)}">${row.shift === "day" ? "DAY" : "NIGHT"}</span></td>
+            <td>${row.planned}</td>
+            <td>${row.present}</td>
+            <td>${row.absent}</td>
+            <td>${row.arrivalEarly}</td>
+            <td>${row.late}</td>
+            <td>${row.leftEarly}</td>
+            <td>${row.pending}</td>
+            <td>${pct.toFixed(1)}%</td>
+            <td>${row.feedback}</td>
+            <td>${row.terminated}</td>
+            <td>${row.extraWork}</td>
+            <td>${row.extraOff}</td>
+        </tr>`;
+    }).join("") || `<tr><td colspan="15"><div class="empty">No analytics data for the selected filters.</div></td></tr>`;
+
+    const processTotals = new Map(PROCESSES.map(process => [process, { planned: 0, present: 0, absent: 0, earlyLate: 0, pending: 0, feedback: 0 }]));
+    const selectedSet = new Set(employees.map(employee => employee.login));
+    rows.forEach(row => {
+        row.process.forEach((value, process) => {
+            const target = processTotals.get(process) || { planned: 0, present: 0, absent: 0, earlyLate: 0, pending: 0, feedback: 0 };
+            target.planned += value.planned;
+            target.present += value.present;
+            target.absent += value.absent;
+            target.earlyLate += value.earlyLate;
+            target.pending += value.pending;
+            processTotals.set(process, target);
+        });
+    });
+    analyticsFeedbackEntries.forEach(entry => {
+        const employee = employeeByLogin(entry.employee_login);
+        if (!employee || !selectedSet.has(employee.login)) return;
+        if (!selectedShifts.includes(entry.shift)) return;
+        const target = processTotals.get(employee.process);
+        if (target) target.feedback += 1;
+    });
+
+    const processBody = $("analyticsProcessBody");
+    processBody.innerHTML = PROCESSES.map(process => {
+        const data = processTotals.get(process) || { planned: 0, present: 0, absent: 0, earlyLate: 0, pending: 0, feedback: 0 };
+        const pct = data.planned ? (data.present / data.planned) * 100 : 0;
+        const feedbackPct = totals.feedback ? (data.feedback / totals.feedback) * 100 : 0;
+        return `<tr><td><strong>${esc(process)}</strong></td><td>${data.planned}</td><td>${data.present}</td><td>${data.absent}</td><td>${data.earlyLate}</td><td>${data.pending}</td><td>${pct.toFixed(1)}%</td><td>${data.feedback}</td><td>${feedbackPct.toFixed(1)}%</td></tr>`;
+    }).join("");
+
+    const meta = $("analyticsMeta");
+    if (meta) meta.textContent = `${rows.length} day/shift rows · ${employees.length} employees in filter`;
+}
+
+function exportAnalyticsExcel() {
+    if (!canExportData()) { toast("Only Coordinator or Admin can export."); return; }
+    if (typeof XLSX === "undefined") { toast("Excel export library is not available."); return; }
+    const employees = analyticsSelectedEmployees();
+    const selectedShifts = analyticsSelectedShifts();
+    const rows = [];
+    for (let day = 1; day <= analyticsDays(); day++) {
+        const date = new Date(analyticsMonth.getFullYear(), analyticsMonth.getMonth(), day, 12);
+        selectedShifts.forEach(shift => rows.push(analyticsRowFor(date, shift, employees)));
+    }
+    const daily = rows.map(row => [
+        row.date,
+        fromKey(row.date).toLocaleDateString("en-US", { weekday: "long" }),
+        row.shift === "day" ? "DAY" : "NIGHT",
+        row.planned,
+        row.present,
+        row.absent,
+        row.arrivalEarly,
+        row.late,
+        row.leftEarly,
+        row.pending,
+        row.planned ? Number(((row.present / row.planned) * 100).toFixed(1)) : 0,
+        row.feedback,
+        row.terminated,
+        row.extraWork,
+        row.extraOff
+    ]);
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([["Date","Day","Shift","Planned","Present","Absent","Arrived early","Late","Left early","Pending","Attendance %","Feedback","Terminated","Extra work","Extra OFF"], ...daily]);
+    ws["!freeze"] = { xSplit: 3, ySplit: 1 };
+    XLSX.utils.book_append_sheet(wb, ws, "Daily Shift Analytics");
+    XLSX.writeFile(wb, `WMS_Analytics_${analyticsMonthKey()}.xlsx`);
+    toast("Analytics exported to Excel.");
 }
 
 function initEvents() {
@@ -5069,6 +5393,24 @@ function initEvents() {
     $("closeFeedbackEmployeeHistory")?.addEventListener("click", closeFeedbackEmployeeHistoryModal);
     $("feedbackEmployeeHistoryModal")?.addEventListener("click", event => { if (event.target.id === "feedbackEmployeeHistoryModal") closeFeedbackEmployeeHistoryModal(); });
 
+    $("analyticsMonthPrev")?.addEventListener("click", async () => {
+        analyticsMonth = new Date(analyticsMonth.getFullYear(), analyticsMonth.getMonth() - 1, 1, 12);
+        await loadAnalyticsFeedbackFromSupabase();
+        renderAnalytics();
+    });
+    $("analyticsMonthNext")?.addEventListener("click", async () => {
+        analyticsMonth = new Date(analyticsMonth.getFullYear(), analyticsMonth.getMonth() + 1, 1, 12);
+        await loadAnalyticsFeedbackFromSupabase();
+        renderAnalytics();
+    });
+    $("applyAnalyticsFilters")?.addEventListener("click", renderAnalytics);
+    $("clearAnalyticsFilters")?.addEventListener("click", () => {
+        setMultiFilterValues("analyticsBrigadeFilter", []);
+        setMultiFilterValues("analyticsProcessFilter", []);
+        setMultiFilterValues("analyticsShiftFilter", []);
+        renderAnalytics();
+    });
+    $("exportAnalytics")?.addEventListener("click", exportAnalyticsExcel);
 
 
     document
