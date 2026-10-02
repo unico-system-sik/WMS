@@ -887,14 +887,17 @@
 
 <section id="analyticsPage" class="page">
     <header class="page-header">
-        <div><h2>Analytics</h2><p>Daily warehouse analysis. Choose a month and click any DAY/NIGHT row to see full shift details.</p></div>
+        <div><h2>Analytics</h2><p>Daily warehouse analysis with shift-level drill-down and process staffing for the selected period.</p></div>
         <div class="toolbar"><button id="analyticsMonthPrev" class="secondary" type="button">←</button><strong id="analyticsMonthLabel" class="month-label"></strong><button id="analyticsMonthNext" class="secondary" type="button">→</button><button id="exportAnalytics" class="secondary" type="button" title="Coordinator/Admin only">Export Excel</button></div>
     </header>
-    <section class="panel">
-        <div class="panel-title"><div><h3>Daily</h3><p>Date and shift are shown directly. Click a row to open the full shift detail.</p></div><span id="analyticsMeta" class="muted">0 shifts</span></div>
-        <div class="table-wrap analytics-table-wrap"><table class="analytics-table analytics-daily-table"><thead><tr><th>Date</th><th>Day</th><th>Shift</th><th>Planned</th><th>Present</th><th>Absent</th><th>Arrived / left early</th><th>Pending</th><th>Feedback</th><th>Terminated</th><th>Extra OFF</th></tr></thead><tbody id="analyticsDailyBody"></tbody></table></div>
+    <section class="panel analytics-daily-panel">
+        <div class="panel-title"><div><h3>Daily shifts</h3><p>Click a DAY/NIGHT row. Details open directly under the selected shift. Feedback counts employees with at least one entry; drill-down shows all entries.</p></div><span id="analyticsMeta" class="muted">0 shifts</span></div>
+        <div class="table-wrap analytics-table-wrap"><table class="analytics-table analytics-daily-table"><thead><tr><th>Date</th><th>Day</th><th>Shift</th><th>Planned</th><th>Present</th><th>Absent</th><th>Early change</th><th>Pending</th><th>Feedback</th><th>Terminated</th><th>Extra OFF</th></tr></thead><tbody id="analyticsDailyBody"></tbody></table></div>
     </section>
-    <section id="analyticsDetailPanel" class="panel analytics-detail-panel" hidden></section>
+    <section class="panel analytics-period-panel">
+        <div class="panel-title"><div><h3>Period staffing by process</h3><p>Planned staffing and attendance by primary process across the selected month. Planned is employee-shifts; percentages show process share and outcome rates.</p></div></div>
+        <div class="table-wrap analytics-table-wrap"><table class="analytics-table analytics-process-table"><thead><tr><th>Primary process</th><th>Planned</th><th>Present</th><th>Absent</th><th>Pending</th><th>Feedback</th><th>Extra OFF</th><th>Extra Work</th><th>Share of planned</th><th>Attendance %</th></tr></thead><tbody id="analyticsPeriodProcessBody"></tbody></table></div>
+    </section>
 </section>
 
 </main>
@@ -949,6 +952,7 @@
                 <label>Brigade<select id="employeeEditBrigade" required></select></label>
                 <label>Primary process<select id="employeeEditProcess" required></select></label>
                 <label>Start date<input id="employeeEditStartDate" type="date"></label>
+                <label>Change effective from<input id="employeeEditEffectiveFrom" type="date" required><small>Brigade and primary process change from this date. Previous history remains unchanged.</small></label>
             </div>
             <div class="capability-group">
                 <label>Special qualifications</label>
@@ -1067,6 +1071,7 @@
                 Confirmed by
                 <input id="feedbackConfirmedBy" type="text" readonly>
             </label>
+            <div id="feedbackTimingHint" class="form-hint muted">Feedback is available only after the employee's scheduled shift has started.</div>
             <div class="modal-actions">
                 <button type="button" id="cancelFeedback" class="secondary">Cancel</button>
                 <button type="submit" class="primary">Confirm feedback</button>
@@ -1100,6 +1105,25 @@
         </div>
         <div class="modal-actions">
             <button type="button" id="closeFeedbackEmployeeHistory" class="secondary">Close</button>
+        </div>
+    </div>
+</div>
+
+<div id="analyticsDrilldownModal" class="modal hidden">
+    <div class="modal-card analytics-drilldown-card">
+        <div class="panel-title">
+            <div>
+                <h3 id="analyticsDrilldownTitle">Details</h3>
+                <p id="analyticsDrilldownSubtitle" class="modal-subtitle"></p>
+            </div>
+            <button id="closeAnalyticsDrilldown" class="icon-btn" type="button">×</button>
+        </div>
+        <div id="analyticsDrilldownMeta" class="analytics-drilldown-meta"></div>
+        <div class="table-wrap analytics-drilldown-wrap">
+            <table class="analytics-table"><thead id="analyticsDrilldownHead"></thead><tbody id="analyticsDrilldownBody"></tbody></table>
+        </div>
+        <div class="modal-actions">
+            <button type="button" id="closeAnalyticsDrilldownBottom" class="secondary">Close</button>
         </div>
     </div>
 </div>
@@ -1191,7 +1215,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=30.0"></script>
+<script src="script.js?v=32.0"></script>
 
 </body>
 </html>
