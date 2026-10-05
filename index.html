@@ -247,8 +247,8 @@
                         <th>Planned</th>
                         <th>Actual</th>
                         <th>Worked days</th>
-                        <th>Absent</th>
-                        <th>Late / early</th>
+                        <th title="Attendance was explicitly marked as Absent">Absent</th>
+                        <th title="Shows late arrival and/or leaving before planned end">Time deviation</th>
                         <th>Status</th>
                         <th>Reason</th>
                         <th>Confirmed by</th>
@@ -314,6 +314,7 @@
                             <th><button type="button" class="table-sort" data-employee-sort="brigade" data-employee-label="Brigade">Brigade</button></th>
                             <th><button type="button" class="table-sort" data-employee-sort="qualifications" data-employee-label="Qualifications">Qualifications</button></th><th><button type="button" class="table-sort" data-employee-sort="processSkills" data-employee-label="Secondary processes">Secondary processes</button></th>
                             <th><button type="button" class="table-sort" data-employee-sort="workedDays" data-employee-label="Worked days">Worked days</button></th>
+                            <th><button type="button" class="table-sort" data-employee-sort="processShifts" data-employee-label="Process shifts">Process shifts</button></th>
                             <th><button type="button" class="table-sort" data-employee-sort="startDate" data-employee-label="Start date">Start date</button></th>
                             <th class="employee-action-header">Action</th>
                         </tr>
@@ -425,6 +426,7 @@
     <div class="subtabs scheduling-subtabs">
         <button type="button" class="subtab active" data-scheduling-tab="scheduleTab">Schedule</button>
         <button type="button" class="subtab" data-scheduling-tab="extraDaysTab">Extra Days</button>
+        <button type="button" class="subtab" data-scheduling-tab="leaveTab">Leave & Absence</button>
         <button type="button" class="subtab" data-scheduling-tab="historyTab">History</button>
         <button type="button" class="subtab" data-scheduling-tab="auditTab">Audit Log</button>
     </div>
@@ -446,6 +448,11 @@
                 <span><i class="legend-day"></i> DAY</span>
                 <span><i class="legend-night"></i> NIGHT</span>
                 <span><i class="legend-off"></i> OFF</span><span><i class="legend-rest"></i> R</span>
+                <span><i class="legend-extra-off"></i> Extra OFF</span>
+                <span><i class="legend-extra-day"></i> Extra DAY</span>
+                <span><i class="legend-extra-night"></i> Extra NIGHT</span>
+                <span><i class="legend-vacation"></i> Urlop</span>
+                <span><i class="legend-sick"></i> L4</span>
             </div>
         </div>
 
@@ -511,8 +518,39 @@
 
         <div class="panel-title extra-history-inline-title"><div><h3>Current Extra Days</h3><p>All active exceptions, ordered by date and latest action.</p></div></div>
         <div class="table-wrap">
-            <table><thead><tr><th>Date</th><th>Login</th><th>Brigade</th><th>Process</th><th>Change</th><th>Approved by</th><th>Created</th><th>Action</th></tr></thead>
+            <table><thead><tr><th>Date</th><th>Login</th><th>Brigade</th><th>Process</th><th>Change</th><th>Shift</th><th>Approved by</th><th>Created</th><th>Action</th></tr></thead>
             <tbody id="extraDaysTable"></tbody></table>
+        </div>
+    </section>
+
+    <section id="leaveTab" class="subpage panel">
+        <div class="panel-title">
+            <div><h3>Leave & Absence</h3><p>Plan Urlop and sick leave (L4). Leave is shown in the employee schedule with a dedicated color and removes the employee from planned working shifts for those dates.</p></div>
+        </div>
+        <div class="quick-stats-grid extra-days-stats leave-stats">
+            <div class="quick-stat"><span>Urlop</span><strong id="leaveStatVacation">0</strong><small>active records</small></div>
+            <div class="quick-stat"><span>L4</span><strong id="leaveStatSick">0</strong><small>active records</small></div>
+            <div class="quick-stat"><span>Employees</span><strong id="leaveStatEmployees">0</strong><small>with leave</small></div>
+            <div class="quick-stat"><span>Days</span><strong id="leaveStatDays">0</strong><small>calendar days</small></div>
+        </div>
+        <div class="extra-form leave-form">
+            <div><label class="control-label">Employee login</label><input id="leaveEmployeeLogin" placeholder="e.g. 60010001"><small id="leaveEmployeeHint" class="field-hint">Enter the exact employee login.</small></div>
+            <div><label class="control-label">Type</label><select id="leaveType"><option value="vacation">Urlop</option><option value="sick-leave">L4 / Sick leave</option></select></div>
+            <div><label class="control-label">From</label><input id="leaveStartDate" type="date"></div>
+            <div><label class="control-label">To</label><input id="leaveEndDate" type="date"></div>
+            <div><label class="control-label">Note</label><input id="leaveNote" maxlength="300" placeholder="Optional note"></div>
+            <div><label class="control-label">Recorded by</label><input id="leaveRecordedBy" readonly></div>
+            <div class="extra-actions"><button id="saveLeave" class="primary" type="button">Save leave</button></div>
+        </div>
+        <div class="history-filters extra-days-filters">
+            <div><label class="control-label">Employee login</label><input id="leaveFilterLogin" placeholder="Employee login"></div>
+            <div><label class="control-label">Type</label><select id="leaveFilterType"><option value="">All types</option><option value="vacation">Urlop</option><option value="sick-leave">L4</option></select></div>
+            <button id="applyLeaveFilters" class="primary filter-search-btn" type="button">Search</button>
+            <button id="clearLeaveFilters" class="secondary" type="button">Clear</button>
+        </div>
+        <div class="table-wrap">
+            <table><thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Recorded by</th><th>Created</th><th>Note</th><th>Action</th></tr></thead>
+            <tbody id="leaveTable"></tbody></table>
         </div>
     </section>
 
@@ -775,6 +813,7 @@
                             <th>Break</th>
                             <th>Status</th>
                             <th>Reason</th>
+                            <th>Worked process</th>
                             <th>Confirmed by</th>
                             <th>Edit by</th>
                             <th>Note</th>
@@ -892,11 +931,11 @@
     </header>
     <section class="panel analytics-daily-panel">
         <div class="panel-title"><div><h3>Daily shifts</h3><p>Click a DAY/NIGHT row. Details open directly under the selected shift. Feedback counts employees with at least one entry; drill-down shows all entries.</p></div><span id="analyticsMeta" class="muted">0 shifts</span></div>
-        <div class="table-wrap analytics-table-wrap"><table class="analytics-table analytics-daily-table"><thead><tr><th>Date</th><th>Day</th><th>Shift</th><th>Planned</th><th>Present</th><th>Absent</th><th>Early change</th><th>Pending</th><th>Feedback</th><th>Terminated</th><th>Extra OFF</th></tr></thead><tbody id="analyticsDailyBody"></tbody></table></div>
+        <div class="table-wrap analytics-table-wrap"><table class="analytics-table analytics-daily-table"><thead><tr><th>Date</th><th>Day</th><th>Shift</th><th>Planned</th><th>Present</th><th>Absent</th><th>Late</th><th>Left early</th><th>Pending</th><th>Feedback</th><th>Terminated</th><th>Extra OFF</th><th>Extra Work</th><th>Leave</th></tr></thead><tbody id="analyticsDailyBody"></tbody></table></div>
     </section>
     <section class="panel analytics-period-panel">
         <div class="panel-title"><div><h3>Period staffing by process</h3><p>Planned staffing and attendance by primary process across the selected month. Planned is employee-shifts; percentages show process share and outcome rates.</p></div></div>
-        <div class="table-wrap analytics-table-wrap"><table class="analytics-table analytics-process-table"><thead><tr><th>Primary process</th><th>Planned</th><th>Present</th><th>Absent</th><th>Pending</th><th>Feedback</th><th>Extra OFF</th><th>Extra Work</th><th>Share of planned</th><th>Attendance %</th></tr></thead><tbody id="analyticsPeriodProcessBody"></tbody></table></div>
+        <div class="table-wrap analytics-table-wrap"><table class="analytics-table analytics-process-table"><thead><tr><th>Primary process</th><th>Planned</th><th>Present</th><th>Absent</th><th>Pending</th><th>Feedback</th><th>Extra OFF</th><th>Extra Work</th><th>Leave</th><th>Share of planned</th><th>Attendance %</th></tr></thead><tbody id="analyticsPeriodProcessBody"></tbody></table></div>
     </section>
 </section>
 
@@ -1157,6 +1196,14 @@
                     </select>
                 </label>
 
+                <label>
+                    Worked process
+                    <select id="editWorkedProcess">
+                        <option value="">Primary process</option>
+                    </select>
+                    <small>Choose the process actually worked. Worked days remain credited to the employee's primary process.</small>
+                </label>
+
                 <label id="editActualHoursField" style="display:none;">
                     Actual hours
                     <input id="editActualHours" type="number" min="0" max="24" step="0.01" inputmode="decimal">
@@ -1190,6 +1237,7 @@
                     <option value="Private leave">Private leave</option>
                     <option value="Forced leave">Forced leave</option>
                     <option value="Feeling unwell">Feeling unwell</option>
+                    <option value="Late arrival">Late arrival</option>
                     <option value="Terminated">Terminated</option>
                     <option value="Other">Other</option>
                 </select>
@@ -1213,9 +1261,26 @@
     </div>
 </div>
 
+<div id="confirmProcessModal" class="modal hidden">
+    <div class="modal-card confirm-process-modal-card">
+        <div class="panel-title">
+            <div>
+                <h3>Confirm working hours</h3>
+                <p class="modal-subtitle">Select the process actually worked for each employee. The worked day stays credited to the employee's primary process.</p>
+            </div>
+            <button id="closeConfirmProcessModal" class="icon-btn" type="button">×</button>
+        </div>
+        <div id="confirmProcessList" class="confirm-process-list"></div>
+        <div class="modal-actions">
+            <button type="button" id="cancelConfirmProcess" class="secondary">Cancel</button>
+            <button type="button" id="saveConfirmProcess" class="primary">Confirm hours</button>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=32.0"></script>
+<script src="script.js?v=35.0"></script>
 
 </body>
 </html>

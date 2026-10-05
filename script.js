@@ -808,6 +808,73 @@ function employeeWorkedDays(employee) {
     return workedDates.size;
 }
 
+function buildEmployeeProcessShiftStatsIndex() {
+    const index = new Map();
+    const employeeByLogin = new Map((EMPLOYEES || []).map(employee => [employee.login, employee]));
+
+    Object.entries(attendance || {}).forEach(([key, data]) => {
+        const separator = key.lastIndexOf("_");
+        if (separator <= 0) return;
+
+        const workDate = key.slice(0, separator);
+        const login = key.slice(separator + 1);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate) || !login) return;
+
+        const confirmed = Boolean(data?.confirmed);
+        const status = String(data?.status || "").trim().toLowerCase();
+        if (!confirmed || status === "absent") return;
+
+        const employee = employeeByLogin.get(login);
+        const process = normalizeProcessName(data?.workedProcess || employee?.process || "");
+        if (!process) return;
+
+        if (!index.has(login)) index.set(login, new Map());
+        const processMap = index.get(login);
+        const current = processMap.get(process) || { shifts: 0, hours: 0, dates: [] };
+        current.shifts += 1;
+        current.hours += Number(data?.actualHours || 0);
+        current.dates.push(workDate);
+        processMap.set(process, current);
+    });
+
+    return index;
+}
+
+function employeeProcessShiftStats(employee, index = null) {
+    const login = typeof employee === "string" ? employee : employee?.login;
+    if (!login) return new Map();
+
+    const source = index || buildEmployeeProcessShiftStatsIndex();
+    const stats = new Map(source.get(login) || []);
+
+    return stats;
+}
+
+function employeeProcessShiftTotal(employee, index = null) {
+    let total = 0;
+    employeeProcessShiftStats(employee, index).forEach(item => { total += item.shifts; });
+    return total;
+}
+
+function renderEmployeeProcessShiftStats(employee, index = null) {
+    const stats = employeeProcessShiftStats(employee, index);
+    if (!stats.size) return `<span class="muted">—</span>`;
+
+    const primary = normalizeProcessName(employee?.process || "");
+    const items = [...stats.entries()]
+        .sort((a, b) => b[1].shifts - a[1].shifts || a[0].localeCompare(b[0]));
+
+    const badges = items.map(([process, value]) => {
+        const isPrimary = process === primary;
+        const hours = Number(value.hours || 0).toFixed(1).replace(/\.0$/, "");
+        const title = `${process}: ${value.shifts} shift${value.shifts === 1 ? "" : "s"} · ${hours}h confirmed`;
+        return `<span class="employee-process-shift-badge ${isPrimary ? "primary" : "secondary"}" title="${esc(title)}">${esc(process)} <strong>${value.shifts}</strong></span>`;
+    }).join("");
+
+    const total = [...stats.values()].reduce((sum, item) => sum + item.shifts, 0);
+    return `<div class="employee-process-shifts">${badges}<small>${total} total shifts</small></div>`;
+}
+
 function employeeWorkedDaysForMonth(employee, monthDate) {
     const login = typeof employee === "string" ? employee : employee?.login;
     if (!login || !monthDate) return 0;
@@ -1951,6 +2018,7 @@ const ALLOWED_ATTENDANCE_REASONS = [
     "Private leave",
     "Forced leave",
     "Feeling unwell",
+    "Late arrival",
     "Terminated",
     "Other"
 ];
@@ -1966,6 +2034,7 @@ function normalizeAttendanceData(data = {}) {
         "Private leave": "Private leave",
         "Forced leave": "Forced leave",
         "Feeling unwell": "Feeling unwell",
+        "Late arrival": "Late arrival",
         "Poor health": "Feeling unwell",
         "Shein leave": "Private leave",
         "No work": "Other",
@@ -2041,7 +2110,8 @@ function attendanceRowFromLocal(employee, date, data) {
         // Keep any existing edit actor only when the row was actually edited.
         last_changed_by: data?.lastChangedById || null,
         last_changed_by_login: data?.lastChangedByLogin || "",
-        last_changed_at: data?.lastChangedAt || null
+        last_changed_at: data?.lastChangedAt || null,
+        worked_process: data?.workedProcess || normalizeProcessName(employee?.process || "")
     };
 }
 
@@ -2061,7 +2131,8 @@ function localAttendanceFromRemote(row) {
         confirmedByLogin: row.confirmed_by_login || "",
         lastChangedById: row.last_changed_by || "",
         lastChangedByLogin: row.last_changed_by_login || "",
-        lastChangedAt: row.last_changed_at || ""
+        lastChangedAt: row.last_changed_at || "",
+        workedProcess: row.worked_process || ""
     });
 }
 
@@ -2082,7 +2153,7 @@ async function loadAttendanceFromSupabase() {
             .select(`
                 id, work_date, employee_login, shift, planned_hours, actual_hours,
                 actual_start, actual_end, break_minutes, status, reason, reason_record, note, confirmed,
-                confirmed_by, confirmed_by_login, confirmed_at, terminated_record, last_changed_by, last_changed_by_login, last_changed_at, created_at, updated_at
+                confirmed_by, confirmed_by_login, confirmed_at, terminated_record, last_changed_by, last_changed_by_login, last_changed_at, worked_process, created_at, updated_at
             `)
             .order("work_date", { ascending: true })
             .range(from, from + pageSize - 1);
@@ -2469,7 +2540,7 @@ function formatDeviation(late, leftEarly, arrivalEarly) {
 
 function earlyLeaveReasonKey(data) {
     const reason = String(data?.reason || "").trim();
-    if (["Private leave", "Forced leave", "Feeling unwell", "Terminated", "Other"].includes(reason)) return reason;
+    if (["Private leave", "Forced leave", "Feeling unwell", "Late arrival", "Terminated", "Other"].includes(reason)) return reason;
     if (data?.terminatedRecord === true || String(data?.status || "").trim().toLowerCase() === "terminated") return "Terminated";
     return "No reason recorded";
 }
@@ -3473,6 +3544,7 @@ function renderEmployeeDatabase() {
     const workedDaysByLogin = new Map(
         allActive.map(employee => [employee.login, employeeWorkedDays(employee)])
     );
+    const processShiftIndex = buildEmployeeProcessShiftStatsIndex();
 
     const list = allActive
         .filter(employee => {
@@ -3492,6 +3564,11 @@ function renderEmployeeDatabase() {
             if (employeeSort.key === "workedDays") {
                 const av = workedDaysByLogin.get(a.login) || 0;
                 const bv = workedDaysByLogin.get(b.login) || 0;
+                return (av - bv) * employeeSort.direction;
+            }
+            if (employeeSort.key === "processShifts") {
+                const av = employeeProcessShiftTotal(a, processShiftIndex);
+                const bv = employeeProcessShiftTotal(b, processShiftIndex);
                 return (av - bv) * employeeSort.direction;
             }
             const av = employeeSortValue(a, employeeSort.key);
@@ -3524,11 +3601,12 @@ function renderEmployeeDatabase() {
                     </div>
                 </td>
                 <td><strong>${workedDaysByLogin.get(employee.login) || 0}</strong></td>
+                <td>${renderEmployeeProcessShiftStats(employee, processShiftIndex)}</td>
                 <td>${esc(employee.startDate || "—")}</td>
                 ${(canManageEmployees() || canEditEmployeeSkills()) ? `<td>${canEditEmployeeSkills() ? employeeEditButton(employee) : ""} ${canManageEmployees() ? employeeActionButton(employee, "former") : ""}</td>` : ""}
             </tr>
         `).join("") ||
-        `<tr><td colspan="${(canManageEmployees() || canEditEmployeeSkills()) ? 8 : 7}"><div class="empty">No employees found.</div></td></tr>`;
+        `<tr><td colspan="${(canManageEmployees() || canEditEmployeeSkills()) ? 9 : 8}"><div class="empty">No employees found.</div></td></tr>`;
 
     // Make the active sort visible on the headers.
     document.querySelectorAll("[data-employee-sort]").forEach(button => {
@@ -3849,7 +3927,7 @@ function getBrigadeMonthValue(brigade, date) {
 
 function setSchedulingTab(tabId, renderContent = true) {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    const validTabs = ["scheduleTab", "extraDaysTab", "historyTab", "auditTab"];
+    const validTabs = ["scheduleTab", "extraDaysTab", "leaveTab", "historyTab", "auditTab"];
     activeSchedulingTab = validTabs.includes(tabId) ? tabId : "scheduleTab";
 
     document.querySelectorAll("[data-scheduling-tab]").forEach(button => {
@@ -3878,6 +3956,8 @@ function setSchedulingTab(tabId, renderContent = true) {
     } else if (activeSchedulingTab === "extraDaysTab") {
         renderExtraDays();
         updateExtraScheduleHint();
+    } else if (activeSchedulingTab === "leaveTab") {
+        renderLeaveTab();
     } else if (activeSchedulingTab === "historyTab") {
         renderScheduleHistory();
     }
@@ -4447,8 +4527,8 @@ function renderExtraDays() {
         const actionCell = canDeleteExtraDays()
             ? `<button class="icon-btn" type="button" data-remove-extra="${esc(key)}" title="Remove Extra Day">×</button>`
             : `—`;
-        return `<tr><td>${esc(date)}</td><td><strong>${esc(employee.login)}</strong><br><small>${esc(employee.login)}</small></td><td>${esc(employee.brigade)}</td><td>${esc(employee.process)}</td><td><span class="extra-change ${isOff ? "off" : "work"}">${esc(label)}</span></td><td>${esc(actorDisplay(item.leaderLogin, item.leaderLogin))}</td><td>${esc(created)}</td><td>${actionCell}</td></tr>`;
-    }).join("") || `<tr><td colspan="8"><div class="empty">No active Extra Days match the selected filters.</div></td></tr>`;
+        return `<tr><td>${esc(date)}</td><td><strong>${esc(employee.login)}</strong><br><small>${esc(employee.login)}</small></td><td>${esc(employee.brigade)}</td><td>${esc(employee.process)}</td><td><span class="extra-change ${isOff ? "off" : item.type === "extra-work-night" ? "night" : "work"}">${esc(label)}</span></td><td>${isOff ? "—" : String(item.shift || "day").toUpperCase()}</td><td>${esc(actorDisplay(item.leaderLogin, item.leaderLogin))}</td><td>${esc(created)}</td><td>${actionCell}</td></tr>`;
+    }).join("") || `<tr><td colspan="9"><div class="empty">No active Extra Days match the selected filters.</div></td></tr>`;
 
     $("extraDaysTable").querySelectorAll("[data-remove-extra]").forEach(button => button.addEventListener("click", () => removeExtraDay(button.dataset.removeExtra)));
 }
@@ -4777,7 +4857,7 @@ function renderHoursAttendance() {
                     <td><span class="shift-pill off">O</span></td>
                     <td>0.00h</td><td>0.00h</td><td>—</td><td>—</td>
                     <td><span class="hours-status-pending">Before start</span></td>
-                    <td>Not employed yet</td><td>—</td><td>—</td><td>—</td><td>—</td>
+                    <td>Not employed yet</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
                 </tr>
             `);
             continue;
@@ -4833,6 +4913,7 @@ function renderHoursAttendance() {
                 <td>${data.confirmed && Number(data.breakMinutes || 0) ? "45 min" : "—"}</td>
                 <td><span class="${statusClass}">${esc(detailStatus)}</span></td>
                 <td>${esc(detailReason)}</td>
+                <td>${esc(data.workedProcess || employee.process || "—")}</td>
                 <td>${formatActionActor(data.confirmedByLogin, data.confirmedAt)}</td>
                 <td>${formatActionActor(data.lastChangedByLogin, data.lastChangedAt)}</td>
                 <td class="hours-note" title="${esc(data.note || "")}">${esc(notePreview(data.note, 8))}</td>
@@ -5329,7 +5410,7 @@ function renderAnalyticsInlineDetail(row) {
                 <div class="panel-title analytics-detail-title"><div><h4>Staffing by primary process</h4><p>How many were planned and present in each process for this shift.</p></div></div>
                 <div class="table-wrap analytics-table-wrap">
                     <table class="analytics-table analytics-process-table">
-                        <thead><tr><th>Process</th><th>Planned</th><th>Present</th><th>Absent</th><th>Pending</th><th>Feedback</th><th>Extra OFF</th><th>Extra Work</th><th>Share</th><th>Attendance</th></tr></thead>
+                        <thead><tr><th>Process</th><th>Planned</th><th>Present</th><th>Absent</th><th>Pending</th><th>Feedback</th><th>Extra OFF</th><th>Extra Work</th><th>Leave</th><th>Share</th><th>Attendance</th></tr></thead>
                         <tbody>${processHtml}</tbody>
                     </table>
                 </div>
@@ -6045,6 +6126,254 @@ async function initApp() {
 
     switchPage("overviewPage");
 }
+
+
+/* ================================================================
+   V33.0 UX / scheduling / leave patch
+   - visual Extra Day / Leave states in schedule
+   - Leave & Absence (Urlop / L4)
+   - stricter hour-edit reasons
+   - richer Analytics drill-down with late/left-early/reasons/leave
+   ================================================================ */
+
+let employeeLeaveRecords = [];
+let leaveRealtimeChannel = null;
+let leaveRemoteLoaded = false;
+const V33_originalGetSchedule = getSchedule;
+const V33_originalRenderScheduleTable = renderScheduleTable;
+const V33_originalRenderSelectedIndividualSchedule = renderSelectedIndividualSchedule;
+const V33_originalAnalyticsRowFor = analyticsRowFor;
+const V33_originalAnalyticsDetailLists = analyticsDetailLists;
+const V33_originalOpenAnalyticsDrilldown = openAnalyticsDrilldown;
+
+function leaveTypeLabel(type) {
+    return type === "sick-leave" ? "L4" : "Urlop";
+}
+function leaveTypeClass(type) {
+    return type === "sick-leave" ? "sick" : "vacation";
+}
+function leaveDays(record) {
+    if (!record?.startDate || !record?.endDate) return 0;
+    const a = fromKey(record.startDate), b = fromKey(record.endDate);
+    return Math.max(0, Math.round((startDay(b)-startDay(a))/86400000)+1);
+}
+function leaveRecordForDate(employee, date) {
+    const d = dateKey(date);
+    return (employeeLeaveRecords || []).find(r => String(r.employeeLogin) === String(employee?.login) && d >= r.startDate && d <= r.endDate) || null;
+}
+function employeeLeaveForDate(employee, date) { return leaveRecordForDate(employee,date); }
+
+function V33_underlyingShift(employee, date) {
+    const key = scheduleKey(date, employee.login);
+    const individual = individualSchedules[key];
+    if (individual === "day" || individual === "night") return individual;
+    const extra = extraDays[key];
+    if (extra && extra.type !== "extra-off") return extra.shift || "day";
+    if (schedules[key] === "day" || schedules[key] === "night") return schedules[key];
+    return defaultShiftForBrigade(employeeBrigadeForDate(employee,date));
+}
+
+getSchedule = function(employee, date) {
+    const before = !canConfirmEmployeeDate(employee, date);
+    if (before) return { shift:"off", source:"before-start" };
+    const leave = leaveRecordForDate(employee, date);
+    if (leave) return { shift:"off", source:"leave", leaveType:leave.leaveType, leaveId:leave.id };
+    return V33_originalGetSchedule(employee, date);
+};
+
+function scheduleVisualState(employee, date) {
+    if (!canConfirmEmployeeDate(employee,date)) return {kind:"before-start", label:"O", css:"before-start", title:`Before start date ${employee.startDate}`};
+    const leave = leaveRecordForDate(employee,date);
+    if (leave) return {kind:"leave", label:leave.leaveType === "sick-leave" ? "L4" : "U", css:leaveTypeClass(leave.leaveType), title:`${leaveTypeLabel(leave.leaveType)} · ${leave.startDate} → ${leave.endDate}`};
+    const extra = extraDays[scheduleKey(date, employee.login)];
+    if (extra?.type === "extra-off") return {kind:"extra-off", label:"OFF", css:"extra-off", title:"Extra OFF"};
+    if (extra?.type === "extra-work-day") return {kind:"extra-work-day", label:"D+", css:"extra-day", title:"Extra work · DAY"};
+    if (extra?.type === "extra-work-night") return {kind:"extra-work-night", label:"N+", css:"extra-night", title:"Extra work · NIGHT"};
+    const schedule = V33_originalGetSchedule(employee,date);
+    return {kind:"normal", label:schedule.shift === "night" ? "N" : schedule.shift === "day" ? "D" : schedule.shift === "rest" ? "R" : "O", css:schedule.shift || "off", title:`${schedule.source || "schedule"}`};
+}
+
+function V33_renderIndividualScheduleTable(loginOverride) {
+    const body=$("individualScheduleBody"), head=$("individualScheduleHeadRow");
+    if (!body || !head) return;
+    const query=( $("individualScheduleSearch")?.value || "").trim().toLowerCase();
+    if (!query && !loginOverride) { head.innerHTML=""; body.innerHTML='<tr><td><div class="empty">Search for an employee to view their individual schedule.</div></td></tr>'; return; }
+    let employee=loginOverride ? employeeByLogin(loginOverride) : null;
+    if (!employee) {
+        const people=activeEmployees().filter(e=>String(e.login).toLowerCase().includes(query)).sort((a,b)=>String(a.login).localeCompare(String(b.login)));
+        if (!people.length) { head.innerHTML=""; body.innerHTML='<tr><td><div class="empty">No employees found.</div></td></tr>'; return; }
+        if (people.length>1) {
+            body.innerHTML=`<tr><td><div class="empty"><strong>${people.length} employees found.</strong><br>Select one employee below.<select id="individualEmployeePicker" class="individual-employee-picker"><option value="">Select employee...</option>${people.map(e=>`<option value="${esc(e.login)}">${esc(e.login)} · ${esc(e.login)}</option>`).join("")}</select></div></td></tr>`;
+            $("individualEmployeePicker")?.addEventListener("change",e=>{ if(e.target.value) V33_renderIndividualScheduleTable(e.target.value); });
+            head.innerHTML=""; return;
+        }
+        employee=people[0];
+    }
+    const totalDays=monthDays(scheduleMonth);
+    head.innerHTML='<th>Employee</th>'+Array.from({length:totalDays},(_,i)=>{const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12);return `<th class="schedule-day-head"><strong>${String(i+1).padStart(2,"0")}</strong><small>${d.toLocaleDateString("en-US",{weekday:"short"})}</small></th>`}).join("");
+    const cells=Array.from({length:totalDays},(_,i)=>{
+        const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12), state=scheduleVisualState(employee,d), before=state.kind==="before-start", override=before?"":individualScheduleValue(employee,d);
+        const editable=state.kind==="normal" && !leaveRecordForDate(employee,d) && !extraDays[scheduleKey(d,employee.login)];
+        const selectValue=editable ? override : "";
+        const selectedEffective=state.kind==="normal" ? (override || V33_originalGetSchedule(employee,d).shift || "off") : "off";
+        return `<td class="schedule-cell individual-schedule-cell ${state.css} ${override?"has-override":""}"><div class="schedule-state ${state.css}" title="${esc(state.title)}"><span>${esc(state.label)}</span>${state.kind!=="normal"?`<small>${esc(state.kind==="leave"?leaveTypeLabel(leaveRecordForDate(employee,d).leaveType):state.kind.replaceAll("-"," "))}</small>`:""}</div>${editable?`<select class="${selectedEffective}" data-individual-schedule="${esc(employee.login)}" data-schedule-date="${dateKey(d)}" title="${esc(override?`Override: ${override}`:`Brigade: ${selectedEffective}`)}">${scheduleOptionHtml(override||"")}</select>`:""}</td>`;
+    }).join("");
+    body.innerHTML=`<tr><td class="employee-schedule-name"><strong>${esc(employee.login)}</strong><small>${esc(employee.login)} · ${esc(employeeProcessForDate(employee,scheduleMonth))} · Brigade ${esc(employeeBrigadeForDate(employee,scheduleMonth))}</small></td>${cells}</tr>`;
+    body.querySelectorAll("[data-individual-schedule]").forEach(select=>select.addEventListener("change",()=>{const login=select.dataset.individualSchedule,date=select.dataset.scheduleDate,key=`${date}_${login}`; if(select.value) individualSchedules[key]=select.value; else delete individualSchedules[key]; const emp=employeeByLogin(login); if(emp){select.className=select.value||V33_originalGetSchedule(emp,fromKey(date)).shift||"off";} }));
+}
+renderSelectedIndividualSchedule = V33_renderIndividualScheduleTable;
+
+function V33_renderScheduleTable() {
+    const totalDays=monthDays(scheduleMonth);
+    $("scheduleHeadRow").innerHTML='<th>Brigade</th>'+Array.from({length:totalDays},(_,i)=>{const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12);return `<th class="schedule-day-head"><strong>${String(i+1).padStart(2,"0")}</strong><small>${d.toLocaleDateString("en-US",{weekday:"short"})}</small></th>`}).join("");
+    $("scheduleInfoTitle").textContent=`Monthly schedule · ${BRIGADES.length} brigades + individual exceptions`;
+    $("scheduleBody").innerHTML=BRIGADES.map(brigade=>{const cells=Array.from({length:totalDays},(_,i)=>{const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12),value=getBrigadeMonthValue(brigade,d);return `<td class="schedule-cell"><select class="${value}" data-brigade-schedule="${esc(brigade)}" data-schedule-date="${dateKey(d)}"><option value="day" ${value==="day"?"selected":""}>D</option><option value="night" ${value==="night"?"selected":""}>N</option><option value="off" ${value==="off"?"selected":""}>O</option></select></td>`}).join("");return `<tr><td class="employee-schedule-name"><strong>Brigade ${esc(brigade)}</strong><small>Default schedule</small></td>${cells}</tr>`}).join("");
+    $("scheduleBody").querySelectorAll("[data-brigade-schedule]").forEach(s=>s.addEventListener("change",()=>s.className=s.value));
+    V33_renderIndividualScheduleTable();
+}
+renderScheduleTable=V33_renderScheduleTable;
+
+async function loadLeaveRecordsFromSupabase() {
+    if(!currentUser) return false;
+    const {data,error}=await supabaseClient.from("employee_leave_records").select("id, employee_login, leave_type, start_date, end_date, note, recorded_by_login, created_at").order("start_date",{ascending:true});
+    if(error){ console.error("Leave load error:",error); return false; }
+    employeeLeaveRecords=(data||[]).map(r=>({id:r.id,employeeLogin:r.employee_login,leaveType:r.leave_type,startDate:r.start_date,endDate:r.end_date,note:r.note||"",recordedBy:r.recorded_by_login||"",createdAt:r.created_at||""}));
+    leaveRemoteLoaded=true; return true;
+}
+function subscribeToLeaveRealtime(){
+    if(leaveRealtimeChannel||!currentUser) return;
+    leaveRealtimeChannel=supabaseClient.channel("warehouse-leave-records").on("postgres_changes",{event:"*",schema:"public",table:"employee_leave_records"},async()=>{if(await loadLeaveRecordsFromSupabase()){renderScheduling();renderOverview();if($("analyticsPage")?.classList.contains("active-page"))renderAnalytics();}}).subscribe(status=>console.info("Leave realtime status:",status));
+}
+function renderLeaveTab(){
+    const loginFilter=($("leaveFilterLogin")?.value||"").trim().toLowerCase(), typeFilter=$("leaveFilterType")?.value||"";
+    const rows=(employeeLeaveRecords||[]).filter(r=>(!loginFilter||String(r.employeeLogin).toLowerCase().includes(loginFilter))&&(!typeFilter||r.leaveType===typeFilter)).sort((a,b)=>String(a.startDate).localeCompare(String(b.startDate))||String(a.employeeLogin).localeCompare(String(b.employeeLogin)));
+    let vac=0,sick=0,days=0;const employees=new Set();
+    rows.forEach(r=>{employees.add(r.employeeLogin);days+=leaveDays(r);if(r.leaveType==="vacation")vac++;else sick++;});
+    $("leaveStatVacation")&&( $("leaveStatVacation").textContent=String(vac)); $("leaveStatSick")&&( $("leaveStatSick").textContent=String(sick)); $("leaveStatEmployees")&&( $("leaveStatEmployees").textContent=String(employees.size)); $("leaveStatDays")&&( $("leaveStatDays").textContent=String(days));
+    $("leaveTable").innerHTML=rows.map(r=>{const e=employeeByLogin(r.employeeLogin),action=canManageEmployees()?`<button class="icon-btn" type="button" data-remove-leave="${esc(r.id)}">×</button>`:"—";return `<tr><td><strong>${esc(r.employeeLogin)}</strong><br><small>${esc(e?.process||"")} · ${esc(e?.brigade||"")}</small></td><td><span class="leave-badge ${leaveTypeClass(r.leaveType)}">${leaveTypeLabel(r.leaveType)}</span></td><td>${esc(r.startDate)}</td><td>${esc(r.endDate)}</td><td>${leaveDays(r)}</td><td>${esc(r.recordedBy||"—")}</td><td>${esc(r.createdAt?new Date(r.createdAt).toLocaleString("en-GB"):"—")}</td><td>${esc(r.note||"—")}</td><td>${action}</td></tr>`}).join("")||`<tr><td colspan="9"><div class="empty">No leave records.</div></td></tr>`;
+    $("leaveTable").querySelectorAll("[data-remove-leave]").forEach(btn=>btn.addEventListener("click",()=>removeLeaveRecord(btn.dataset.removeLeave)));
+}
+async function saveLeaveRecord(){
+    const login=$("leaveEmployeeLogin").value.trim(), type=$("leaveType").value, start=$("leaveStartDate").value, end=$("leaveEndDate").value, note=$("leaveNote").value.trim();
+    const employee=employeeByLogin(login);
+    if(!employee||!login){toast("Employee login not found.");return;} if(!start||!end||end<start){toast("Select a valid leave period.");return;} if(start<employee.startDate){toast(`Leave cannot start before ${employee.startDate}.`);return;} if(employee.endDate&&end>employee.endDate){toast(`Leave cannot continue after employee end date ${employee.endDate}.`);return;}
+    for(const r of employeeLeaveRecords){if(r.employeeLogin===login && !(end<r.startDate||start>r.endDate)){toast("This leave period overlaps an existing leave record.");return;}}
+    for(const d of [start,end]){const date=fromKey(d), key=scheduleKey(date,login); if(extraDays[key]){toast("Leave cannot overlap an Extra Day. Remove the Extra Day first.");return;}}
+    const {data,error}=await supabaseClient.rpc("save_employee_leave",{p_employee_login:login,p_leave_type:type,p_start_date:start,p_end_date:end,p_note:note||null});
+    if(error){console.error("Leave save error:",error);toast(`Could not save leave: ${error.message}`);return;}
+    if(data){employeeLeaveRecords.push({id:data.id,employeeLogin:data.employee_login,leaveType:data.leave_type,startDate:data.start_date,endDate:data.end_date,note:data.note||"",recordedBy:data.recorded_by_login||currentUser?.login||"",createdAt:data.created_at||new Date().toISOString()});}
+    $("leaveEmployeeLogin").value="";$("leaveNote").value="";renderLeaveTab();renderScheduling();renderOverview();if($("analyticsPage")?.classList.contains("active-page"))renderAnalytics();toast("Leave saved and shown in the schedule.");
+}
+async function removeLeaveRecord(id){if(!canManageEmployees()){toast("Only Coordinator or Admin can remove leave records.");return;}if(!confirm("Remove this leave record?"))return;const {error}=await supabaseClient.rpc("remove_employee_leave",{p_id:id});if(error){toast(`Could not remove leave: ${error.message}`);return;}employeeLeaveRecords=employeeLeaveRecords.filter(r=>String(r.id)!==String(id));renderLeaveTab();renderScheduling();renderOverview();if($("analyticsPage")?.classList.contains("active-page"))renderAnalytics();toast("Leave record removed.");}
+
+const V33_originalSaveExtraDay = saveExtraDay;
+saveExtraDay = async function(){
+    const login=$("extraEmployeeLogin")?.value.trim(), date=$("extraDate")?.value;
+    if(login && date && leaveRecordForDate(employeeByLogin(login), fromKey(date))){toast("This date is already covered by leave. Remove the leave record first.");return;}
+    return V33_originalSaveExtraDay();
+};
+
+// Reason is mandatory whenever the hours editor actually changes working time or status.
+const V33_originalSaveHoursEdit = saveHoursEdit;
+saveHoursEdit = async function(event){
+    const reason=String($("editReason")?.value||"").trim();
+    const status=$("editStatus")?.value||"Pending";
+    const start=$("editStart")?.value||"", end=$("editEnd")?.value||"";
+    const date=$("editDate")?.value||"";
+    const employee=employeeByLogin($("editLogin")?.value||"");
+    const current=employee?getAttendance(employee,fromKey(date)):{};
+    const planned=employee?plannedHours(employee,fromKey(date)):0;
+    const newActual=status==="Absent"?0:Math.max(0,calculateHours(start,end)-($("editBreak45")?.checked?0.75:0));
+    const oldActual=Number(current.actualHours||0);
+    const timeChanged=Math.abs(newActual-oldActual)>0.009 || String(current.actualStart||"")!==start || String(current.actualEnd||"")!==end || Boolean(current.status==="Absent")!==Boolean(status==="Absent");
+    if(hoursModalSource === "overview" && timeChanged && !reason){toast("A reason is required when editing working hours or attendance status.");$("editReason")?.focus();return;}
+    if(hoursModalSource === "overview" && timeChanged && status!=="Absent" && newActual<planned-0.01 && reason===""){toast("Leaving before the planned end requires a reason.");$("editReason")?.focus();return;}
+    return V33_originalSaveHoursEdit(event);
+};
+
+function V33_analyticsEnrich(row){
+    row.lateDetails=[];row.leftEarlyDetails=[];row.arrivalEarlyDetails=[];row.leftEarlyReasonStats={"Private leave":0,"Forced leave":0,"Feeling unwell":0,"Late arrival":0,"Terminated":0,"Other":0,"No reason recorded":0};row.feedbackTypeStats={};row.leaveDetails=[];
+    const date=fromKey(row.date);
+    const employees=analyticsSelectedEmployees();
+    employees.forEach(employee=>{
+        if(!employeeOperationalOnDate(employee,date)||!canConfirmEmployeeDate(employee,date))return;
+        const leave=leaveRecordForDate(employee,date);
+        if(leave){const underlying=V33_underlyingShift(employee,date);if(underlying===row.shift){const detail=analyticsDetailEmployee(employee,date);row.leaveDetails.push({...detail,leaveType:leave.leaveType,leaveStart:leave.startDate,leaveEnd:leave.endDate,recordedBy:leave.recordedBy,recordedAt:leave.createdAt});const processName=normalizeProcessName(detail.process);let ps=row.processStats.get(processName);if(!ps){ps={process:processName,planned:0,present:0,absent:0,pending:0,feedback:0,feedbackEmployees:new Set(),extraOff:0,extraWork:0,leave:0};row.processStats.set(processName,ps);}ps.leave=(ps.leave||0)+1;}return;}
+        if(getSchedule(employee,date).shift!==row.shift)return;
+        const data=getAttendance(employee,date),dev=getShiftTimeDeviation(employee,date,data),common={...analyticsDetailEmployee(employee,date),reason:String(data.reason||"").trim(),confirmedByLogin:String(data.confirmedByLogin||"").trim(),confirmedAt:data.confirmedAt||"",actualStart:String(data.actualStart||""),actualEnd:String(data.actualEnd||"")};
+        if(dev.late>0)row.lateDetails.push({...common,lateMinutes:dev.late});
+        if(dev.leftEarly>0){row.leftEarlyDetails.push({...common,leftEarlyMinutes:dev.leftEarly});const key=earlyLeaveReasonKey(data);row.leftEarlyReasonStats[key]=(row.leftEarlyReasonStats[key]||0)+1;}
+        if(dev.arrivalEarly>0)row.arrivalEarlyDetails.push({...common,arrivalEarlyMinutes:dev.arrivalEarly});
+    });
+    analyticsFeedbackEntries.forEach(entry=>{if(String(entry.work_date)!==row.date||String(entry.shift)!==row.shift)return;const key=normalizeFeedbackErrorType(entry.error_type);row.feedbackTypeStats[key]=(row.feedbackTypeStats[key]||0)+1;});
+    row.leave=row.leaveDetails.length;row.late=row.lateDetails.length;row.leftEarly=row.leftEarlyDetails.length;
+    return row;
+}
+analyticsRowFor=function(date,shift,employees){return V33_analyticsEnrich(V33_originalAnalyticsRowFor(date,shift,employees));};
+
+function V33_barList(title,map,total){const entries=Object.entries(map||{}).filter(([,v])=>Number(v)>0).sort((a,b)=>b[1]-a[1]);if(!entries.length)return `<section class="analytics-mini-chart"><h4>${esc(title)}</h4><div class="empty">No records.</div></section>`;const max=Math.max(...entries.map(([,v])=>Number(v)));return `<section class="analytics-mini-chart"><h4>${esc(title)}</h4>${entries.map(([label,value])=>`<div class="analytics-bar-row"><span>${esc(label)}</span><div class="analytics-bar-track"><i style="width:${Math.max(5,(Number(value)/max)*100)}%"></i></div><strong>${Number(value)} <small>${analyticsPct(Number(value),total)}</small></strong></div>`).join("")}</section>`;}
+
+analyticsDetailLists=function(row,key){return ({...V33_originalAnalyticsDetailLists(row,key),late:row.lateDetails||[],leftEarly:row.leftEarlyDetails||[],leave:row.leaveDetails||[]})[key]||[];};
+
+function V33_renderAnalyticsInlineDetail(row){
+    row.processStats.forEach(stat=>{ if(stat.leave==null) stat.leave=0; });
+    const processRows=[...row.processStats.values()].sort((a,b)=>b.planned-a.planned||a.process.localeCompare(b.process));
+    const processHtml=processRows.map(stat=>`<tr><td><strong>${esc(stat.process)}</strong></td><td>${stat.planned}</td><td>${analyticsMetricCell(stat.present,stat.planned)}</td><td>${analyticsMetricCell(stat.absent,stat.planned)}</td><td>${analyticsMetricCell(stat.pending,stat.planned)}</td><td>${analyticsMetricCell(stat.feedback,stat.planned)}</td><td>${analyticsMetricCell(stat.extraOff,stat.planned)}</td><td>${analyticsMetricCell(stat.extraWork,stat.planned)}</td><td>${analyticsMetricCell(stat.leave||0,stat.planned)}</td><td>${analyticsPct(stat.planned,row.planned)}</td><td>${analyticsPct(stat.present,stat.planned)}</td></tr>`).join("")||`<tr><td colspan="11"><div class="empty">No process data.</div></td></tr>`;
+    const reasonTotal=(row.leftEarlyDetails||[]).length;
+    const dateLabel=fromKey(row.date).toLocaleDateString("en-GB");
+    return `<div class="analytics-inline-detail"><div class="analytics-inline-header"><div><strong>${esc(dateLabel)} · ${row.shift==="day"?"DAY":"NIGHT"}</strong><span>Operational detail · click a KPI for employee-level records</span></div><button type="button" class="secondary analytics-inline-close" data-analytics-close="${esc(analyticsRowKey(row))}">Close</button></div><div class="analytics-detail-kpis"><div class="analytics-detail-kpi"><strong>${row.planned}</strong><span>Planned</span></div>${analyticsDetailButton("present",row.present,`Present · ${analyticsPct(row.present,row.planned)}`)}${analyticsDetailButton("absent",row.absent,`Absent · ${analyticsPct(row.absent,row.planned)}`)}${analyticsDetailButton("late",row.late,`Late · ${analyticsPct(row.late,row.planned)}`)}${analyticsDetailButton("leftEarly",row.leftEarly,`Left early · ${analyticsPct(row.leftEarly,row.planned)}`)}${analyticsDetailButton("pending",row.pending,`Pending · ${analyticsPct(row.pending,row.planned)}`)}${analyticsDetailButton("feedback",row.feedback,`Feedback · ${analyticsPct(row.feedback,row.planned)}`)}${analyticsDetailButton("terminated",row.terminated,`Terminated · ${analyticsPct(row.terminated,row.planned)}`)}${analyticsDetailButton("extraOff",row.extraOff,`Extra OFF · ${analyticsPct(row.extraOff,row.planned)}`)}${analyticsDetailButton("extraWork",row.extraWork,`Extra Work · ${analyticsPct(row.extraWork,row.planned)}`)}${analyticsDetailButton("leave",row.leave,row.leave?`Leave · ${analyticsPct(row.leave,row.planned)}`:`Leave · 0.0%`)}</div><div class="analytics-chart-grid">${V33_barList("Left early — reasons",row.leftEarlyReasonStats,reasonTotal)}${V33_barList("Feedback — error types",row.feedbackTypeStats,row.feedback)}</div><section class="analytics-process-inline"><div class="panel-title analytics-detail-title"><div><h4>Staffing by primary process</h4><p>How many people were planned, present, absent, pending and affected by feedback/extra changes.</p></div></div><div class="table-wrap analytics-table-wrap"><table class="analytics-table analytics-process-table"><thead><tr><th>Process</th><th>Planned</th><th>Present</th><th>Absent</th><th>Pending</th><th>Feedback</th><th>Extra OFF</th><th>Extra Work</th><th>Leave</th><th>Share</th><th>Attendance</th></tr></thead><tbody>${processHtml}</tbody></table></div></section></div>`;
+}
+renderAnalyticsInlineDetail=V33_renderAnalyticsInlineDetail;
+
+openAnalyticsDrilldown=function(row,key){
+    const items=analyticsDetailLists(row,key);const labels={present:"Present",absent:"Absent",late:"Late arrival",leftEarly:"Left early",early:"Arrived / left early",pending:"Pending",feedback:"Feedback",terminated:"Terminated",extraOff:"Extra OFF",extraWork:"Extra work",leave:"Leave"};const title=`${fromKey(row.date).toLocaleDateString("en-GB")} · ${row.shift==="day"?"DAY":"NIGHT"} · ${labels[key]||"Details"}`;const countText=key==="feedback"?`${row.feedbackEmployees} employees · ${items.length} feedback entries`:`${items.length} employees`;const head=$("analyticsDrilldownHead"),body=$("analyticsDrilldownBody");if(!head||!body)return;let columns,renderRow;
+    if(key==="feedback"){columns=["Employee","Process","Brigade","Error type","Note","Confirmed by","Confirmed at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(i.errorType)}</td><td>${esc(i.note||"—")}</td><td>${esc(i.confirmedByLogin||"—")}</td><td>${esc(formatDateTime(i.confirmedAt))}</td></tr>`;}
+    else if(key==="leave"){columns=["Employee","Process","Brigade","Type","From","To","Recorded by","Recorded at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(leaveTypeLabel(i.leaveType))}</td><td>${esc(i.leaveStart)}</td><td>${esc(i.leaveEnd)}</td><td>${esc(i.recordedBy||"—")}</td><td>${esc(formatDateTime(i.recordedAt))}</td></tr>`;}
+    else if(key==="late"){columns=["Employee","Process","Brigade","Late","Confirmed by","Confirmed at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(`${i.lateMinutes||0}m`)}</td><td>${esc(i.confirmedByLogin||"—")}</td><td>${esc(formatDateTime(i.confirmedAt))}</td></tr>`;}
+    else if(key==="leftEarly"){columns=["Employee","Process","Brigade","Left early","Reason","Confirmed by","Confirmed at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(`${i.leftEarlyMinutes||0}m`)}</td><td>${esc(i.reason||"No reason recorded")}</td><td>${esc(i.confirmedByLogin||"—")}</td><td>${esc(formatDateTime(i.confirmedAt))}</td></tr>`;}
+    else if(key==="extraOff"||key==="extraWork"){columns=["Employee","Process","Brigade","Recorded by","Recorded at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(i.recordedBy||"—")}</td><td>${esc(formatDateTime(i.recordedAt))}</td></tr>`;}
+    else {columns=["Employee","Process","Brigade","Reason","Confirmed by","Confirmed at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(i.reason||(key==="pending"?"Waiting for confirmation":"—"))}</td><td>${esc(i.confirmedByLogin||"—")}</td><td>${esc(formatDateTime(i.confirmedAt))}</td></tr>`;}
+    head.innerHTML=`<tr>${columns.map(c=>`<th>${esc(c)}</th>`).join("")}</tr>`;body.innerHTML=items.map(renderRow).join("")||`<tr><td colspan="${columns.length}"><div class="empty">No records.</div></td></tr>`;$("analyticsDrilldownTitle").textContent=title;$("analyticsDrilldownSubtitle").textContent="Employee-level records are opened only when requested.";$("analyticsDrilldownMeta").textContent=countText;$("analyticsDrilldownModal").classList.remove("hidden");
+};
+
+const V33_originalAnalyticsPeriodProcessRows = analyticsPeriodProcessRows;
+analyticsPeriodProcessRows = function(rows){
+    const result=V33_originalAnalyticsPeriodProcessRows(rows);
+    const byProcess=new Map(result.rows.map(x=>[x.process,x]));
+    rows.forEach(row=>row.processStats.forEach(stat=>{const target=byProcess.get(stat.process);if(target)target.leave=(target.leave||0)+(stat.leave||0);}));
+    return result;
+};
+
+// V33 Analytics renderer: compact top-level numbers, rich inline detail, no login list until clicked.
+renderAnalytics=function(){
+    $("analyticsMonthLabel").textContent=analyticsMonth.toLocaleDateString("en-GB",{month:"long",year:"numeric"});const employees=analyticsSelectedEmployees(),rows=[];for(let day=1;day<=analyticsDays();day++){const d=new Date(analyticsMonth.getFullYear(),analyticsMonth.getMonth(),day,12);["day","night"].forEach(shift=>rows.push(analyticsRowFor(d,shift,employees)));}
+    const body=$("analyticsDailyBody");if(!body)return;body.innerHTML=rows.map((row,index)=>{const d=fromKey(row.date),open=analyticsRowKey(row)===analyticsOpenDetailKey;return `<tr class="analytics-clickable-row ${open?"selected":""}" data-analytics-row="${index}"><td><strong>${esc(d.toLocaleDateString("en-GB"))}</strong></td><td>${esc(d.toLocaleDateString("en-US",{weekday:"long"}))}</td><td><span class="shift-pill ${esc(row.shift)}">${row.shift==="day"?"DAY":"NIGHT"}</span></td><td><strong>${row.planned}</strong></td><td>${analyticsMetricCell(row.present,row.planned)}</td><td>${analyticsMetricCell(row.absent,row.planned)}</td><td>${analyticsMetricCell(row.late,row.planned)}</td><td>${analyticsMetricCell(row.leftEarly,row.planned)}</td><td>${analyticsMetricCell(row.pending,row.planned)}</td><td>${analyticsMetricCell(row.feedback,row.planned)}</td><td>${analyticsMetricCell(row.terminated,row.planned)}</td><td>${analyticsMetricCell(row.extraOff,row.planned)}</td><td>${analyticsMetricCell(row.extraWork,row.planned)}</td><td>${analyticsMetricCell(row.leave,row.planned)}</td></tr>${open?`<tr class="analytics-inline-detail-row" data-analytics-inline="${esc(analyticsRowKey(row))}"><td colspan="14">${renderAnalyticsInlineDetail(row)}</td></tr>`:""}`}).join("");
+    body.querySelectorAll("[data-analytics-row]").forEach(tr=>tr.addEventListener("click",()=>{const row=rows[Number(tr.dataset.analyticsRow)];analyticsOpenDetailKey=analyticsRowKey(row)===analyticsOpenDetailKey?"":analyticsRowKey(row);renderAnalytics();if(analyticsOpenDetailKey)requestAnimationFrame(()=>document.querySelector(`[data-analytics-inline="${CSS.escape(analyticsOpenDetailKey)}"]`)?.scrollIntoView({behavior:"smooth",block:"nearest"}));}));
+    body.querySelectorAll("[data-analytics-detail]").forEach(btn=>btn.addEventListener("click",e=>{e.stopPropagation();const row=rows.find(r=>analyticsRowKey(r)===analyticsOpenDetailKey);if(row)openAnalyticsDrilldown(row,btn.dataset.analyticsDetail);}));body.querySelectorAll("[data-analytics-close]").forEach(btn=>btn.addEventListener("click",e=>{e.stopPropagation();analyticsOpenDetailKey="";renderAnalytics();}));
+    if($("analyticsMeta"))$("analyticsMeta").textContent=`${rows.length} shifts · click a shift for details`;
+    const period=analyticsPeriodProcessRows(rows),periodBody=$("analyticsPeriodProcessBody");if(periodBody)periodBody.innerHTML=period.rows.map(stat=>`<tr><td><strong>${esc(stat.process)}</strong></td><td>${stat.planned}</td><td>${analyticsMetricCell(stat.present,stat.planned)}</td><td>${analyticsMetricCell(stat.absent,stat.planned)}</td><td>${analyticsMetricCell(stat.pending,stat.planned)}</td><td>${analyticsMetricCell(stat.feedback,stat.planned)}</td><td>${analyticsMetricCell(stat.extraOff,stat.planned)}</td><td>${analyticsMetricCell(stat.extraWork,stat.planned)}</td><td>${analyticsMetricCell(stat.leave||0,stat.planned)}</td><td>${analyticsPct(stat.planned,period.totalPlanned)}</td><td>${analyticsPct(stat.present,stat.planned)}</td></tr>`).join("")||`<tr><td colspan="11"><div class="empty">No process data for this period.</div></td></tr>`;
+};
+
+// Wrap init so Leave data is loaded before the first schedule/analytics render.
+const V33_originalInitApp=initApp;
+initApp=async function(){
+    await V33_originalInitApp();
+    await loadLeaveRecordsFromSupabase();
+    subscribeToLeaveRealtime();
+    renderScheduling();
+    renderLeaveTab();
+};
+
+// Add V33 event handlers after the original bindings are created.
+const V33_originalInitEvents=initEvents;
+initEvents=function(){
+    V33_originalInitEvents();
+    $("saveLeave")?.addEventListener("click",saveLeaveRecord);
+    $("leaveEmployeeLogin")?.addEventListener("input",()=>{const e=employeeByLogin($("leaveEmployeeLogin").value.trim());$("leaveEmployeeHint").textContent=e?`${e.login} · ${e.process} · Brigade ${e.brigade}`:"Enter the exact employee login.";});
+    $("leaveStartDate")?.addEventListener("change",()=>{const s=$("leaveStartDate").value;if(s&&$("leaveEndDate").value< s)$("leaveEndDate").value=s;});
+    $("applyLeaveFilters")?.addEventListener("click",renderLeaveTab);
+    $("clearLeaveFilters")?.addEventListener("click",()=>{$("leaveFilterLogin").value="";$('leaveFilterType').value="";renderLeaveTab();});
+};
 
 document.addEventListener("DOMContentLoaded", async () => {
     try {
@@ -7001,3 +7330,314 @@ function exportHoursAttendanceCSV(ignoreFilters = true) {
 }
 
 
+
+/* ================================================================
+   V34 — Worked process tracking
+   A confirmed day is still credited to the employee's PRIMARY process
+   for worked-day/headcount metrics. workedProcess is only the actual
+   process on which the employee spent the confirmed hours.
+   ================================================================ */
+
+function v34WorkedProcessOptions(employee, selected) {
+    const primary = normalizeProcessName(employee?.process || "");
+    const skills = employeeProcessSkills(employee).map(normalizeSecondaryProcess).filter(Boolean);
+    const options = [];
+    if (primary) options.push({ value: primary, label: `Primary · ${primary}` });
+    skills.filter(value => value !== primary).forEach(value => options.push({ value, label: `Secondary · ${value}` }));
+    const safeSelected = selected || primary;
+    if (safeSelected && !options.some(item => item.value === safeSelected)) {
+        options.push({ value: safeSelected, label: safeSelected });
+    }
+    return options.map(item => `<option value="${esc(item.value)}" ${item.value === safeSelected ? "selected" : ""}>${esc(item.label)}</option>`).join("");
+}
+
+function v34WorkedProcess(employee, data) {
+    const selected = String(data?.workedProcess || "").trim();
+    const primary = normalizeProcessName(employee?.process || "");
+    if (selected) return selected;
+    return primary;
+}
+
+// Extend the existing attendance serializer/deserializer without replacing
+// the established V33 attendance logic.
+const V34_originalAttendanceRowFromLocal = attendanceRowFromLocal;
+attendanceRowFromLocal = function(employee, date, data) {
+    const row = V34_originalAttendanceRowFromLocal(employee, date, data);
+    row.worked_process = v34WorkedProcess(employee, data);
+    return row;
+};
+
+const V34_originalLocalAttendanceFromRemote = localAttendanceFromRemote;
+localAttendanceFromRemote = function(row) {
+    const data = V34_originalLocalAttendanceFromRemote(row);
+    data.workedProcess = String(row?.worked_process || data.workedProcess || "").trim();
+    return data;
+};
+
+// Populate the existing Edit Working Hours modal with the actual worked process.
+const V34_originalOpenHoursModal = openHoursModal;
+openHoursModal = function(employee, date = overviewDate, source = "hours") {
+    V34_originalOpenHoursModal(employee, date, source);
+    const select = $("editWorkedProcess");
+    if (select) {
+        const data = getAttendance(employee, date);
+        select.innerHTML = v34WorkedProcessOptions(employee, v34WorkedProcess(employee, data));
+        select.disabled = String(data.status || "").toLowerCase() === "absent";
+    }
+};
+
+// Confirm modal state. It supports one employee from Attendance Monitoring
+// and multiple selected employees from Shift Overview, each with its own
+// process selector.
+let v34ConfirmRows = [];
+
+function v34OpenConfirmProcessModal(rows) {
+    v34ConfirmRows = rows.filter(Boolean);
+    const list = $("confirmProcessList");
+    if (!list || !v34ConfirmRows.length) return;
+    list.innerHTML = v34ConfirmRows.map((row, index) => {
+        const employee = row.employee;
+        const current = row.current || getAttendance(employee, row.date);
+        const selected = v34WorkedProcess(employee, current);
+        return `<div class="confirm-process-row">
+            <div class="confirm-process-employee">
+                <strong>${esc(employee.login)}</strong>
+                <span>${esc(employee.process || "—")} · Brigade ${esc(employee.brigade || "—")}</span>
+            </div>
+            <label>
+                Worked process
+                <select data-v34-confirm-process="${index}">
+                    ${v34WorkedProcessOptions(employee, selected)}
+                </select>
+            </label>
+        </div>`;
+    }).join("");
+    $("confirmProcessModal")?.classList.remove("hidden");
+}
+
+function v34CloseConfirmProcessModal() {
+    $("confirmProcessModal")?.classList.add("hidden");
+    v34ConfirmRows = [];
+}
+
+async function v34SaveConfirmProcess() {
+    if (!v34ConfirmRows.length || !currentUser) return;
+    const selects = Array.from(document.querySelectorAll("[data-v34-confirm-process]"));
+    const rowsToSave = [];
+
+    v34ConfirmRows.forEach((row, index) => {
+        const employee = row.employee;
+        const date = row.date;
+        const current = getAttendance(employee, date);
+        if (current.confirmed) return;
+        const select = selects[index];
+        const allowed = [normalizeProcessName(employee.process || ""), ...employeeProcessSkills(employee).map(normalizeSecondaryProcess)];
+        const workedProcess = String(select?.value || normalizeProcessName(employee.process || "")).trim();
+        if (!allowed.includes(workedProcess)) {
+            toast(`${employee.login}: selected process is not allowed for this employee.`);
+            return;
+        }
+        const schedule = getSchedule(employee, date);
+        const planned = plannedHours(employee, date);
+        const nextData = {
+            ...current,
+            shift: schedule.shift,
+            confirmed: true,
+            actualHours: Number(current.actualHours || planned),
+            actualStart: current.actualStart || (SHIFTS[schedule.shift]?.start || ""),
+            actualEnd: current.actualEnd || (SHIFTS[schedule.shift]?.end || ""),
+            breakMinutes: current.breakMinutes ?? (planned > 0 ? 45 : 0),
+            status: "Confirmed",
+            workedProcess,
+            reason: current.reason || ((employee.status === "Former" && employee.endDate && String(dateKey(date)) >= String(employee.endDate)) ? "Terminated" : ""),
+            confirmedAt: new Date().toISOString(),
+            confirmedById: currentUser.id || "",
+            confirmedByLogin: currentUser.login || "",
+            lastChangedById: current.lastChangedById || "",
+            lastChangedByLogin: current.lastChangedByLogin || "",
+            lastChangedAt: current.lastChangedAt || ""
+        };
+        rowsToSave.push({ employee, date, data: nextData });
+    });
+
+    if (!rowsToSave.length) {
+        toast("No unconfirmed employees to confirm.");
+        return;
+    }
+
+    const saved = attendanceRemoteReady
+        ? await saveAttendanceRowsToSupabase(rowsToSave)
+        : (() => {
+            rowsToSave.forEach(({ employee, date, data }) => {
+                attendance[attendanceKey(date, employee.login)] = data;
+            });
+            saveStorage();
+            return true;
+        })();
+
+    if (!saved) return;
+    v34CloseConfirmProcessModal();
+    clearSelectedHours();
+    renderOverview();
+    renderHoursAttendance();
+    renderAuditLog();
+    toast(`${rowsToSave.length} employee${rowsToSave.length === 1 ? "" : "s"} confirmed.`);
+}
+
+// Replace the direct confirmation actions with the process-selection dialog.
+confirmHoursDay = function(employee, date) {
+    if (!employee || !currentUser) return;
+    if (!isTodayOrPast(date)) { toast("Future hours cannot be confirmed."); return; }
+    if (!canConfirmEmployeeDate(employee, date)) { toast(`Hours cannot be confirmed before ${employee.startDate}.`); return; }
+    const current = getAttendance(employee, date);
+    if (current.confirmed) { toast("This day is already confirmed."); return; }
+    v34OpenConfirmProcessModal([{ employee, date, current }]);
+};
+
+confirmSelectedHours = function() {
+    if (!isTodayOrPast(overviewDate)) { toast("Future hours cannot be confirmed."); return; }
+    const logins = getSelectedShiftLogins();
+    if (!logins.length) { toast("Select at least one employee."); return; }
+    const rows = [];
+    logins.forEach(login => {
+        const employee = employeeByLogin(login);
+        if (!employee || !canConfirmEmployeeDate(employee, overviewDate)) return;
+        const current = getAttendance(employee, overviewDate);
+        if (current.confirmed) return;
+        rows.push({ employee, date: overviewDate, current });
+    });
+    if (!rows.length) { toast("Selected employees were already confirmed or are not available for confirmation."); return; }
+    v34OpenConfirmProcessModal(rows);
+};
+
+// Keep Edit -> Save synchronized with the selected worked process.
+const V34_originalSaveHoursEdit = saveHoursEdit;
+saveHoursEdit = async function(event) {
+    const employee = employeeByLogin($("editLogin")?.value || "");
+    const dateValue = $("editDate")?.value || "";
+    const beforeWorkedProcess = employee ? v34WorkedProcess(employee, getAttendance(employee, fromKey(dateValue))) : "";
+    await V34_originalSaveHoursEdit(event);
+    if (!employee || !dateValue) return;
+    const date = fromKey(dateValue);
+    const current = getAttendance(employee, date);
+    const status = String(current.status || "").toLowerCase();
+    if (status === "absent") return;
+    const selected = String($("editWorkedProcess")?.value || beforeWorkedProcess || employee.process || "").trim();
+    if (!selected) return;
+    const allowed = [normalizeProcessName(employee.process || ""), ...employeeProcessSkills(employee).map(normalizeSecondaryProcess)];
+    if (!allowed.includes(selected)) return;
+    if (v34WorkedProcess(employee, current) === selected) return;
+    const next = { ...current, workedProcess: selected };
+    if (attendanceRemoteReady) await saveAttendanceToSupabase(employee, date, next);
+    else { attendance[attendanceKey(date, employee.login)] = next; saveStorage(); }
+    renderOverview();
+    renderHoursAttendance();
+};
+
+// Process breakdown for one employee: actual confirmed hours by worked process.
+function v34EmployeeWorkedProcessStats(employee, monthDate = hoursAttendanceMonth) {
+    const map = new Map();
+    for (let day = 1; day <= monthDays(monthDate); day++) {
+        const date = new Date(monthDate.getFullYear(), monthDate.getMonth(), day, 12);
+        if (!canConfirmEmployeeDate(employee, date)) continue;
+        const data = getAttendance(employee, date);
+        if (!data.confirmed || String(data.status || "").toLowerCase() === "absent") continue;
+        const hours = Number(data.actualHours || 0);
+        if (hours <= 0) continue;
+        const process = v34WorkedProcess(employee, data);
+        map.set(process, (map.get(process) || 0) + hours);
+    }
+    return [...map.entries()].sort((a,b) => b[1] - a[1]);
+}
+
+// Add a compact process-hours card to the employee attendance detail.
+const V34_originalRenderHoursAttendance = renderHoursAttendance;
+renderHoursAttendance = function() {
+    V34_originalRenderHoursAttendance();
+    const employee = employeeByLogin(hoursAttendanceEmployeeLogin);
+    const summary = $("hoursEmployeeSummary");
+    if (!employee || !summary) return;
+    let panel = $("v34EmployeeProcessHours");
+    if (!panel) {
+        panel = document.createElement("section");
+        panel.id = "v34EmployeeProcessHours";
+        panel.className = "panel v34-process-hours-panel";
+        summary.parentNode?.insertBefore(panel, summary.nextSibling);
+    }
+    const stats = v34EmployeeWorkedProcessStats(employee, hoursAttendanceMonth);
+    const total = stats.reduce((sum, [,hours]) => sum + hours, 0);
+    panel.innerHTML = `<div class="panel-title"><div><h3>Worked hours by process</h3><p>Actual confirmed hours. A secondary process changes this breakdown only; worked days remain credited to the employee's primary process.</p></div></div>${stats.length ? `<div class="v34-process-hours-grid">${stats.map(([process,hours]) => `<div class="v34-process-hour-item"><strong>${esc(process)}</strong><span>${hours.toFixed(2)}h</span><small>${total ? ((hours/total)*100).toFixed(1) : "0.0"}% of confirmed hours</small></div>`).join("")}</div>` : `<div class="empty">No confirmed working hours in this month.</div>`}`;
+};
+
+// Add confirmation-modal event handlers before initApp runs.
+const V34_originalInitEvents = initEvents;
+initEvents = function() {
+    V34_originalInitEvents();
+    $("closeConfirmProcessModal")?.addEventListener("click", v34CloseConfirmProcessModal);
+    $("cancelConfirmProcess")?.addEventListener("click", v34CloseConfirmProcessModal);
+    $("saveConfirmProcess")?.addEventListener("click", v34SaveConfirmProcess);
+    $("confirmProcessModal")?.addEventListener("click", event => {
+        if (event.target?.id === "confirmProcessModal") v34CloseConfirmProcessModal();
+    });
+};
+
+/* V34 analytics process-hours enrichment */
+let V34_lastAnalyticsWorkedHoursByProcess = new Map();
+const V34_originalAnalyticsRowFor = analyticsRowFor;
+analyticsRowFor = function(date, shift, employees) {
+    const row = V34_originalAnalyticsRowFor(date, shift, employees);
+    row.workedProcessHours = new Map();
+    employees.forEach(employee => {
+        if (!canConfirmEmployeeDate(employee, date) || !employeeOperationalOnDate(employee, date)) return;
+        if (getSchedule(employee, date).shift !== shift) return;
+        const data = getAttendance(employee, date);
+        if (!data.confirmed || String(data.status || "").toLowerCase() === "absent") return;
+        const hours = Number(data.actualHours || 0);
+        if (hours <= 0) return;
+        const process = v34WorkedProcess(employee, data);
+        row.workedProcessHours.set(process, (row.workedProcessHours.get(process) || 0) + hours);
+        V34_lastAnalyticsWorkedHoursByProcess.set(process, (V34_lastAnalyticsWorkedHoursByProcess.get(process) || 0) + hours);
+    });
+    return row;
+};
+
+const V34_originalAnalyticsInlineDetail = renderAnalyticsInlineDetail;
+renderAnalyticsInlineDetail = function(row) {
+    const original = V34_originalAnalyticsInlineDetail(row);
+    const worked = row.workedProcessHours || new Map();
+    return original
+        .replace(/<th>Process<\/th><th>Planned<\/th>/, "<th>Process</th><th>Worked hours</th><th>Planned</th>")
+        .replace(/<tr><td><strong>\$\{esc\(stat\.process\)\}<\/strong><\/td><td>\$\{stat\.planned\}<\/td>/g,
+            "<tr><td><strong>${esc(stat.process)}</strong></td><td>${(worked.get(stat.process) || 0).toFixed(2)}h</td><td>${stat.planned}</td>");
+};
+
+const V34_originalRenderAnalytics = renderAnalytics;
+renderAnalytics = function() {
+    V34_lastAnalyticsWorkedHoursByProcess = new Map();
+    V34_originalRenderAnalytics();
+    const table = $("analyticsPeriodProcessBody")?.closest("table");
+    if (!table) return;
+    const head = table.querySelector("thead");
+    if (head && !head.querySelector(".v34-worked-hours-head")) {
+        const th = document.createElement("th");
+        th.className = "v34-worked-hours-head";
+        th.textContent = "Worked hours";
+        const ref = head.querySelector("th:nth-child(2)");
+        ref?.parentNode?.insertBefore(th, ref);
+    }
+    table.querySelectorAll("tbody tr").forEach(tr => {
+        if (tr.children.length < 2 || tr.querySelector(".empty")) return;
+        const process = tr.children[0]?.textContent?.trim() || "";
+        const td = document.createElement("td");
+        td.textContent = `${Number(V34_lastAnalyticsWorkedHoursByProcess.get(process) || 0).toFixed(2)}h`;
+        tr.insertBefore(td, tr.children[1]);
+    });
+};
+
+// Hide the employee process panel when the employee detail is closed.
+const V34_previousRenderHoursAttendance = renderHoursAttendance;
+renderHoursAttendance = function() {
+    V34_previousRenderHoursAttendance();
+    const panel = $("v34EmployeeProcessHours");
+    if (panel) panel.hidden = !employeeByLogin(hoursAttendanceEmployeeLogin);
+};

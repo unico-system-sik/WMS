@@ -1698,6 +1698,48 @@ th {
     white-space: nowrap;
 }
 
+.employee-process-shifts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 210px;
+    align-items: center;
+}
+
+.employee-process-shift-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid var(--border-color, #d7dce2);
+    border-radius: 999px;
+    padding: 4px 8px;
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+    background: #f8fafc;
+}
+
+.employee-process-shift-badge strong {
+    font-size: 12px;
+}
+
+.employee-process-shift-badge.primary {
+    background: #eef3f8;
+    border-color: #cbd6e2;
+}
+
+.employee-process-shift-badge.secondary {
+    background: #fff8e8;
+    border-color: #ead8a8;
+}
+
+.employee-process-shifts small {
+    flex-basis: 100%;
+    color: #718096;
+    font-size: 10px;
+    margin-top: 1px;
+}
+
 .employee-status-badge {
     display: inline-flex;
     align-items: center;
@@ -2455,3 +2497,59 @@ button.analytics-detail-kpi:hover {
     .analytics-inline-header { flex-direction: column; }
     .analytics-inline-close { align-self: flex-end; }
 }
+
+
+/* V33 schedule exception / leave visual system */
+.schedule-legend { flex-wrap: wrap; }
+.schedule-legend > span { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+.schedule-legend i { display:inline-block; width:12px; height:12px; border-radius:4px; border:1px solid rgba(20,35,59,.12); }
+.legend-extra-off { background:#f3b0b0; }
+.legend-extra-day { background:#c88b17; }
+.legend-extra-night { background:#315b9f; }
+.legend-vacation { background:#b99be8; }
+.legend-sick { background:#e58b8b; }
+.schedule-state { width:100%; min-height:36px; border-radius:7px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-weight:900; font-size:10px; line-height:1.05; box-sizing:border-box; }
+.schedule-state small { margin-top:2px; font-size:8px; font-weight:700; opacity:.85; }
+.schedule-state.extra-off { background:#f3b0b0; color:#8b1e1e; }
+.schedule-state.extra-day { background:#c88b17; color:#fff; }
+.schedule-state.extra-night { background:#315b9f; color:#fff; }
+.schedule-state.vacation { background:#b99be8; color:#35205c; }
+.schedule-state.sick { background:#e58b8b; color:#5f1111; }
+.schedule-state.before-start { background:#f2f4f7; color:#7b8797; }
+.individual-schedule-cell.extra-off,.individual-schedule-cell.extra-day,.individual-schedule-cell.extra-night,.individual-schedule-cell.vacation,.individual-schedule-cell.sick { padding:3px !important; }
+.extra-change.off { color:#a32424; }
+.extra-change.work { color:#9a6700; }
+.extra-change.night { color:#315b9f; }
+.leave-badge { display:inline-flex; padding:4px 8px; border-radius:999px; font-weight:800; font-size:11px; }
+.leave-badge.vacation { background:#eadff7; color:#5b3a88; }
+.leave-badge.sick { background:#f8d3d3; color:#8b1e1e; }
+.leave-form { grid-template-columns: 1.2fr .9fr 1fr 1fr 1.4fr 1fr auto; }
+.leave-stats .quick-stat strong { font-variant-numeric:tabular-nums; }
+.analytics-chart-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:14px 0; }
+.analytics-mini-chart { border:1px solid #e1e7ef; border-radius:10px; background:#fff; padding:12px; }
+.analytics-mini-chart h4 { margin:0 0 10px; color:#14233b; }
+.analytics-bar-row { display:grid; grid-template-columns:150px minmax(80px,1fr) 72px; align-items:center; gap:8px; margin:8px 0; font-size:11px; }
+.analytics-bar-row > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.analytics-bar-track { height:9px; background:#edf1f6; border-radius:999px; overflow:hidden; }
+.analytics-bar-track i { display:block; height:100%; background:#6b7d96; border-radius:999px; }
+.analytics-bar-row > strong { text-align:right; font-size:12px; }
+.analytics-bar-row > strong small { color:#718096; font-weight:600; }
+@media (max-width:1100px){ .leave-form { grid-template-columns:repeat(3,minmax(0,1fr)); } .analytics-chart-grid { grid-template-columns:1fr; } }
+@media (max-width:700px){ .leave-form { grid-template-columns:1fr; } .analytics-bar-row { grid-template-columns:105px minmax(60px,1fr) 58px; } }
+
+/* V34 — worked process confirmation / analytics */
+.confirm-process-modal-card { max-width: 760px; }
+.confirm-process-list { display: grid; gap: 10px; max-height: 58vh; overflow: auto; padding: 4px 2px; }
+.confirm-process-row { display: grid; grid-template-columns: minmax(0,1fr) 250px; gap: 14px; align-items: center; padding: 12px; border: 1px solid #e4eaf1; border-radius: 10px; background: #fbfcfe; }
+.confirm-process-employee { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.confirm-process-employee strong { color: #14233b; }
+.confirm-process-employee span { color: #718096; font-size: 12px; }
+.confirm-process-row label { display: grid; gap: 5px; color: #52627a; font-size: 12px; font-weight: 700; }
+.confirm-process-row select { width: 100%; }
+.v34-process-hours-panel { margin-top: 14px; }
+.v34-process-hours-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 10px; }
+.v34-process-hour-item { border: 1px solid #e4eaf1; border-radius: 10px; padding: 12px; background: #fbfcfe; }
+.v34-process-hour-item strong { display: block; color: #14233b; }
+.v34-process-hour-item span { display: block; margin-top: 5px; font-size: 20px; font-weight: 800; color: #14233b; }
+.v34-process-hour-item small { display: block; margin-top: 3px; color: #718096; }
+@media (max-width: 700px) { .confirm-process-row { grid-template-columns: 1fr; } }
