@@ -387,7 +387,7 @@
                     <div><h3 id="trainingFormTitle">Create Training Team</h3><p>Choose the shift and process that the team is being trained for.</p></div>
                 </div>
                 <div class="training-form-grid">
-                    <div><label class="control-label">Team name</label><input id="trainingTeamName" maxlength="100" placeholder="e.g. New Starters — Team 01"></div>
+                    <div><label class="control-label">Team name</label><input id="trainingTeamName" maxlength="100" readonly aria-readonly="true"><small class="field-hint">Automatically generated: TTYYYYMMDD001 for Training / RTYYYYMMDD001 for Retraining.</small></div>
                     <div><label class="control-label">Date</label><input id="trainingDate" type="date"></div>
                     <div><label class="control-label">Shift</label><select id="trainingShift"><option value="day">DAY</option><option value="night">NIGHT</option></select></div>
                     <div><label class="control-label">Process</label><select id="trainingProcess"></select></div>
