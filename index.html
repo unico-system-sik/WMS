@@ -113,32 +113,11 @@
         </div>
     </div>
 
-    <div class="cards five overview-main-kpis">
-        <div class="card">
-            <span>Should be working</span>
-            <strong id="ovPlanned">0</strong>
-            <small>scheduled employees</small>
-        </div>
-        <div class="card">
-            <span>Absent</span>
-            <strong id="ovAbsentTotal">0</strong>
-            <small>did not come</small>
-        </div>
-        <div class="card">
-            <span>Arrived / left early</span>
-            <strong id="ovEarlyChange">0</strong>
-            <small>time deviation</small>
-        </div>
-        <div class="card">
-            <span>Pending</span>
-            <strong id="ovMissing">0</strong>
-            <small>waiting for confirmation</small>
-        </div>
-        <div class="card">
-            <span>Attendance</span>
-            <strong id="ovRateCard">0%</strong>
-            <small>present / scheduled</small>
-        </div>
+    <div class="cards four overview-main-kpis">
+        <div class="card"><span>Should be working</span><strong id="ovPlanned">0</strong><small>scheduled employees</small></div>
+        <div class="card"><span>Arrived / left early</span><strong id="ovEarlyChange">0</strong><small>time status</small></div>
+        <div class="card"><span>Pending</span><strong id="ovMissing">0</strong><small>waiting for confirmation</small></div>
+        <div class="card"><span>Attendance</span><strong id="ovRateCard">0%</strong><small>present / scheduled</small></div>
     </div>
 
     <section class="panel quick-stats-panel overview-early-reasons-panel">
@@ -247,8 +226,6 @@
                         <th>Planned</th>
                         <th>Actual</th>
                         <th>Worked days</th>
-                        <th title="Attendance was explicitly marked as Absent">Absent</th>
-                        <th title="Shows late arrival and/or leaving before planned end">Time deviation</th>
                         <th>Status</th>
                         <th>Reason</th>
                         <th>Confirmed by</th>
@@ -391,7 +368,7 @@
                     <div><label class="control-label">Date</label><input id="trainingDate" type="date"></div>
                     <div><label class="control-label">Shift</label><select id="trainingShift"><option value="day">DAY</option><option value="night">NIGHT</option></select></div>
                     <div><label class="control-label">Process</label><select id="trainingProcess"></select></div>
-                    <div class="training-instructor-picker"><label class="control-label">Instructor</label><input id="trainingInstructor" type="search" list="trainingInstructorOptions" autocomplete="off" placeholder="Search instructor by login"><datalist id="trainingInstructorOptions"></datalist><small class="field-hint">Search and select an Instructor by login.</small></div>
+                    <div class="training-instructor-picker"><label class="control-label">Instructor</label><div class="training-search-select"><input id="trainingInstructor" type="search" autocomplete="off" placeholder="Search instructor by login"><input id="trainingInstructorLogin" type="hidden"><div id="trainingInstructorDropdown" class="training-search-dropdown hidden"></div></div><small class="field-hint">Search by login, process or brigade, then select an Instructor.</small></div>
                     <div><label class="control-label">Note</label><input id="trainingNote" maxlength="300" placeholder="Optional training note"></div>
                 </div>
                 <div class="training-participants-panel">
@@ -641,7 +618,7 @@
 
     <section id="historyTab" class="subpage panel">
         <div class="panel-title">
-            <div><h3>Extra Days History</h3><p>Immutable record of who added, changed or removed Extra Days.</p></div>
+            <div><h3>Schedule & Leave History</h3><p>History of Extra Days plus Vacation and L4 records.</p></div>
         </div>
         <div class="quick-stats-grid extra-history-stats">
             <div class="quick-stat"><span>Extra work</span><strong id="historyStatWork">0</strong><small>DAY + NIGHT</small></div>
