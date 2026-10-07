@@ -1009,7 +1009,7 @@ async function loadEmployeeAssignmentHistoryFromSupabase() {
     if (!currentUser) return false;
     const { data, error } = await supabaseClient
         .from("employee_assignment_history")
-        .select("id, employee_login, effective_from, brigade, process, changed_by_login, changed_by_name, changed_at")
+        .select("id, employee_login, effective_from, brigade, process, changed_by_login, changed_at")
         .order("employee_login", { ascending: true })
         .order("effective_from", { ascending: true });
     if (error) {
@@ -1025,7 +1025,6 @@ async function loadEmployeeAssignmentHistoryFromSupabase() {
         brigade: String(row.brigade || ""),
         process: normalizeProcessName(row.process),
         changed_by_login: String(row.changed_by_login || ""),
-        changed_by_name: String(row.changed_by_name || "")
     })) : [];
     const byLogin = new Map();
     employeeAssignmentHistory.forEach(row => { if (!byLogin.has(row.employee_login)) byLogin.set(row.employee_login, []); byLogin.get(row.employee_login).push(row); });
@@ -1687,7 +1686,7 @@ function employeeAssignmentForDate(employee, date) {
     let match = null;
     rows.forEach(row => { if (row.effective_from && row.effective_from <= dateText) match = row; });
     if (!match) return fallback;
-    return { brigade: match.brigade || fallback.brigade, process: normalizeProcessName(match.process || fallback.process), effectiveFrom: match.effective_from || "", changedByLogin: match.changed_by_login || "", changedByName: match.changed_by_name || "", changedAt: match.changed_at || "" };
+    return { brigade: match.brigade || fallback.brigade, process: normalizeProcessName(match.process || fallback.process), effectiveFrom: match.effective_from || "", changedByLogin: match.changed_by_login || "", changedAt: match.changed_at || "" };
 }
 function employeeBrigadeForDate(employee, date) { return employeeAssignmentForDate(employee, date).brigade; }
 function employeeProcessForDate(employee, date) { return employeeAssignmentForDate(employee, date).process; }
