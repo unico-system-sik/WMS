@@ -7,7 +7,7 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://ipmyxkhnwijpdweeztgb.supabase.co wss://ipmyxkhnwijpdweeztgb.supabase.co; worker-src 'self' blob:;">
-    <link rel="stylesheet" href="style.css?v=37.0">
+    <link rel="stylesheet" href="style.css?v=38.0">
 </head>
 <body>
 
@@ -233,7 +233,7 @@
         </div>
 
         <div class="table-wrap">
-            <table>
+            <table class="shift-overview-table">
                 <thead>
                     <tr>
                         <th class="check-col">
@@ -391,7 +391,7 @@
                     <div><label class="control-label">Date</label><input id="trainingDate" type="date"></div>
                     <div><label class="control-label">Shift</label><select id="trainingShift"><option value="day">DAY</option><option value="night">NIGHT</option></select></div>
                     <div><label class="control-label">Process</label><select id="trainingProcess"></select></div>
-                    <div><label class="control-label">Instructor</label><select id="trainingInstructor"></select><small class="field-hint">Prefer employees with the Instructor qualification.</small></div>
+                    <div class="training-instructor-picker"><label class="control-label">Instructor</label><input id="trainingInstructor" type="search" list="trainingInstructorOptions" autocomplete="off" placeholder="Search instructor by login"><datalist id="trainingInstructorOptions"></datalist><small class="field-hint">Search and select an Instructor by login.</small></div>
                     <div><label class="control-label">Note</label><input id="trainingNote" maxlength="300" placeholder="Optional training note"></div>
                 </div>
                 <div class="training-participants-panel">
@@ -535,7 +535,7 @@
                 <span><i class="legend-extra-off"></i> Extra OFF</span>
                 <span><i class="legend-extra-day"></i> Extra DAY</span>
                 <span><i class="legend-extra-night"></i> Extra NIGHT</span>
-                <span><i class="legend-vacation"></i> Urlop</span>
+                <span><i class="legend-vacation"></i> Vacation</span>
                 <span><i class="legend-sick"></i> L4</span>
             </div>
         </div>
@@ -558,11 +558,12 @@
                 <div class="individual-schedule-actions">
                     <input id="individualScheduleSearch" class="individual-schedule-search" type="search" placeholder="Search by login" autocomplete="off">
                     <button id="individualScheduleSearchBtn" type="button" class="secondary">Search</button>
+                    <button id="individualScheduleAllBtn" type="button" class="secondary">Open all employees</button>
                     <button id="clearIndividualScheduleSearch" type="button" class="secondary">Clear</button>
                     <button id="saveIndividualSchedule" type="button" class="primary">Save individual changes</button>
                 </div>
             </div>
-            <div class="schedule-override-note"><strong>Priority:</strong> Individual schedule → Extra Day → Brigade schedule → default. <span>R = additional scheduled day off, not Urlop.</span></div>
+            <div class="schedule-override-note"><strong>Priority:</strong> Individual schedule → Extra Day → Brigade schedule → default. <span>R = additional scheduled day off, not Vacation.</span></div>
             <div class="schedule-table-wrap">
                 <table class="schedule-table individual-schedule-table">
                     <thead><tr id="individualScheduleHeadRow"></tr></thead>
@@ -609,17 +610,17 @@
 
     <section id="leaveTab" class="subpage panel">
         <div class="panel-title">
-            <div><h3>Leave & Absence</h3><p>Plan Urlop and sick leave (L4). Leave is shown in the employee schedule with a dedicated color and removes the employee from planned working shifts for those dates.</p></div>
+            <div><h3>Leave & Absence</h3><p>Plan Vacation and sick leave (L4). Leave is shown in the employee schedule with a dedicated color and removes the employee from planned working shifts for those dates.</p></div>
         </div>
         <div class="quick-stats-grid extra-days-stats leave-stats">
-            <div class="quick-stat"><span>Urlop</span><strong id="leaveStatVacation">0</strong><small>active records</small></div>
+            <div class="quick-stat"><span>Vacation</span><strong id="leaveStatVacation">0</strong><small>active records</small></div>
             <div class="quick-stat"><span>L4</span><strong id="leaveStatSick">0</strong><small>active records</small></div>
             <div class="quick-stat"><span>Employees</span><strong id="leaveStatEmployees">0</strong><small>with leave</small></div>
             <div class="quick-stat"><span>Days</span><strong id="leaveStatDays">0</strong><small>calendar days</small></div>
         </div>
         <div class="extra-form leave-form">
             <div><label class="control-label">Employee login</label><input id="leaveEmployeeLogin" placeholder="e.g. 60010001"><small id="leaveEmployeeHint" class="field-hint">Enter the exact employee login.</small></div>
-            <div><label class="control-label">Type</label><select id="leaveType"><option value="vacation">Urlop</option><option value="sick-leave">L4 / Sick leave</option></select></div>
+            <div><label class="control-label">Type</label><select id="leaveType"><option value="vacation">Vacation</option><option value="sick-leave">L4 / Sick leave</option></select></div>
             <div><label class="control-label">From</label><input id="leaveStartDate" type="date"></div>
             <div><label class="control-label">To</label><input id="leaveEndDate" type="date"></div>
             <div><label class="control-label">Note</label><input id="leaveNote" maxlength="300" placeholder="Optional note"></div>
@@ -628,7 +629,7 @@
         </div>
         <div class="history-filters extra-days-filters">
             <div><label class="control-label">Employee login</label><input id="leaveFilterLogin" placeholder="Employee login"></div>
-            <div><label class="control-label">Type</label><select id="leaveFilterType"><option value="">All types</option><option value="vacation">Urlop</option><option value="sick-leave">L4</option></select></div>
+            <div><label class="control-label">Type</label><select id="leaveFilterType"><option value="">All types</option><option value="vacation">Vacation</option><option value="sick-leave">L4</option></select></div>
             <button id="applyLeaveFilters" class="primary filter-search-btn" type="button">Search</button>
             <button id="clearLeaveFilters" class="secondary" type="button">Clear</button>
         </div>
@@ -1424,7 +1425,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=37.0"></script>
+<script src="script.js?v=38.0"></script>
 
 </body>
 </html>

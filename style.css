@@ -2576,3 +2576,57 @@ button.analytics-detail-kpi:hover {
 .training-title-row{align-items:flex-start}.training-title-actions{display:flex;gap:8px;flex-wrap:wrap}.training-subtabs{margin:0 0 16px}.training-kpis{margin-bottom:16px}.training-create-panel,.training-history-panel,.training-analysis-panel{margin-top:16px}.training-form-grid{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:12px}.training-form-grid>div{min-width:0}.training-form-grid input,.training-form-grid select{width:100%;box-sizing:border-box}.training-form-actions{justify-content:flex-end}.training-participants-panel{margin-top:14px;border:1px solid #e1e7ef;border-radius:12px;background:#fbfcfe;padding:12px}.training-participants-header{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px}.training-participants-header>div{display:flex;flex-direction:column;gap:3px}.training-participants-header small{color:#718096}.training-participants-header input{min-width:260px}.training-participant-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;max-height:300px;overflow:auto;padding-right:3px}.training-participant-option{display:flex;align-items:center;gap:8px;padding:8px 9px;border:1px solid #e4eaf1;border-radius:9px;background:#fff;cursor:pointer}.training-participant-option:hover{background:#f5f8fb}.training-participant-option input{margin:0}.training-participant-option small{display:block;color:#718096;margin-top:2px}.training-history-table td,.training-history-table th,.training-analysis-table td,.training-analysis-table th{white-space:nowrap}.training-session-row{cursor:pointer}.training-session-row:hover{background:#f7f9fc}.training-type-badge,.training-shift-badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:800}.training-type-badge.training{background:#e7f1ff;color:#1859a9}.training-type-badge.retraining{background:#f2e9ff;color:#7141a4}.training-shift-badge.day{background:#fff3c7;color:#8a6200}.training-shift-badge.night{background:#e7edf8;color:#314b78}.training-participant-chip,.training-detail-participant{display:inline-flex;align-items:center;gap:6px;padding:6px 9px;border-radius:999px;background:#eef3f8;color:#26364d;font-size:12px;font-weight:700}.training-detail-participants{display:flex;flex-wrap:wrap;gap:7px}.training-session-modal-card{max-width:900px}.training-detail-kpis{margin-bottom:14px}.training-detail-panel{margin:0}.danger-button{color:#a12a2a!important;border-color:#e0b3b3!important}.training-empty{padding:22px;text-align:center;color:#718096}.training-analysis-table td:not(:first-child),.training-analysis-table th:not(:first-child){text-align:center}.training-filters{align-items:end}.training-filters input,.training-filters select{width:100%;box-sizing:border-box}
 @media(max-width:1050px){.training-form-grid{grid-template-columns:1fr 1fr}.training-participant-list{grid-template-columns:1fr 1fr}.training-filters{grid-template-columns:1fr 1fr!important}}
 @media(max-width:700px){.training-title-row{flex-direction:column}.training-form-grid{grid-template-columns:1fr}.training-participant-list{grid-template-columns:1fr}.training-participants-header{flex-direction:column;align-items:stretch}.training-participants-header input{min-width:0;width:100%;box-sizing:border-box}.training-filters{grid-template-columns:1fr!important}}
+
+/* V38 — schedule alignment and compact controls */
+.schedule-table,
+.individual-schedule-table {
+    table-layout: fixed;
+}
+.schedule-table th:first-child,
+.schedule-table td:first-child,
+.individual-schedule-table th:first-child,
+.individual-schedule-table td:first-child {
+    width: 210px;
+    min-width: 210px;
+}
+.schedule-table th:not(:first-child),
+.schedule-table td:not(:first-child),
+.individual-schedule-table th:not(:first-child),
+.individual-schedule-table td:not(:first-child) {
+    width: 48px;
+    min-width: 48px;
+    max-width: 48px;
+}
+.schedule-table td .schedule-state,
+.individual-schedule-table td .schedule-state {
+    min-height: 36px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+}
+.schedule-table select,
+.individual-schedule-table select {
+    width: 42px;
+    min-width: 42px;
+    padding: 0 2px;
+    text-align: center;
+}
+.training-instructor-picker input[list] { width: 100%; }
+#individualScheduleAllBtn { white-space: nowrap; }
+.employee-action-header { white-space: nowrap; }
+#overviewEmployeeTable .mini-btn { min-width: 54px; }
+
+/* V38 — keep Shift Overview actions visible while the wide table scrolls */
+.shift-overview-table { min-width: 1450px; }
+.shift-overview-table th:last-child,
+.shift-overview-table td:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 3;
+    background: #fff;
+    box-shadow: -4px 0 8px rgba(20,35,59,.06);
+}
+.shift-overview-table thead th:last-child { z-index: 5; }
+.shift-overview-table tbody tr:nth-child(even) td:last-child { background: #fbfcfe; }

@@ -2722,7 +2722,7 @@ function renderShiftEmployees(people) {
             <td class="shift-reason-display">${visibleReason ? `<span class="reason-pill">${esc(visibleReason)}</span>` : `<span class="muted">—</span>`}</td>
             <td>${data.confirmed ? formatActionActor(data.confirmedByLogin, data.confirmedAt) : "—"}</td>
             <td>${data.lastChangedAt ? formatActionActor(data.lastChangedByLogin, data.lastChangedAt) : "—"}</td>
-            <td>${data.confirmed ? `<button type="button" class="mini-btn" data-shift-edit="${esc(employee.login)}">Edit</button>` : "—"}</td>
+            <td><button type="button" class="mini-btn" data-shift-edit="${esc(employee.login)}">Edit</button></td>
         </tr>`;
     }).join("") || `<tr><td colspan="16"><div class="empty">No employees match the selected filters.</div></td></tr>`;
     updateSelectionUI();
@@ -5906,6 +5906,7 @@ $("saveSchedule").addEventListener(
         }
     });
     $("individualScheduleSearchBtn")?.addEventListener("click", runIndividualSearch);
+    $("individualScheduleAllBtn")?.addEventListener("click", () => { if ($("individualScheduleSearch")) $("individualScheduleSearch").value = ""; V33_renderIndividualScheduleTable("__ALL__"); });
     $("clearIndividualScheduleSearch")?.addEventListener("click", () => {
         if (individualSearch) individualSearch.value = "";
         runIndividualSearch();
@@ -6146,7 +6147,7 @@ const V33_originalAnalyticsDetailLists = analyticsDetailLists;
 const V33_originalOpenAnalyticsDrilldown = openAnalyticsDrilldown;
 
 function leaveTypeLabel(type) {
-    return type === "sick-leave" ? "L4" : "Urlop";
+    return type === "sick-leave" ? "L4" : "Vacation";
 }
 function leaveTypeClass(type) {
     return type === "sick-leave" ? "sick" : "vacation";
@@ -6196,6 +6197,22 @@ function V33_renderIndividualScheduleTable(loginOverride) {
     const body=$("individualScheduleBody"), head=$("individualScheduleHeadRow");
     if (!body || !head) return;
     const query=( $("individualScheduleSearch")?.value || "").trim().toLowerCase();
+    if (loginOverride === "__ALL__") {
+        const people = activeEmployees().slice().sort((a,b)=>String(a.login).localeCompare(String(b.login)));
+        const totalDays = monthDays(scheduleMonth);
+        head.innerHTML='<th>Employee</th>'+Array.from({length:totalDays},(_,i)=>{const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12);return `<th class="schedule-day-head"><strong>${String(i+1).padStart(2,"0")}</strong><small>${d.toLocaleDateString("en-US",{weekday:"short"})}</small></th>`}).join("");
+        body.innerHTML = people.map(employee => {
+            const cells = Array.from({length:totalDays},(_,i)=>{
+                const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12), state=scheduleVisualState(employee,d), before=state.kind==="before-start", override=before?"":individualScheduleValue(employee,d);
+                const editable=state.kind==="normal" && !leaveRecordForDate(employee,d) && !extraDays[scheduleKey(d,employee.login)];
+                const selectedEffective=state.kind==="normal" ? (override || V33_originalGetSchedule(employee,d).shift || "off") : "off";
+                return `<td class="schedule-cell individual-schedule-cell ${state.css} ${override?"has-override":""}"><div class="schedule-state ${state.css}" title="${esc(state.title)}"><span>${esc(state.label)}</span>${state.kind!=="normal"?`<small>${esc(state.kind==="leave"?leaveTypeLabel(leaveRecordForDate(employee,d).leaveType):state.kind.replaceAll("-"," "))}</small>`:""}</div>${editable?`<select class="${selectedEffective}" data-individual-schedule="${esc(employee.login)}" data-schedule-date="${dateKey(d)}" title="${esc(override?`Override: ${override}`:`Brigade: ${selectedEffective}`)}">${scheduleOptionHtml(override||"")}</select>`:""}</td>`;
+            }).join("");
+            return `<tr><td class="employee-schedule-name"><strong>${esc(employee.login)}</strong><small>${esc(employee.login)} · ${esc(employeeProcessForDate(employee,scheduleMonth))} · Brigade ${esc(employeeBrigadeForDate(employee,scheduleMonth))}</small></td>${cells}</tr>`;
+        }).join("") || '<tr><td><div class="empty">No active employees.</div></td></tr>';
+        body.querySelectorAll("[data-individual-schedule]").forEach(select=>select.addEventListener("change",()=>{const login=select.dataset.individualSchedule,date=select.dataset.scheduleDate,key=`${date}_${login}`; if(select.value) individualSchedules[key]=select.value; else delete individualSchedules[key]; const emp=employeeByLogin(login); if(emp){select.className=select.value||V33_originalGetSchedule(emp,fromKey(date)).shift||"off";} }));
+        return;
+    }
     if (!query && !loginOverride) { head.innerHTML=""; body.innerHTML='<tr><td><div class="empty">Search for an employee to view their individual schedule.</div></td></tr>'; return; }
     let employee=loginOverride ? employeeByLogin(loginOverride) : null;
     if (!employee) {
@@ -7905,18 +7922,47 @@ function populateTrainingSelects() {
     if (process) process.innerHTML = processOptions.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("");
     if (filterProcess) filterProcess.innerHTML = `<option value="">All processes</option>` + processOptions.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("");
 
+    const instructors = trainingInstructors();
     const instructor = $("trainingInstructor");
+    const datalist = $("trainingInstructorOptions");
+    if (datalist) {
+        datalist.innerHTML = instructors.map(e=>`<option value="${esc(e.login)}" label="${esc(trainingEmployeeLabel(e))}"></option>`).join("");
+    }
     if (instructor) {
-        instructor.innerHTML = trainingInstructors().map(e=>`<option value="${esc(e.login)}">${esc(trainingEmployeeLabel(e))}</option>`).join("");
+        const current = String(instructor.value || "").trim();
+        instructor.value = instructors.some(e => e.login === current) ? current : (instructors[0]?.login || "");
+    }
+}
+function trainingTeamPrefix() {
+    return trainingActiveType === "retraining" ? "RT" : "TT";
+}
+function trainingAutoTeamName(dateValue = $("trainingDate")?.value || dateKey(new Date())) {
+    const prefix = trainingTeamPrefix();
+    const datePart = String(dateValue || dateKey(new Date())).replace(/-/g, "");
+    const used = new Set(trainingSessions.filter(s => s.training_type === trainingActiveType && s.training_date === dateValue).map(s => String(s.team_name || "").trim()));
+    let n = 1;
+    let candidate = "";
+    do { candidate = `${prefix}${datePart}${String(n).padStart(3,"0")}`; n += 1; } while (used.has(candidate));
+    return candidate;
+}
+function setTrainingAutoTeamName(force = false) {
+    const input = $("trainingTeamName");
+    if (!input) return;
+    const pattern = /^(TT|RT)\d{8}\d{3}$/;
+    if (force || !input.value || pattern.test(input.value.trim())) {
+        input.value = trainingAutoTeamName();
+        input.dataset.autoGenerated = "1";
+    } else {
+        input.dataset.autoGenerated = "0";
     }
 }
 function resetTrainingForm() {
     trainingSelectedParticipants = new Set();
-    if ($("trainingTeamName")) $("trainingTeamName").value = "";
     if ($("trainingDate")) $("trainingDate").value = dateKey(new Date());
     if ($("trainingShift")) $("trainingShift").value = "day";
     if ($("trainingProcess")) $("trainingProcess").value = trainingProcessOptions()[0] || "";
     if ($("trainingInstructor")) $("trainingInstructor").value = trainingInstructors()[0]?.login || "";
+    setTrainingAutoTeamName(true);
     if ($("trainingNote")) $("trainingNote").value = "";
     if ($("trainingParticipantSearch")) $("trainingParticipantSearch").value = "";
     renderTrainingParticipantList();
@@ -7928,6 +7974,7 @@ function setTrainingType(type) {
     const save = $("trainingSaveSession");
     if (title) title.textContent = trainingActiveType === "retraining" ? "Create Retraining Team" : "Create Training Team";
     if (save) save.textContent = trainingActiveType === "retraining" ? "Save Retraining Team" : "Save Training Team";
+    setTrainingAutoTeamName(true);
     renderTrainingHistory();
 }
 function trainingFilteredSessions() {
@@ -8050,10 +8097,11 @@ async function saveTrainingSession() {
     const shift = String($("trainingShift")?.value || "").trim();
     const process = String($("trainingProcess")?.value || "").trim();
     const instructor = String($("trainingInstructor")?.value || "").trim();
+    const instructorEmployee = trainingInstructors().find(e => String(e.login) === instructor);
     const note = String($("trainingNote")?.value || "").trim();
     const participants = trainingCurrentParticipantLogins();
     if (!teamName) { toast("Enter a team name."); return; }
-    if (!trainingDate || !shift || !process || !instructor) { toast("Date, shift, process and instructor are required."); return; }
+    if (!trainingDate || !shift || !process || !instructor || !instructorEmployee) { toast("Date, shift, process and a valid instructor are required."); return; }
     if (!participants.length) { toast("Select at least one participant."); return; }
     const duplicate = trainingSessions.some(s => s.training_type === trainingActiveType && s.training_date === trainingDate && s.shift === shift && s.team_name.toLowerCase() === teamName.toLowerCase());
     if (duplicate) { toast("A team with the same type, date, shift and name already exists."); return; }
@@ -8143,6 +8191,13 @@ function initTrainingModule() {
     resetTrainingForm();
     document.querySelectorAll("[data-training-type]").forEach(btn=>btn.addEventListener("click",()=>setTrainingType(btn.dataset.trainingType)));
     $("trainingParticipantSearch")?.addEventListener("input",renderTrainingParticipantList);
+    $("trainingTeamName")?.addEventListener("input", e => { e.target.dataset.autoGenerated = "0"; });
+    $("trainingDate")?.addEventListener("change", () => { setTrainingAutoTeamName(false); });
+    $("trainingInstructor")?.addEventListener("input", e => {
+        const q = String(e.target.value || "").trim().toLowerCase();
+        const match = trainingInstructors().find(x => String(x.login).toLowerCase() === q || trainingEmployeeLabel(x).toLowerCase().includes(q));
+        if (match) e.target.value = match.login;
+    });
     $("trainingParticipantList")?.addEventListener("change",event=>{
         const checkbox=event.target.closest("[data-training-participant]"); if(!checkbox)return;
         const login=checkbox.dataset.trainingParticipant; if(checkbox.checked)trainingSelectedParticipants.add(login);else trainingSelectedParticipants.delete(login); trainingUpdateParticipantCount();
