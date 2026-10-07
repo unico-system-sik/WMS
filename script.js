@@ -7641,3 +7641,548 @@ renderHoursAttendance = function() {
     const panel = $("v34EmployeeProcessHours");
     if (panel) panel.hidden = !employeeByLogin(hoursAttendanceEmployeeLogin);
 };
+
+/* ================================================================
+   V36 — Employee process-day details
+   Process-day counts are derived from the same confirmed attendance
+   records created/edited from Shift Overview. A selected secondary
+   process changes the process attribution for that day only; the
+   employee's overall Worked days metric remains credited to Primary.
+   ================================================================ */
+
+function v36EmployeeProcessDayStats(employee, periodKey = "all") {
+    const login = String(employee?.login || "").trim();
+    const map = new Map();
+    if (!login) return map;
+
+    const suffix = `_${login}`;
+    Object.entries(attendance || {}).forEach(([key, data]) => {
+        if (!key.endsWith(suffix)) return;
+        const workDate = key.slice(0, -suffix.length);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return;
+        if (periodKey !== "all" && !workDate.startsWith(periodKey)) return;
+        if (!canConfirmEmployeeDate(employee, workDate)) return;
+
+        const confirmed = Boolean(data?.confirmed);
+        const status = String(data?.status || "").trim().toLowerCase();
+        if (!confirmed || status === "absent") return;
+
+        const process = v34WorkedProcess(employee, data) || normalizeProcessName(employee.process || "");
+        if (!process) return;
+
+        const hours = Math.max(0, Number(data?.actualHours || 0));
+        const shift = String(data?.shift || getSchedule(employee, workDate)?.shift || "").toLowerCase();
+        const item = map.get(process) || { days: 0, hours: 0, day: 0, night: 0, dates: [] };
+        item.days += 1;
+        item.hours += hours;
+        if (shift === "day") item.day += 1;
+        if (shift === "night") item.night += 1;
+        item.dates.push(workDate);
+        map.set(process, item);
+    });
+
+    return map;
+}
+
+function v36EmployeeDetailPeriods(employee) {
+    const login = String(employee?.login || "").trim();
+    const suffix = `_${login}`;
+    const months = new Set();
+    Object.keys(attendance || {}).forEach(key => {
+        if (!key.endsWith(suffix)) return;
+        const datePart = key.slice(0, -suffix.length);
+        const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(datePart);
+        if (match) months.add(`${match[1]}-${match[2]}`);
+    });
+    return [...months].sort().reverse();
+}
+
+function v36EmployeeDetailsOptionLabel(periodKey) {
+    if (periodKey === "all") return "All history";
+    const [year, month] = periodKey.split("-").map(Number);
+    return new Date(year, month - 1, 1, 12).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+function v36RenderEmployeeDetails(login) {
+    const employee = employeeByLogin(login);
+    const modal = $("employeeDetailsModal");
+    if (!employee || !modal) return;
+
+    $("employeeDetailsEmployee").textContent = `${employee.login} · ${employee.process} · Brigade ${employee.brigade}`;
+    const period = $("employeeDetailsPeriod");
+    const current = period?.value || "all";
+    const periods = ["all", ...v36EmployeeDetailPeriods(employee)];
+    if (period) {
+        period.innerHTML = periods.map(value => `<option value="${esc(value)}">${esc(v36EmployeeDetailsOptionLabel(value))}</option>`).join("");
+        period.value = periods.includes(current) ? current : "all";
+    }
+
+    const selectedPeriod = period?.value || "all";
+    const stats = v36EmployeeProcessDayStats(employee, selectedPeriod);
+    const rows = [...stats.entries()].sort((a, b) => {
+        const primary = normalizeProcessName(employee.process || "");
+        const ap = a[0] === primary ? 0 : 1;
+        const bp = b[0] === primary ? 0 : 1;
+        return ap - bp || b[1].days - a[1].days || a[0].localeCompare(b[0]);
+    });
+
+    const totalDays = rows.reduce((sum, [, item]) => sum + item.days, 0);
+    const totalHours = rows.reduce((sum, [, item]) => sum + item.hours, 0);
+    const primary = normalizeProcessName(employee.process || "");
+    const secondaryDays = rows.reduce((sum, [process, item]) => sum + (process === primary ? 0 : item.days), 0);
+
+    $("employeeDetailsWorkedDays").textContent = String(totalDays);
+    $("employeeDetailsHours").textContent = `${totalHours.toFixed(2)}h`;
+    $("employeeDetailsProcessCount").textContent = String(rows.length);
+    $("employeeDetailsSecondaryDays").textContent = String(secondaryDays);
+
+    $("employeeDetailsProcessBody").innerHTML = rows.length
+        ? rows.map(([process, item]) => {
+            const share = totalDays ? ((item.days / totalDays) * 100).toFixed(1) : "0.0";
+            const cls = process === primary ? "employee-details-primary" : "employee-details-secondary";
+            return `<tr>
+                <td class="${cls}">${esc(process)}${process === primary ? ` <small>(Primary)</small>` : ` <small>(Secondary)</small>`}</td>
+                <td><strong>${item.days}</strong></td>
+                <td>${item.hours.toFixed(2)}h</td>
+                <td class="employee-details-share">${share}%</td>
+                <td>${item.day}</td>
+                <td>${item.night}</td>
+            </tr>`;
+        }).join("")
+        : `<tr><td colspan="6"><div class="employee-details-empty">No confirmed working days in this period.</div></td></tr>`;
+
+    modal.classList.remove("hidden");
+}
+
+function v36OpenEmployeeDetails(login) {
+    v36RenderEmployeeDetails(login);
+}
+
+function v36CloseEmployeeDetails() {
+    $("employeeDetailsModal")?.classList.add("hidden");
+}
+
+function v36RefreshEmployeeDetailsIfOpen() {
+    const modal = $("employeeDetailsModal");
+    if (!modal || modal.classList.contains("hidden")) return;
+    const login = modal.dataset.employeeLogin || "";
+    if (login) v36RenderEmployeeDetails(login);
+}
+
+const V36_originalRenderEmployeeDatabase = renderEmployeeDatabase;
+renderEmployeeDatabase = function() {
+    V36_originalRenderEmployeeDatabase();
+    document.querySelectorAll("[data-employee-action='details']").forEach(button => {
+        button.title = "Open employee process-day details";
+    });
+};
+
+const V36_originalEmployeeEditButton = employeeEditButton;
+employeeEditButton = function(employee) {
+    const details = `<button class="secondary employee-action-btn" type="button" data-employee-action="details" data-employee-login="${esc(employee.login)}">Details</button>`;
+    return details + " " + V36_originalEmployeeEditButton(employee);
+};
+
+const V36_originalEmployeeActionButton = employeeActionButton;
+employeeActionButton = function(employee, action) {
+    const details = `<button class="secondary employee-action-btn" type="button" data-employee-action="details" data-employee-login="${esc(employee.login)}">Details</button>`;
+    return details + " " + V36_originalEmployeeActionButton(employee, action);
+};
+
+// Add the details action to the existing employee action dispatcher.
+const V36_originalInitEmployeeStatusActions = initEmployeeStatusActions;
+initEmployeeStatusActions = function() {
+    V36_originalInitEmployeeStatusActions();
+    if (window.__v36EmployeeDetailsActionsInitialized) return;
+    window.__v36EmployeeDetailsActionsInitialized = true;
+
+    document.addEventListener("click", event => {
+        const button = event.target.closest("[data-employee-action='details']");
+        if (!button) return;
+        event.preventDefault();
+        const login = button.dataset.employeeLogin || "";
+        const modal = $("employeeDetailsModal");
+        if (modal) modal.dataset.employeeLogin = login;
+        v36OpenEmployeeDetails(login);
+    });
+
+    $("closeEmployeeDetailsModal")?.addEventListener("click", v36CloseEmployeeDetails);
+    $("closeEmployeeDetailsBottom")?.addEventListener("click", v36CloseEmployeeDetails);
+    $("employeeDetailsModal")?.addEventListener("click", event => {
+        if (event.target?.id === "employeeDetailsModal") v36CloseEmployeeDetails();
+    });
+    $("employeeDetailsPeriod")?.addEventListener("change", () => {
+        const login = $("employeeDetailsModal")?.dataset.employeeLogin || "";
+        if (login) v36RenderEmployeeDetails(login);
+    });
+};
+
+// Keep the details modal synchronized after attendance changes.
+const V36_originalSaveAttendanceToSupabase = saveAttendanceToSupabase;
+saveAttendanceToSupabase = async function(employee, date, data) {
+    const result = await V36_originalSaveAttendanceToSupabase(employee, date, data);
+    if (result) v36RefreshEmployeeDetailsIfOpen();
+    return result;
+};
+
+/* ================================================================
+   V37.0 — Training / Retraining module
+   - Team-based onboarding training and retraining records
+   - Date / shift / process / instructor / participants
+   - Search + analysis by employee, instructor, date, shift, process
+   - Safe Supabase persistence in wms_training_sessions + participants
+   - Desktop .url shortcut download opens the Training/Retraining tab
+   ================================================================ */
+let trainingSessions = [];
+let trainingParticipants = [];
+let trainingRemoteLoaded = false;
+let trainingRealtimeChannel = null;
+let trainingActiveType = "training";
+let trainingSelectedParticipants = new Set();
+let trainingOpenSessionId = "";
+
+function trainingTypeLabel(type) {
+    return type === "retraining" ? "Retraining" : "Training";
+}
+function trainingShiftLabel(shift) {
+    return shift === "night" ? "NIGHT" : "DAY";
+}
+function trainingProcessOptions() {
+    const values = new Set([
+        ...(Array.isArray(PROCESSES) ? PROCESSES : []),
+        ...(Array.isArray(EMPLOYEE_PROCESS_SKILLS) ? EMPLOYEE_PROCESS_SKILLS : [])
+    ].map(normalizeProcessName).filter(Boolean));
+    return [...values].sort((a,b) => a.localeCompare(b));
+}
+function trainingEmployeeLabel(employee) {
+    return `${employee.login}${employee.process ? ` · ${employee.process}` : ""}${employee.brigade ? ` · ${employee.brigade}` : ""}`;
+}
+function trainingInstructors() {
+    const active = activeEmployees().slice().sort((a,b)=>String(a.login).localeCompare(String(b.login)));
+    const qualified = active.filter(e => employeeHasQualification(e, "Instructor"));
+    return qualified.length ? qualified : active;
+}
+function trainingSessionById(id) {
+    return trainingSessions.find(s => String(s.id) === String(id)) || null;
+}
+function trainingParticipantsForSession(sessionId) {
+    return trainingParticipants.filter(p => String(p.session_id) === String(sessionId));
+}
+function trainingEmployeeMatches(employee, query) {
+    if (!query) return true;
+    const q = query.toLowerCase();
+    return [employee.login, employee.name, employee.process, employee.brigade].some(v => String(v || "").toLowerCase().includes(q));
+}
+function trainingCurrentParticipantLogins() {
+    return [...trainingSelectedParticipants];
+}
+function trainingUpdateParticipantCount() {
+    const el = $("trainingParticipantCount");
+    if (el) el.textContent = `${trainingSelectedParticipants.size} selected`;
+}
+function renderTrainingParticipantList() {
+    const body = $("trainingParticipantList");
+    if (!body) return;
+    const query = String($("trainingParticipantSearch")?.value || "").trim();
+    const people = activeEmployees()
+        .filter(e => trainingEmployeeMatches(e, query))
+        .sort((a,b)=>String(a.login).localeCompare(String(b.login)));
+
+    body.innerHTML = people.length
+        ? people.map(employee => {
+            const checked = trainingSelectedParticipants.has(employee.login);
+            return `<label class="training-participant-option">
+                <input type="checkbox" data-training-participant="${esc(employee.login)}" ${checked ? "checked" : ""}>
+                <span><strong>${esc(employee.login)}</strong><small>${esc(employee.process || "—")} · ${esc(employee.brigade || "—")}</small></span>
+            </label>`;
+        }).join("")
+        : `<div class="training-empty">No active employees match the search.</div>`;
+    trainingUpdateParticipantCount();
+}
+function populateTrainingSelects() {
+    const processOptions = trainingProcessOptions();
+    const process = $("trainingProcess");
+    const filterProcess = $("trainingFilterProcess");
+    if (process) process.innerHTML = processOptions.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("");
+    if (filterProcess) filterProcess.innerHTML = `<option value="">All processes</option>` + processOptions.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("");
+
+    const instructor = $("trainingInstructor");
+    if (instructor) {
+        instructor.innerHTML = trainingInstructors().map(e=>`<option value="${esc(e.login)}">${esc(trainingEmployeeLabel(e))}</option>`).join("");
+    }
+}
+function resetTrainingForm() {
+    trainingSelectedParticipants = new Set();
+    if ($("trainingTeamName")) $("trainingTeamName").value = "";
+    if ($("trainingDate")) $("trainingDate").value = dateKey(new Date());
+    if ($("trainingShift")) $("trainingShift").value = "day";
+    if ($("trainingProcess")) $("trainingProcess").value = trainingProcessOptions()[0] || "";
+    if ($("trainingInstructor")) $("trainingInstructor").value = trainingInstructors()[0]?.login || "";
+    if ($("trainingNote")) $("trainingNote").value = "";
+    if ($("trainingParticipantSearch")) $("trainingParticipantSearch").value = "";
+    renderTrainingParticipantList();
+}
+function setTrainingType(type) {
+    trainingActiveType = type === "retraining" ? "retraining" : "training";
+    document.querySelectorAll("[data-training-type]").forEach(btn => btn.classList.toggle("active", btn.dataset.trainingType === trainingActiveType));
+    const title = $("trainingFormTitle");
+    const save = $("trainingSaveSession");
+    if (title) title.textContent = trainingActiveType === "retraining" ? "Create Retraining Team" : "Create Training Team";
+    if (save) save.textContent = trainingActiveType === "retraining" ? "Save Retraining Team" : "Save Training Team";
+    renderTrainingHistory();
+}
+function trainingFilteredSessions() {
+    const employee = String($("trainingFilterEmployee")?.value || "").trim().toLowerCase();
+    const instructor = String($("trainingFilterInstructor")?.value || "").trim().toLowerCase();
+    const exactDate = String($("trainingFilterDate")?.value || "");
+    const from = String($("trainingFilterDateFrom")?.value || "");
+    const to = String($("trainingFilterDateTo")?.value || "");
+    const shift = String($("trainingFilterShift")?.value || "");
+    const process = String($("trainingFilterProcess")?.value || "");
+
+    return trainingSessions.filter(session => {
+        if (session.training_type !== trainingActiveType) return false;
+        if (exactDate && session.training_date !== exactDate) return false;
+        if (from && session.training_date < from) return false;
+        if (to && session.training_date > to) return false;
+        if (shift && session.shift !== shift) return false;
+        if (process && session.process !== process) return false;
+        if (instructor && !String(session.instructor_login || "").toLowerCase().includes(instructor)) return false;
+        if (employee) {
+            const participantHit = trainingParticipantsForSession(session.id).some(p => {
+                const e = employeeByLogin(p.employee_login);
+                return String(p.employee_login || "").toLowerCase().includes(employee)
+                    || String(e?.name || "").toLowerCase().includes(employee);
+            });
+            if (!participantHit) return false;
+        }
+        return true;
+    }).sort((a,b)=>String(b.training_date).localeCompare(String(a.training_date)) || String(b.created_at||"").localeCompare(String(a.created_at||"")));
+}
+function renderTrainingKpis(rows) {
+    const participantCount = rows.reduce((sum,s)=>sum+trainingParticipantsForSession(s.id).length,0);
+    const employees = new Set(); const instructors = new Set();
+    rows.forEach(s => { instructors.add(s.instructor_login); trainingParticipantsForSession(s.id).forEach(p=>employees.add(p.employee_login)); });
+    if ($("trainingKpiSessions")) $("trainingKpiSessions").textContent = String(rows.length);
+    if ($("trainingKpiParticipants")) $("trainingKpiParticipants").textContent = String(participantCount);
+    if ($("trainingKpiEmployees")) $("trainingKpiEmployees").textContent = String(employees.size);
+    if ($("trainingKpiInstructors")) $("trainingKpiInstructors").textContent = String(instructors.size);
+}
+function renderTrainingHistory() {
+    const body = $("trainingHistoryBody");
+    if (!body) return;
+    const rows = trainingFilteredSessions();
+    renderTrainingKpis(rows);
+    body.innerHTML = rows.length ? rows.map(session => {
+        const count = trainingParticipantsForSession(session.id).length;
+        const type = session.training_type === "retraining" ? "retraining" : "training";
+        return `<tr class="training-session-row" data-training-session="${esc(session.id)}">
+            <td><strong>${esc(session.training_date)}</strong></td>
+            <td><span class="training-type-badge ${type}">${esc(trainingTypeLabel(session.training_type))}</span></td>
+            <td>${esc(session.team_name || "—")}</td>
+            <td><span class="training-shift-badge ${esc(session.shift)}">${esc(trainingShiftLabel(session.shift))}</span></td>
+            <td><strong>${esc(session.process)}</strong></td>
+            <td>${esc(session.instructor_login)}</td>
+            <td><strong>${count}</strong></td>
+            <td>${esc(session.created_by_login || "—")}</td>
+            <td>${esc(session.created_at ? new Date(session.created_at).toLocaleString("en-GB") : "—")}</td>
+            <td><button type="button" class="secondary" data-training-open="${esc(session.id)}">Details</button></td>
+        </tr>`;
+    }).join("") : `<tr><td colspan="10"><div class="training-empty">No ${trainingActiveType === "retraining" ? "retraining" : "training"} sessions match the filters.</div></td></tr>`;
+
+    body.querySelectorAll("[data-training-open], [data-training-session]").forEach(el => el.addEventListener("click", event => {
+        event.stopPropagation();
+        openTrainingSession(el.dataset.trainingOpen || el.dataset.trainingSession || "");
+    }));
+    renderTrainingAnalysis(rows);
+}
+function renderTrainingAnalysis(rows) {
+    const body = $("trainingAnalysisBody");
+    if (!body) return;
+    const map = new Map();
+    rows.forEach(session => {
+        trainingParticipantsForSession(session.id).forEach(p => {
+            const e = employeeByLogin(p.employee_login);
+            const item = map.get(p.employee_login) || {login:p.employee_login, training:0, retraining:0, processes:new Set(), last:""};
+            if (session.training_type === "retraining") item.retraining += 1; else item.training += 1;
+            item.processes.add(session.process);
+            if (!item.last || session.training_date > item.last) item.last = session.training_date;
+            map.set(p.employee_login,item);
+            void e;
+        });
+    });
+    const rowsOut = [...map.values()].sort((a,b)=> (b.training+b.retraining)-(a.training+a.retraining) || a.login.localeCompare(b.login));
+    body.innerHTML = rowsOut.length ? rowsOut.map(item=>`<tr><td><strong>${esc(item.login)}</strong><br><small>${esc(employeeByLogin(item.login)?.process || "")}</small></td><td>${item.training}</td><td>${item.retraining}</td><td><strong>${item.training+item.retraining}</strong></td><td>${esc([...item.processes].sort().join(", "))}</td><td>${esc(item.last || "—")}</td></tr>`).join("") : `<tr><td colspan="6"><div class="training-empty">No participant data in the current filtered view.</div></td></tr>`;
+}
+async function loadTrainingData() {
+    if (!currentUser) return false;
+    const [sessionsResult, participantsResult] = await Promise.all([
+        supabaseClient.from("wms_training_sessions").select("id, training_type, team_name, training_date, shift, process, instructor_login, notes, created_by, created_by_login, created_at, updated_at").order("training_date", {ascending:false}),
+        supabaseClient.from("wms_training_participants").select("id, session_id, employee_login, created_at")
+    ]);
+    if (sessionsResult.error) { console.error("Training sessions load error:", sessionsResult.error); toast(`Training data error: ${sessionsResult.error.message}`); return false; }
+    if (participantsResult.error) { console.error("Training participants load error:", participantsResult.error); toast(`Training participants error: ${participantsResult.error.message}`); return false; }
+    trainingSessions = sessionsResult.data || [];
+    trainingParticipants = participantsResult.data || [];
+    trainingRemoteLoaded = true;
+    return true;
+}
+function subscribeToTrainingRealtime() {
+    if (trainingRealtimeChannel || !currentUser) return;
+    trainingRealtimeChannel = supabaseClient.channel("warehouse-training")
+        .on("postgres_changes", {event:"*", schema:"public", table:"wms_training_sessions"}, async () => {
+            await loadTrainingData();
+            renderTrainingHistory();
+        })
+        .on("postgres_changes", {event:"*", schema:"public", table:"wms_training_participants"}, async () => {
+            await loadTrainingData();
+            renderTrainingHistory();
+        })
+        .subscribe(status => console.info("Training realtime status:", status));
+}
+async function saveTrainingSession() {
+    const role = String(currentUser?.role || "").trim().toLowerCase();
+    if (!currentUser || !["leader","coordinator","admin"].includes(role)) {
+        toast("Only active WMS users can create training records.");
+        return;
+    }
+    const teamName = String($("trainingTeamName")?.value || "").trim();
+    const trainingDate = String($("trainingDate")?.value || "").trim();
+    const shift = String($("trainingShift")?.value || "").trim();
+    const process = String($("trainingProcess")?.value || "").trim();
+    const instructor = String($("trainingInstructor")?.value || "").trim();
+    const note = String($("trainingNote")?.value || "").trim();
+    const participants = trainingCurrentParticipantLogins();
+    if (!teamName) { toast("Enter a team name."); return; }
+    if (!trainingDate || !shift || !process || !instructor) { toast("Date, shift, process and instructor are required."); return; }
+    if (!participants.length) { toast("Select at least one participant."); return; }
+    const duplicate = trainingSessions.some(s => s.training_type === trainingActiveType && s.training_date === trainingDate && s.shift === shift && s.team_name.toLowerCase() === teamName.toLowerCase());
+    if (duplicate) { toast("A team with the same type, date, shift and name already exists."); return; }
+
+    const payload = {
+        training_type: trainingActiveType,
+        team_name: teamName,
+        training_date: trainingDate,
+        shift,
+        process,
+        instructor_login: instructor,
+        notes: note || null,
+        created_by: currentUser.id,
+        created_by_login: currentUser.login || ""
+    };
+    const {data, error} = await supabaseClient.from("wms_training_sessions").insert(payload).select("id, training_type, team_name, training_date, shift, process, instructor_login, notes, created_by, created_by_login, created_at, updated_at").single();
+    if (error) { console.error("Training save error:", error); toast(`Could not save training: ${error.message}`); return; }
+    const participantRows = participants.map(login => ({session_id:data.id, employee_login:login}));
+    const {error: participantError} = await supabaseClient.from("wms_training_participants").insert(participantRows);
+    if (participantError) {
+        await supabaseClient.from("wms_training_sessions").delete().eq("id", data.id);
+        console.error("Training participants save error:", participantError);
+        toast(`Could not save participants: ${participantError.message}`);
+        return;
+    }
+    trainingSessions.unshift(data);
+    participantRows.forEach(row => trainingParticipants.push({id:`local-${data.id}-${row.employee_login}`, ...row, created_at:new Date().toISOString()}));
+    resetTrainingForm();
+    renderTrainingHistory();
+    toast(`${trainingTypeLabel(trainingActiveType)} team saved.`);
+}
+function openTrainingSession(id) {
+    const session = trainingSessionById(id); if (!session) return;
+    trainingOpenSessionId = id;
+    const participants = trainingParticipantsForSession(id);
+    $("trainingSessionModalTitle").textContent = `${trainingTypeLabel(session.training_type)} · ${session.team_name || "Team"}`;
+    $("trainingSessionModalMeta").textContent = `${session.training_date} · ${trainingShiftLabel(session.shift)} · created by ${session.created_by_login || "—"}`;
+    $("trainingDetailParticipants").textContent = String(participants.length);
+    $("trainingDetailProcess").textContent = session.process || "—";
+    $("trainingDetailShift").textContent = trainingShiftLabel(session.shift);
+    $("trainingDetailInstructor").textContent = session.instructor_login || "—";
+    $("trainingDetailNote").textContent = session.notes || "No note recorded.";
+    $("trainingDetailParticipantsList").innerHTML = participants.length ? participants.map(p=>`<span class="training-detail-participant">${esc(p.employee_login)}</span>`).join("") : `<span class="training-empty">No participants.</span>`;
+    const canDelete = String(currentUser?.role||"").toLowerCase() === "admin" || String(currentUser?.role||"").toLowerCase() === "coordinator" || session.created_by === currentUser?.id;
+    $("deleteTrainingSession").hidden = !canDelete;
+    $("trainingSessionModal").classList.remove("hidden");
+}
+function closeTrainingSession() { $("trainingSessionModal")?.classList.add("hidden"); trainingOpenSessionId=""; }
+async function deleteTrainingSession() {
+    const id = trainingOpenSessionId; const session = trainingSessionById(id); if (!session) return;
+    if (!window.confirm(`Delete ${trainingTypeLabel(session.training_type).toLowerCase()} session "${session.team_name}" from ${session.training_date}?`)) return;
+    const {error} = await supabaseClient.from("wms_training_sessions").delete().eq("id",id);
+    if (error) { toast(`Could not delete session: ${error.message}`); return; }
+    trainingSessions = trainingSessions.filter(s=>String(s.id)!==String(id));
+    trainingParticipants = trainingParticipants.filter(p=>String(p.session_id)!==String(id));
+    closeTrainingSession(); renderTrainingHistory(); toast("Training session deleted.");
+}
+function clearTrainingFilters() {
+    ["trainingFilterEmployee","trainingFilterInstructor","trainingFilterDate","trainingFilterDateFrom","trainingFilterDateTo"].forEach(id=>{if($(id)) $(id).value="";});
+    if($("trainingFilterShift")) $("trainingFilterShift").value="";
+    if($("trainingFilterProcess")) $("trainingFilterProcess").value="";
+    renderTrainingHistory();
+}
+function exportTrainingCsv() {
+    const rows = trainingFilteredSessions();
+    const lines = [["Type","Date","Team","Shift","Process","Instructor","Participant","Created by","Created at","Note"]];
+    rows.forEach(s=>{
+        const ps=trainingParticipantsForSession(s.id);
+        (ps.length?ps:[{employee_login:""}]).forEach(p=>lines.push([trainingTypeLabel(s.training_type),s.training_date,s.team_name,trainingShiftLabel(s.shift),s.process,s.instructor_login,p.employee_login,s.created_by_login,s.created_at||"",s.notes||""]));
+    });
+    const csv=lines.map(row=>row.map(v=>`"${String(v??"").replaceAll('"','""')}"`).join(",")).join("\r\n");
+    const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`WMS_${trainingTypeLabel(trainingActiveType)}_${dateKey(new Date())}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+function downloadTrainingDesktopShortcut() {
+    const base = `${location.origin}${location.pathname}`;
+    const target = `${base}?open=training`;
+    const icon = `${base.replace(/[^/]*$/, "")}training-retraining.ico`;
+    const content = `[InternetShortcut]\nURL=${target}\nIconFile=${icon}\nIconIndex=0\n`;
+    const blob = new Blob([content], {type:"application/internet-shortcut"});
+    const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="WMS_Training_Retraining.url"; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast("Desktop shortcut downloaded. Save it to your Desktop.");
+}
+function initTrainingModule() {
+    if (window.__wmsTrainingInitialized) return;
+    window.__wmsTrainingInitialized = true;
+    populateTrainingSelects();
+    resetTrainingForm();
+    document.querySelectorAll("[data-training-type]").forEach(btn=>btn.addEventListener("click",()=>setTrainingType(btn.dataset.trainingType)));
+    $("trainingParticipantSearch")?.addEventListener("input",renderTrainingParticipantList);
+    $("trainingParticipantList")?.addEventListener("change",event=>{
+        const checkbox=event.target.closest("[data-training-participant]"); if(!checkbox)return;
+        const login=checkbox.dataset.trainingParticipant; if(checkbox.checked)trainingSelectedParticipants.add(login);else trainingSelectedParticipants.delete(login); trainingUpdateParticipantCount();
+    });
+    $("trainingSaveSession")?.addEventListener("click",saveTrainingSession);
+    $("trainingClearForm")?.addEventListener("click",resetTrainingForm);
+    $("trainingApplyFilters")?.addEventListener("click",renderTrainingHistory);
+    $("trainingClearFilters")?.addEventListener("click",clearTrainingFilters);
+    $("trainingExportBtn")?.addEventListener("click",exportTrainingCsv);
+    $("trainingDesktopShortcut")?.addEventListener("click",downloadTrainingDesktopShortcut);
+    $("closeTrainingSessionModal")?.addEventListener("click",closeTrainingSession);
+    $("closeTrainingSessionBottom")?.addEventListener("click",closeTrainingSession);
+    $("deleteTrainingSession")?.addEventListener("click",deleteTrainingSession);
+    $("trainingSessionModal")?.addEventListener("click",event=>{if(event.target?.id==="trainingSessionModal")closeTrainingSession();});
+    document.querySelectorAll("[data-employees-tab]").forEach(button=>button.addEventListener("click",()=>{
+        if(button.dataset.employeesTab === "trainingTab") { populateTrainingSelects(); renderTrainingHistory(); }
+    }));
+}
+const V37_originalInitApp = initApp;
+initApp = async function() {
+    await V37_originalInitApp();
+    await loadTrainingData();
+    subscribeToTrainingRealtime();
+    initTrainingModule();
+    renderTrainingHistory();
+    if (new URLSearchParams(location.search).get("open") === "training") {
+        switchPage("employeesPage");
+        document.querySelector('[data-employees-tab="trainingTab"]')?.click();
+    }
+};
+const V37_originalSwitchPage = switchPage;
+switchPage = function(pageId) {
+    V37_originalSwitchPage(pageId);
+    if (pageId === "employeesPage" && document.getElementById("trainingTab")?.classList.contains("active-subpage")) {
+        renderTrainingHistory();
+    }
+};
+const V37_originalLogout = logout;
+logout = async function() {
+    if (trainingRealtimeChannel) { try { await supabaseClient.removeChannel(trainingRealtimeChannel); } catch {} trainingRealtimeChannel=null; }
+    return V37_originalLogout();
+};

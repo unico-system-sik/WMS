@@ -2553,3 +2553,26 @@ button.analytics-detail-kpi:hover {
 .v34-process-hour-item span { display: block; margin-top: 5px; font-size: 20px; font-weight: 800; color: #14233b; }
 .v34-process-hour-item small { display: block; margin-top: 3px; color: #718096; }
 @media (max-width: 700px) { .confirm-process-row { grid-template-columns: 1fr; } }
+
+/* V36 — employee process-day details */
+.employee-details-card { max-width: 980px; }
+.employee-details-toolbar { display:flex; justify-content:flex-end; margin:0 0 14px; }
+.employee-details-toolbar label { display:grid; gap:5px; color:#52627a; font-size:12px; font-weight:700; min-width:220px; }
+.employee-details-cards { margin-bottom:14px; }
+.employee-details-process-panel { margin:0; }
+.employee-details-process-table th, .employee-details-process-table td { white-space:nowrap; }
+.employee-details-process-table th:not(:first-child), .employee-details-process-table td:not(:first-child) { text-align:center; }
+.employee-details-primary { font-weight:800; color:#14233b; }
+.employee-details-secondary { font-weight:700; color:#52627a; }
+.employee-details-share { color:#718096; font-size:12px; }
+.employee-details-empty { padding:22px; text-align:center; color:#718096; }
+@media (max-width:700px) {
+  .employee-details-toolbar { justify-content:stretch; }
+  .employee-details-toolbar label { width:100%; }
+  .employee-details-card { max-width:calc(100vw - 24px); }
+}
+
+/* V37 — Training / Retraining */
+.training-title-row{align-items:flex-start}.training-title-actions{display:flex;gap:8px;flex-wrap:wrap}.training-subtabs{margin:0 0 16px}.training-kpis{margin-bottom:16px}.training-create-panel,.training-history-panel,.training-analysis-panel{margin-top:16px}.training-form-grid{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:12px}.training-form-grid>div{min-width:0}.training-form-grid input,.training-form-grid select{width:100%;box-sizing:border-box}.training-form-actions{justify-content:flex-end}.training-participants-panel{margin-top:14px;border:1px solid #e1e7ef;border-radius:12px;background:#fbfcfe;padding:12px}.training-participants-header{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px}.training-participants-header>div{display:flex;flex-direction:column;gap:3px}.training-participants-header small{color:#718096}.training-participants-header input{min-width:260px}.training-participant-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;max-height:300px;overflow:auto;padding-right:3px}.training-participant-option{display:flex;align-items:center;gap:8px;padding:8px 9px;border:1px solid #e4eaf1;border-radius:9px;background:#fff;cursor:pointer}.training-participant-option:hover{background:#f5f8fb}.training-participant-option input{margin:0}.training-participant-option small{display:block;color:#718096;margin-top:2px}.training-history-table td,.training-history-table th,.training-analysis-table td,.training-analysis-table th{white-space:nowrap}.training-session-row{cursor:pointer}.training-session-row:hover{background:#f7f9fc}.training-type-badge,.training-shift-badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:800}.training-type-badge.training{background:#e7f1ff;color:#1859a9}.training-type-badge.retraining{background:#f2e9ff;color:#7141a4}.training-shift-badge.day{background:#fff3c7;color:#8a6200}.training-shift-badge.night{background:#e7edf8;color:#314b78}.training-participant-chip,.training-detail-participant{display:inline-flex;align-items:center;gap:6px;padding:6px 9px;border-radius:999px;background:#eef3f8;color:#26364d;font-size:12px;font-weight:700}.training-detail-participants{display:flex;flex-wrap:wrap;gap:7px}.training-session-modal-card{max-width:900px}.training-detail-kpis{margin-bottom:14px}.training-detail-panel{margin:0}.danger-button{color:#a12a2a!important;border-color:#e0b3b3!important}.training-empty{padding:22px;text-align:center;color:#718096}.training-analysis-table td:not(:first-child),.training-analysis-table th:not(:first-child){text-align:center}.training-filters{align-items:end}.training-filters input,.training-filters select{width:100%;box-sizing:border-box}
+@media(max-width:1050px){.training-form-grid{grid-template-columns:1fr 1fr}.training-participant-list{grid-template-columns:1fr 1fr}.training-filters{grid-template-columns:1fr 1fr!important}}
+@media(max-width:700px){.training-title-row{flex-direction:column}.training-form-grid{grid-template-columns:1fr}.training-participant-list{grid-template-columns:1fr}.training-participants-header{flex-direction:column;align-items:stretch}.training-participants-header input{min-width:0;width:100%;box-sizing:border-box}.training-filters{grid-template-columns:1fr!important}}

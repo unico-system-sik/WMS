@@ -7,7 +7,7 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://ipmyxkhnwijpdweeztgb.supabase.co wss://ipmyxkhnwijpdweeztgb.supabase.co; worker-src 'self' blob:;">
-    <link rel="stylesheet" href="style.css?v=29.0">
+    <link rel="stylesheet" href="style.css?v=37.0">
 </head>
 <body>
 
@@ -279,6 +279,7 @@
         <button class="subtab active" data-employees-tab="employeeDatabaseTab">Employee Database</button>
         <button class="subtab" data-employees-tab="formerEmployeesTab">Former Employees</button>
         <button class="subtab" data-employees-tab="brigadeStatsTab">Brigade Statistics</button>
+        <button class="subtab" data-employees-tab="trainingTab">Training / Retraining</button>
         <button class="subtab admin-only-tab" id="systemUsersTabButton" data-employees-tab="systemUsersTab" hidden>System Users</button>
     </div>
 
@@ -353,6 +354,89 @@
                     <tbody id="formerEmployeeTable"></tbody>
                 </table>
             </div>
+        </div>
+    </section>
+
+    <section id="trainingTab" class="subpage">
+        <div class="panel training-module-shell">
+            <div class="panel-title training-title-row">
+                <div>
+                    <h3>Training / Retraining</h3>
+                    <p>Record onboarding training for new employees and retraining for existing employees. Every session keeps the date, shift, process, instructor and participant team for later analysis.</p>
+                </div>
+                <div class="training-title-actions">
+                    <button id="trainingExportBtn" class="secondary" type="button">Export Excel</button>
+                    <button id="trainingDesktopShortcut" class="secondary" type="button">🖥️ Desktop shortcut</button>
+                </div>
+            </div>
+
+            <div class="subtabs training-subtabs">
+                <button type="button" class="subtab active" data-training-type="training">Training</button>
+                <button type="button" class="subtab" data-training-type="retraining">Retraining</button>
+            </div>
+
+            <div class="cards four training-kpis">
+                <div class="card"><span>Sessions</span><strong id="trainingKpiSessions">0</strong><small>current filtered view</small></div>
+                <div class="card"><span>Participants</span><strong id="trainingKpiParticipants">0</strong><small>participant entries</small></div>
+                <div class="card"><span>Employees</span><strong id="trainingKpiEmployees">0</strong><small>unique employees</small></div>
+                <div class="card"><span>Instructors</span><strong id="trainingKpiInstructors">0</strong><small>unique instructors</small></div>
+            </div>
+
+            <section class="training-create-panel">
+                <div class="panel-title">
+                    <div><h3 id="trainingFormTitle">Create Training Team</h3><p>Choose the shift and process that the team is being trained for.</p></div>
+                </div>
+                <div class="training-form-grid">
+                    <div><label class="control-label">Team name</label><input id="trainingTeamName" maxlength="100" placeholder="e.g. New Starters — Team 01"></div>
+                    <div><label class="control-label">Date</label><input id="trainingDate" type="date"></div>
+                    <div><label class="control-label">Shift</label><select id="trainingShift"><option value="day">DAY</option><option value="night">NIGHT</option></select></div>
+                    <div><label class="control-label">Process</label><select id="trainingProcess"></select></div>
+                    <div><label class="control-label">Instructor</label><select id="trainingInstructor"></select><small class="field-hint">Prefer employees with the Instructor qualification.</small></div>
+                    <div><label class="control-label">Note</label><input id="trainingNote" maxlength="300" placeholder="Optional training note"></div>
+                </div>
+                <div class="training-participants-panel">
+                    <div class="training-participants-header">
+                        <div><strong>Participants</strong><small id="trainingParticipantCount">0 selected</small></div>
+                        <input id="trainingParticipantSearch" type="search" placeholder="Search employee login / name" autocomplete="off">
+                    </div>
+                    <div id="trainingParticipantList" class="training-participant-list"></div>
+                </div>
+                <div class="modal-actions training-form-actions">
+                    <button id="trainingClearForm" type="button" class="secondary">Clear</button>
+                    <button id="trainingSaveSession" type="button" class="primary">Save Training Team</button>
+                </div>
+            </section>
+
+            <section class="panel training-history-panel">
+                <div class="panel-title"><div><h3>Training history</h3><p>Search by employee, instructor, date, shift or process. Click a session to see the complete team.</p></div></div>
+                <div class="history-filters training-filters">
+                    <div><label class="control-label">Employee</label><input id="trainingFilterEmployee" placeholder="Login or name"></div>
+                    <div><label class="control-label">Instructor</label><input id="trainingFilterInstructor" placeholder="Instructor login"></div>
+                    <div><label class="control-label">Date</label><input id="trainingFilterDate" type="date"></div>
+                    <div><label class="control-label">From</label><input id="trainingFilterDateFrom" type="date"></div>
+                    <div><label class="control-label">To</label><input id="trainingFilterDateTo" type="date"></div>
+                    <div><label class="control-label">Shift</label><select id="trainingFilterShift"><option value="">All shifts</option><option value="day">DAY</option><option value="night">NIGHT</option></select></div>
+                    <div><label class="control-label">Process</label><select id="trainingFilterProcess"><option value="">All processes</option></select></div>
+                    <button id="trainingApplyFilters" class="primary filter-search-btn" type="button">Search</button>
+                    <button id="trainingClearFilters" class="secondary" type="button">Clear</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="training-history-table">
+                        <thead><tr><th>Date</th><th>Type</th><th>Team</th><th>Shift</th><th>Process</th><th>Instructor</th><th>Participants</th><th>Created by</th><th>Created</th><th>Action</th></tr></thead>
+                        <tbody id="trainingHistoryBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel training-analysis-panel">
+                <div class="panel-title"><div><h3>Participant analysis</h3><p>Shows how many Training / Retraining sessions each employee has attended in the current filtered view.</p></div></div>
+                <div class="table-wrap">
+                    <table class="training-analysis-table">
+                        <thead><tr><th>Employee</th><th>Training</th><th>Retraining</th><th>Total sessions</th><th>Processes</th><th>Last session</th></tr></thead>
+                        <tbody id="trainingAnalysisBody"></tbody>
+                    </table>
+                </div>
+            </section>
         </div>
     </section>
 
@@ -1009,6 +1093,66 @@
     </div>
 </div>
 
+<div id="employeeDetailsModal" class="modal hidden">
+    <div class="modal-card employee-details-card">
+        <div class="panel-title">
+            <div>
+                <h3>Employee details</h3>
+                <p id="employeeDetailsEmployee" class="modal-subtitle"></p>
+            </div>
+            <button id="closeEmployeeDetailsModal" class="icon-btn" type="button">×</button>
+        </div>
+        <div class="employee-details-toolbar">
+            <label>Period
+                <select id="employeeDetailsPeriod"></select>
+            </label>
+        </div>
+        <div class="cards four employee-details-cards">
+            <div class="card"><span>Worked days</span><strong id="employeeDetailsWorkedDays">0</strong><small>confirmed days credited to primary process</small></div>
+            <div class="card"><span>Confirmed hours</span><strong id="employeeDetailsHours">0.00h</strong><small>actual confirmed hours</small></div>
+            <div class="card"><span>Processes worked</span><strong id="employeeDetailsProcessCount">0</strong><small>primary + secondary processes</small></div>
+            <div class="card"><span>Secondary days</span><strong id="employeeDetailsSecondaryDays">0</strong><small>days worked outside primary process</small></div>
+        </div>
+        <section class="panel employee-details-process-panel">
+            <div class="panel-title">
+                <div>
+                    <h3>Worked days by process</h3>
+                    <p>Calculated from confirmed hours in Shift Overview. Selecting a secondary process during confirmation moves that day to the secondary process here; the employee's overall Worked days remains credited to the primary process.</p>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="employee-details-process-table">
+                    <thead><tr><th>Process</th><th>Days</th><th>Hours</th><th>Share</th><th>DAY</th><th>NIGHT</th></tr></thead>
+                    <tbody id="employeeDetailsProcessBody"></tbody>
+                </table>
+            </div>
+        </section>
+        <div class="modal-actions">
+            <button type="button" id="closeEmployeeDetailsBottom" class="secondary">Close</button>
+        </div>
+    </div>
+</div>
+
+<div id="trainingSessionModal" class="modal hidden">
+    <div class="modal-card training-session-modal-card">
+        <div class="panel-title">
+            <div><h3 id="trainingSessionModalTitle">Training session</h3><p id="trainingSessionModalMeta" class="modal-subtitle"></p></div>
+            <button id="closeTrainingSessionModal" class="icon-btn" type="button">×</button>
+        </div>
+        <div class="cards four training-detail-kpis">
+            <div class="card"><span>Participants</span><strong id="trainingDetailParticipants">0</strong><small>employees</small></div>
+            <div class="card"><span>Process</span><strong id="trainingDetailProcess">—</strong><small>training focus</small></div>
+            <div class="card"><span>Shift</span><strong id="trainingDetailShift">—</strong><small>planned shift</small></div>
+            <div class="card"><span>Instructor</span><strong id="trainingDetailInstructor">—</strong><small>responsible instructor</small></div>
+        </div>
+        <section class="panel training-detail-panel">
+            <div class="panel-title"><div><h3>Participants</h3><p id="trainingDetailNote">—</p></div></div>
+            <div id="trainingDetailParticipantsList" class="training-detail-participants"></div>
+        </section>
+        <div class="modal-actions"><button id="deleteTrainingSession" class="secondary danger-button" type="button">Delete session</button><button id="closeTrainingSessionBottom" class="secondary" type="button">Close</button></div>
+    </div>
+</div>
+
 <div id="employeeImportModal" class="modal hidden">
     <div class="modal-card employee-import-card">
         <div class="panel-title">
@@ -1280,7 +1424,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=35.0"></script>
+<script src="script.js?v=37.0"></script>
 
 </body>
 </html>
