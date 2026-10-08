@@ -6338,7 +6338,11 @@ analyticsRowFor=function(date,shift,employees){return V33_analyticsEnrich(V33_or
 
 function V33_barList(title,map,total){const entries=Object.entries(map||{}).filter(([,v])=>Number(v)>0).sort((a,b)=>b[1]-a[1]);if(!entries.length)return `<section class="analytics-mini-chart"><h4>${esc(title)}</h4><div class="empty">No records.</div></section>`;const max=Math.max(...entries.map(([,v])=>Number(v)));return `<section class="analytics-mini-chart"><h4>${esc(title)}</h4>${entries.map(([label,value])=>`<div class="analytics-bar-row"><span>${esc(label)}</span><div class="analytics-bar-track"><i style="width:${Math.max(5,(Number(value)/max)*100)}%"></i></div><strong>${Number(value)} <small>${analyticsPct(Number(value),total)}</small></strong></div>`).join("")}</section>`;}
 
-analyticsDetailLists=function(row,key){return ({...V33_originalAnalyticsDetailLists(row,key),late:row.lateDetails||[],leftEarly:row.leftEarlyDetails||[],leave:row.leaveDetails||[]})[key]||[];};
+analyticsDetailLists=function(row,key){
+    const base=({...V33_originalAnalyticsDetailLists(row,key),late:row.lateDetails||[],leftEarly:row.leftEarlyDetails||[],leave:row.leaveDetails||[]})[key]||[];
+    if(base.length || Number(row[key] || 0) <= 0) return base;
+    return v384AnalyticsFallbackDetails(row,key);
+};
 
 function V33_renderAnalyticsInlineDetail(row){
     row.processStats.forEach(stat=>{ if(stat.leave==null) stat.leave=0; });
@@ -6660,10 +6664,14 @@ function getHoursAttendanceDayHeaders(monthDate = hoursAttendanceMonth) {
     const headers = [];
     for (let day = 1; day <= monthDays(monthDate); day++) {
         const date = new Date(year, month, day, 12);
+        const weekday = date.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
+        const isWeekend = date.getDay() === 0 || date.getDay() === 6;
         headers.push({
             date,
             key: dateKey(date),
             label: String(day).padStart(2, "0"),
+            weekday,
+            isWeekend,
             fullLabel: date.toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" })
         });
     }
@@ -7882,9 +7890,10 @@ function trainingEmployeeLabel(employee) {
     return `${employee.login}${employee.process ? ` · ${employee.process}` : ""}${employee.brigade ? ` · ${employee.brigade}` : ""}`;
 }
 function trainingInstructors() {
-    const active = activeEmployees().slice().sort((a,b)=>String(a.login).localeCompare(String(b.login)));
-    const qualified = active.filter(e => employeeHasQualification(e, "Instructor"));
-    return qualified.length ? qualified : active;
+    return activeEmployees()
+        .filter(e => employeeHasQualification(e, "Instructor"))
+        .slice()
+        .sort((a,b)=>String(a.login).localeCompare(String(b.login)));
 }
 function trainingSessionById(id) {
     return trainingSessions.find(s => String(s.id) === String(id)) || null;
@@ -7944,11 +7953,9 @@ function selectTrainingInstructor(login) {
     if (box) box.classList.add("hidden");
 }
 function trainingResetInstructorPicker() {
-    const people = trainingInstructors();
-    const employee = people[0] || null;
     const input = $("trainingInstructor"), hidden = $("trainingInstructorLogin"), box = $("trainingInstructorDropdown");
-    if (input) input.value = employee ? trainingEmployeeLabel(employee) : "";
-    if (hidden) hidden.value = employee ? employee.login : "";
+    if (input) input.value = "";
+    if (hidden) hidden.value = "";
     if (box) box.classList.add("hidden");
 }
 function initTrainingInstructorPicker() {
@@ -8069,13 +8076,19 @@ function renderTrainingHistory() {
             <td><strong>${count}</strong></td>
             <td>${esc(session.created_by_login || "—")}</td>
             <td>${esc(session.created_at ? new Date(session.created_at).toLocaleString("en-GB") : "—")}</td>
-            <td><button type="button" class="secondary" data-training-open="${esc(session.id)}">Details</button></td>
+            <td class="training-history-actions"><button type="button" class="secondary" data-training-open="${esc(session.id)}">Details</button><button type="button" class="secondary" data-training-edit="${esc(session.id)}">Edit</button></td>
         </tr>`;
     }).join("") : `<tr><td colspan="10"><div class="training-empty">No ${trainingActiveType === "retraining" ? "retraining" : "training"} sessions match the filters.</div></td></tr>`;
 
     body.querySelectorAll("[data-training-open], [data-training-session]").forEach(el => el.addEventListener("click", event => {
+        if (event.target.closest("[data-training-edit]")) return;
         event.stopPropagation();
         openTrainingSession(el.dataset.trainingOpen || el.dataset.trainingSession || "");
+    }));
+    body.querySelectorAll("[data-training-edit]").forEach(btn => btn.addEventListener("click", event => {
+        event.stopPropagation();
+        openTrainingSession(btn.dataset.trainingEdit || "");
+        startTrainingEdit(btn.dataset.trainingEdit || "");
     }));
     renderTrainingAnalysis(rows);
 }
@@ -8472,7 +8485,7 @@ function v383RenderAllHoursAttendance() {
     if ($("hoursAllDifference")) $("hoursAllDifference").textContent=`${differenceDays>0?"+":""}${differenceDays}`;
     if (meta) meta.textContent=`${visibleEmployees.length} of ${employees.length} employee${employees.length===1?"":"s"} shown · click a row to open the full attendance record`;
 
-    if (head) head.innerHTML=`<tr><th class="hours-matrix-employee-col">Login</th><th class="hours-matrix-brigade-col">Brigade</th><th class="hours-matrix-process-col">Process</th>${dayHeaders.map(({label,fullLabel,key})=>{const active=hoursAttendanceDaySortKey===key;const arrow=active?(hoursAttendanceDaySortDirection===1?"↑":"↓"):"↕";const title=active?`Sorted by ${fullLabel} · click to reverse order`:`Sort employees by ${fullLabel} · Absent first`;return `<th class="hours-matrix-day-col${active?" is-sorted":""}" title="${esc(title)}"><button type="button" class="attendance-day-sort-button" data-hours-sort-day="${esc(key)}" aria-label="${esc(title)}"><span>${esc(label)}</span><small>${arrow}</small></button></th>`}).join("")}<th>Planned days</th><th>Worked days</th><th>Difference</th><th>Absent</th><th>Pending</th><th>Underworked</th><th>Attendance</th></tr>`;
+    if (head) head.innerHTML=`<tr><th class="hours-matrix-employee-col">Login</th><th class="hours-matrix-brigade-col">Brigade</th><th class="hours-matrix-process-col">Process</th>${dayHeaders.map(({label,fullLabel,key})=>{const active=hoursAttendanceDaySortKey===key;const arrow=active?(hoursAttendanceDaySortDirection===1?"↑":"↓"):"↕";const title=active?`Sorted by ${fullLabel} · click to reverse order`:`Sort employees by ${fullLabel} · Absent first`;return `<th class="hours-matrix-day-col${active?" is-sorted":""}${isWeekend?" is-weekend":""}" title="${esc(title)}"><button type="button" class="attendance-day-sort-button" data-hours-sort-day="${esc(key)}" aria-label="${esc(title)}"><span>${esc(label)}<small class="attendance-day-weekday">${esc(weekday)}</small></span><small class="attendance-day-arrow">${arrow}</small></button></th>`}).join("")}<th>Planned days</th><th>Worked days</th><th>Difference</th><th>Absent</th><th>Pending</th><th>Underworked</th><th>Attendance</th></tr>`;
 
     body.innerHTML=visibleEmployees.map(employee=>{
         const summary=getHoursEmployeeSummary(employee), difference=Number(summary.differenceDays||0);
@@ -8563,6 +8576,55 @@ async function v383SaveHoursEdit(event) {
 }
 saveHoursEdit=v383SaveHoursEdit;
 
+function v384AnalyticsFallbackDetails(row, key) {
+    const date = fromKey(row.date);
+    const employees = analyticsSelectedEmployees();
+    const details = [];
+    const matchesRow = employee => {
+        if (!employeeOperationalOnDate(employee, date) || !canConfirmEmployeeDate(employee, date)) return false;
+        const leave = leaveRecordForDate(employee, date);
+        if (leave) return false;
+        return getSchedule(employee, date).shift === row.shift && Number(plannedHours(employee, date) || 0) > 0;
+    };
+    if (["present","absent","pending","terminated","late","leftEarly","early"].includes(key)) {
+        employees.forEach(employee => {
+            if (!matchesRow(employee)) return;
+            const data = getAttendance(employee, date);
+            const status = String(data.status || "Pending").trim().toLowerCase();
+            const detail = { ...analyticsDetailEmployee(employee, date), reason:String(data.reason || "").trim(), confirmedByLogin:String(data.confirmedByLogin || "").trim(), confirmedAt:data.confirmedAt || "" };
+            if (key === "present" && data.confirmed && status !== "absent") details.push(detail);
+            else if (key === "absent" && status === "absent") details.push(detail);
+            else if (key === "pending" && !data.confirmed) details.push(detail);
+            else if (key === "terminated" && (String(employee.endDate || "") === row.date || (status === "absent" && detail.reason === "Terminated"))) details.push({...detail,endDate:String(employee.endDate || ""),terminationReason:String(employee.reason || detail.reason || "Terminated")});
+            else if (key === "late" || key === "leftEarly" || key === "early") {
+                const dev = getShiftTimeDeviation(employee, date, data);
+                if (key === "late" && dev.late > 0) details.push({...detail,lateMinutes:dev.late});
+                if (key === "leftEarly" && dev.leftEarly > 0) details.push({...detail,leftEarlyMinutes:dev.leftEarly});
+                if (key === "early" && (dev.arrivalEarly > 0 || dev.leftEarly > 0)) details.push({...detail,lateMinutes:dev.late,arrivalEarlyMinutes:dev.arrivalEarly,leftEarlyMinutes:dev.leftEarly});
+            }
+        });
+        return details;
+    }
+    if (key === "feedback") {
+        return analyticsFeedbackEntries.filter(entry => String(entry.work_date || "") === row.date && String(entry.shift || "") === row.shift)
+            .map(entry => { const employee=employeeByLogin(entry.employee_login); if(!employee || !employees.some(e=>e.login===employee.login)) return null; return {...analyticsDetailEmployee(employee,date),errorType:normalizeFeedbackErrorType(entry.error_type),note:String(entry.note||"").trim(),confirmedByLogin:String(entry.confirmed_by_login||"").trim(),confirmedAt:entry.confirmed_at||entry.created_at||""}; })
+            .filter(Boolean);
+    }
+    if (key === "leave") {
+        return employees.flatMap(employee => {
+            if(!employeeOperationalOnDate(employee,date)||!canConfirmEmployeeDate(employee,date)) return [];
+            const leave=leaveRecordForDate(employee,date);
+            if(!leave || V33_underlyingShift(employee,date)!==row.shift) return [];
+            return [{...analyticsDetailEmployee(employee,date),leaveType:leave.leaveType,leaveStart:leave.startDate,leaveEnd:leave.endDate,recordedBy:leave.recordedBy,recordedAt:leave.createdAt}];
+        });
+    }
+    if (key === "extraOff" || key === "extraWork") {
+        const extra=analyticsExtraCounts(date,row.shift);
+        return key === "extraOff" ? extra.extraOffDetails : extra.extraWorkDetails;
+    }
+    return [];
+}
+
 function v383RenderAnalytics() {
     $("analyticsMonthLabel").textContent=analyticsMonth.toLocaleDateString("en-GB",{month:"long",year:"numeric"});
     const employees=analyticsSelectedEmployees(), rows=[];
@@ -8619,3 +8681,105 @@ renderAnalytics=v383RenderAnalytics;
 // initialized before this final renderer was installed.
 $("closeAnalyticsDrilldown")?.addEventListener("click",closeAnalyticsDrilldown);
 $("closeAnalyticsDrilldownBottom")?.addEventListener("click",closeAnalyticsDrilldown);
+
+/* ================================================================
+   V38.4 — Training editor + Instructor picker hardening
+   ================================================================ */
+let trainingEditSelectedParticipants = new Set();
+
+function trainingEditInstructorCandidates(query="") {
+    const q=String(query||"").trim().toLowerCase();
+    return trainingInstructors().filter(e=>!q || [e.login,e.process,e.brigade,trainingEmployeeLabel(e)].some(v=>String(v||"").toLowerCase().includes(q)));
+}
+function renderTrainingEditInstructorDropdown(query="") {
+    const box=$("trainingEditInstructorDropdown"), input=$("trainingEditInstructor");
+    if(!box||!input)return;
+    const people=trainingEditInstructorCandidates(query).slice(0,30);
+    box.innerHTML=people.length?people.map(e=>`<button type="button" class="training-search-option" data-training-edit-instructor="${esc(e.login)}"><strong>${esc(e.login)}</strong><span>${esc(e.process||"—")} · Brigade ${esc(e.brigade||"—")}</span></button>`).join(""):`<div class="training-search-empty">No Instructor found.</div>`;
+    box.classList.remove("hidden");
+}
+function selectTrainingEditInstructor(login){
+    const employee=trainingInstructors().find(e=>String(e.login)===String(login)); if(!employee)return;
+    $("trainingEditInstructor").value=trainingEmployeeLabel(employee);
+    $("trainingEditInstructorLogin").value=employee.login;
+    $("trainingEditInstructorDropdown").classList.add("hidden");
+}
+function renderTrainingEditParticipantList(){
+    const body=$("trainingEditParticipantList"); if(!body)return;
+    const query=String($("trainingEditParticipantSearch")?.value||"").trim();
+    const people=activeEmployees().filter(e=>trainingEmployeeMatches(e,query)).sort((a,b)=>String(a.login).localeCompare(String(b.login)));
+    body.innerHTML=people.length?people.map(e=>`<label class="training-participant-option"><input type="checkbox" data-training-edit-participant="${esc(e.login)}" ${trainingEditSelectedParticipants.has(e.login)?"checked":""}><span><strong>${esc(e.login)}</strong><small>${esc(e.process||"—")} · ${esc(e.brigade||"—")}</small></span></label>`).join(""):`<div class="training-empty">No active employees match the search.</div>`;
+    $("trainingEditParticipantCount").textContent=`${trainingEditSelectedParticipants.size} selected`;
+}
+function startTrainingEdit(id){
+    const session=trainingSessionById(id); if(!session)return;
+    trainingOpenSessionId=String(id);
+    trainingEditSelectedParticipants=new Set(trainingParticipantsForSession(id).map(p=>String(p.employee_login)));
+    $("trainingEditDate").value=session.training_date||"";
+    $("trainingEditShift").value=session.shift||"day";
+    $("trainingEditNote").value=session.notes||"";
+    const processOptions=trainingProcessOptions();
+    $("trainingEditProcess").innerHTML=processOptions.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("");
+    $("trainingEditProcess").value=session.process||processOptions[0]||"";
+    const instructor=trainingInstructors().find(e=>String(e.login)===String(session.instructor_login));
+    $("trainingEditInstructor").value=instructor?trainingEmployeeLabel(instructor):"";
+    $("trainingEditInstructorLogin").value=instructor?instructor.login:"";
+    renderTrainingEditParticipantList();
+    $("trainingEditPanel").hidden=false;
+    $("trainingSessionActions").hidden=true;
+}
+function cancelTrainingEdit(){
+    $("trainingEditPanel").hidden=true;
+    $("trainingSessionActions").hidden=false;
+}
+async function saveTrainingEdit(){
+    const id=trainingOpenSessionId, session=trainingSessionById(id); if(!session)return;
+    const role=String(currentUser?.role||"").toLowerCase();
+    if(!["leader","coordinator","admin"].includes(role)){toast("You do not have permission to edit training records.");return;}
+    const date=$("trainingEditDate").value.trim();
+    const shift=$("trainingEditShift").value.trim();
+    const process=$("trainingEditProcess").value.trim();
+    const instructor=$("trainingEditInstructorLogin").value.trim();
+    const note=$("trainingEditNote").value.trim();
+    const instructorEmployee=trainingInstructors().find(e=>String(e.login)===instructor);
+    const participants=[...trainingEditSelectedParticipants];
+    if(!date||!shift||!process||!instructor||!instructorEmployee){toast("Date, shift, process and a valid Instructor are required.");return;}
+    if(!participants.length){toast("Select at least one participant.");return;}
+    const duplicate=trainingSessions.some(s=>String(s.id)!==String(id)&&s.training_type===session.training_type&&s.training_date===date&&s.shift===shift&&String(s.team_name||"").toLowerCase()===String(session.team_name||"").toLowerCase());
+    if(duplicate){toast("Another training team already uses this Team name on the selected date/shift.");return;}
+    const {data,error}=await supabaseClient.from("wms_training_sessions").update({training_date:date,shift,process,instructor_login:instructor,notes:note||null,updated_at:new Date().toISOString()}).eq("id",id).select("id, training_type, team_name, training_date, shift, process, instructor_login, notes, created_by, created_by_login, created_at, updated_at").single();
+    if(error){console.error("Training edit error:",error);toast(`Could not update training: ${error.message}`);return;}
+    const {error:deleteError}=await supabaseClient.from("wms_training_participants").delete().eq("session_id",id);
+    if(deleteError){toast(`Could not update participants: ${deleteError.message}`);return;}
+    const rows=participants.map(login=>({session_id:id,employee_login:login}));
+    const {error:insertError}=await supabaseClient.from("wms_training_participants").insert(rows);
+    if(insertError){toast(`Could not save participants: ${insertError.message}`);return;}
+    trainingSessions=trainingSessions.map(s=>String(s.id)===String(id)?data:s);
+    trainingParticipants=trainingParticipants.filter(p=>String(p.session_id)!==String(id));
+    rows.forEach((r,i)=>trainingParticipants.push({id:`local-edit-${id}-${i}`,...r,created_at:new Date().toISOString()}));
+    cancelTrainingEdit();
+    renderTrainingHistory();
+    openTrainingSession(id);
+    toast(`${trainingTypeLabel(data.training_type)} team updated.`);
+}
+
+$("trainingEditInstructor")?.addEventListener("focus",()=>renderTrainingEditInstructorDropdown($("trainingEditInstructor").value));
+$("trainingEditInstructor")?.addEventListener("input",()=>{$("trainingEditInstructorLogin").value="";renderTrainingEditInstructorDropdown($("trainingEditInstructor").value);});
+$("trainingEditInstructorDropdown")?.addEventListener("click",e=>{const b=e.target.closest("[data-training-edit-instructor]");if(b)selectTrainingEditInstructor(b.dataset.trainingEditInstructor);});
+$("trainingEditParticipantSearch")?.addEventListener("input",renderTrainingEditParticipantList);
+$("trainingEditParticipantList")?.addEventListener("change",e=>{const c=e.target.closest("[data-training-edit-participant]");if(!c)return;c.checked?trainingEditSelectedParticipants.add(c.dataset.trainingEditParticipant):trainingEditSelectedParticipants.delete(c.dataset.trainingEditParticipant);$("trainingEditParticipantCount").textContent=`${trainingEditSelectedParticipants.size} selected`;});
+$("editTrainingSession")?.addEventListener("click",()=>startTrainingEdit(trainingOpenSessionId));
+$("cancelTrainingEdit")?.addEventListener("click",cancelTrainingEdit);
+$("saveTrainingEdit")?.addEventListener("click",saveTrainingEdit);
+
+/* V38.4 permissions: only managers can edit existing sessions. */
+const v384OriginalOpenTrainingSession = openTrainingSession;
+openTrainingSession = function(id) {
+    v384OriginalOpenTrainingSession(id);
+    const role=String(currentUser?.role||"").toLowerCase();
+    const canEdit=["leader","coordinator","admin"].includes(role);
+    const editButton=$("editTrainingSession");
+    if(editButton) editButton.hidden=!canEdit;
+    $("trainingEditPanel")?.setAttribute("hidden","");
+    if($("trainingSessionActions")) $("trainingSessionActions").hidden=false;
+};
