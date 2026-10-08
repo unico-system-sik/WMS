@@ -2830,3 +2830,32 @@ button.analytics-detail-kpi:hover {
 .attendance-day-badge.extra-off { background:#edeff3; color:#596273; border-color:#c8ced8; }
 .attendance-day-badge.vacation { background:#eadff7; color:#5b3a88; border-color:#c7aee7; }
 .attendance-day-badge.sick { background:#f8d3d3; color:#8b1e1e; border-color:#e8a5a5; }
+
+
+/* V38.8 — employee training history modal */
+.training-employee-history-modal-card { width:min(1180px,100%); max-height:90vh; overflow:auto; }
+.training-history-type-tabs { margin: 0 0 14px; }
+.training-history-type-tabs .subtab { padding: 9px 14px; }
+.training-employee-history-table { min-width: 900px; }
+.training-employee-history-table td, .training-employee-history-table th { vertical-align: middle; }
+
+/* V38.8 — make individual schedule exceptions unmistakably visible above the normal control */
+.individual-schedule-cell { vertical-align: top; }
+.individual-schedule-cell .schedule-state { min-height: 38px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; border-radius:7px; font-weight:800; }
+.individual-schedule-cell .schedule-state small { font-size:8px; line-height:1; text-transform:uppercase; opacity:.8; }
+.individual-schedule-cell.leave .schedule-state,
+.individual-schedule-cell.sick .schedule-state,
+.individual-schedule-cell.extra-off .schedule-state,
+.individual-schedule-cell.extra-day .schedule-state,
+.individual-schedule-cell.extra-night .schedule-state { border:1px solid currentColor; }
+.individual-schedule-cell.vacation .schedule-state { background:#eadff7; color:#5b3a88; }
+.individual-schedule-cell.sick .schedule-state { background:#f8d3d3; color:#8b1e1e; }
+.individual-schedule-cell.extra-off .schedule-state { background:#edeff3; color:#596273; }
+.individual-schedule-cell.extra-day .schedule-state { background:#f7e6bd; color:#7a4d00; }
+.individual-schedule-cell.extra-night .schedule-state { background:#dbe7f7; color:#244d82; }
+
+/* V38.8 — Attendance Monitoring visible employee list */
+#hoursAllTableBody:empty::after { content:""; }
+.hours-attendance-matrix .hours-matrix-employee { position:sticky; left:0; background:#fff; z-index:2; min-width:150px; }
+.hours-attendance-matrix tbody tr:hover .hours-matrix-employee { background:#f5f8fc; }
+.attendance-day-weekday { display:block; font-size:9px; font-weight:700; opacity:.65; line-height:1.1; }

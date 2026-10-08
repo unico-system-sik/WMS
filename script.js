@@ -8191,13 +8191,52 @@ function renderTrainingAnalysis(rows) {
     body.innerHTML = rowsOut.length ? rowsOut.map(item=>`<tr><td><strong>${esc(item.login)}</strong><br><small>${esc(employeeByLogin(item.login)?.process || "")}</small></td><td>${item.training}</td><td>${item.retraining}</td><td><button type="button" class="secondary training-history-employee-btn" data-training-history-employee="${esc(item.login)}">History</button></td><td><strong>${item.training+item.retraining}</strong></td><td>${esc([...item.processes].sort().join(", "))}</td><td>${esc(item.last || "—")}</td></tr>`).join("") : `<tr><td colspan="7"><div class="training-empty">No participant data in the current filtered view.</div></td></tr>`;
     body.querySelectorAll("[data-training-history-employee]").forEach(btn => btn.addEventListener("click", event => {
         event.stopPropagation();
-        const login = btn.dataset.trainingHistoryEmployee || "";
-        trainingHistoryAllTypes = true;
-        if ($("trainingFilterEmployee")) $("trainingFilterEmployee").value = login;
-        renderTrainingHistory();
-        $("trainingHistoryBody")?.closest(".training-history-panel")?.scrollIntoView({behavior:"smooth", block:"start"});
+        openTrainingEmployeeHistory(btn.dataset.trainingHistoryEmployee || "");
     }));
 }
+let trainingEmployeeHistoryLogin = "";
+let trainingEmployeeHistoryType = "all";
+
+function trainingEmployeeHistoryRows(login, type = "all") {
+    const normalized = String(login || "");
+    return trainingSessions
+        .filter(session => {
+            if (type !== "all" && session.training_type !== type) return false;
+            return trainingParticipantsForSession(session.id).some(p => String(p.employee_login) === normalized);
+        })
+        .sort((a,b) => String(b.training_date).localeCompare(String(a.training_date)) || String(b.created_at || "").localeCompare(String(a.created_at || "")));
+}
+
+function renderTrainingEmployeeHistory() {
+    const body = $("trainingEmployeeHistoryBody");
+    const title = $("trainingEmployeeHistoryTitle");
+    const meta = $("trainingEmployeeHistoryMeta");
+    if (!body) return;
+    const login = trainingEmployeeHistoryLogin;
+    const employee = employeeByLogin(login);
+    const rows = trainingEmployeeHistoryRows(login, trainingEmployeeHistoryType);
+    const typeLabel = trainingEmployeeHistoryType === "training" ? "Training" : trainingEmployeeHistoryType === "retraining" ? "Retraining" : "Training + Retraining";
+    if (title) title.textContent = `History · ${login}`;
+    if (meta) meta.textContent = `${employee?.name || employee?.login || login} · ${typeLabel} · ${rows.length} session${rows.length === 1 ? "" : "s"}`;
+    document.querySelectorAll("[data-training-history-type]").forEach(btn => btn.classList.toggle("active", btn.dataset.trainingHistoryType === trainingEmployeeHistoryType));
+    body.innerHTML = rows.length ? rows.map(session => {
+        const type = session.training_type === "retraining" ? "retraining" : "training";
+        return `<tr><td><strong>${esc(session.training_date)}</strong></td><td><span class="training-type-badge ${type}">${esc(trainingTypeLabel(session.training_type))}</span></td><td>${esc(session.team_name || "—")}</td><td>${esc(trainingShiftLabel(session.shift))}</td><td><strong>${esc(session.process)}</strong></td><td>${esc(session.instructor_login || "—")}</td><td>${esc(session.notes || "—")}</td><td><button type="button" class="secondary" data-training-history-open="${esc(session.id)}">Details</button></td></tr>`;
+    }).join("") : `<tr><td colspan="8"><div class="training-empty">No ${typeLabel.toLowerCase()} records for this employee.</div></td></tr>`;
+    body.querySelectorAll("[data-training-history-open]").forEach(btn => btn.addEventListener("click", () => openTrainingSession(btn.dataset.trainingHistoryOpen || "")));
+}
+
+function openTrainingEmployeeHistory(login) {
+    trainingEmployeeHistoryLogin = String(login || "");
+    trainingEmployeeHistoryType = "all";
+    renderTrainingEmployeeHistory();
+    $("trainingEmployeeHistoryModal")?.classList.remove("hidden");
+}
+function closeTrainingEmployeeHistory() {
+    $("trainingEmployeeHistoryModal")?.classList.add("hidden");
+    trainingEmployeeHistoryLogin = "";
+}
+
 async function loadTrainingData() {
     if (!currentUser) return false;
     const [sessionsResult, participantsResult] = await Promise.all([
@@ -8347,6 +8386,10 @@ function initTrainingModule() {
     $("closeTrainingSessionBottom")?.addEventListener("click",closeTrainingSession);
     $("deleteTrainingSession")?.addEventListener("click",deleteTrainingSession);
     $("trainingSessionModal")?.addEventListener("click",event=>{if(event.target?.id==="trainingSessionModal")closeTrainingSession();});
+    document.querySelectorAll("[data-training-history-type]").forEach(btn=>btn.addEventListener("click",()=>{ trainingEmployeeHistoryType = btn.dataset.trainingHistoryType || "all"; renderTrainingEmployeeHistory(); }));
+    $("closeTrainingEmployeeHistory")?.addEventListener("click",closeTrainingEmployeeHistory);
+    $("closeTrainingEmployeeHistoryBottom")?.addEventListener("click",closeTrainingEmployeeHistory);
+    $("trainingEmployeeHistoryModal")?.addEventListener("click",event=>{if(event.target?.id==="trainingEmployeeHistoryModal")closeTrainingEmployeeHistory();});
     document.querySelectorAll("[data-employees-tab]").forEach(button=>button.addEventListener("click",()=>{
         if(button.dataset.employeesTab === "trainingTab") { populateTrainingSelects(); renderTrainingHistory(); }
     }));
@@ -8533,6 +8576,8 @@ renderScheduleTable = v383RenderScheduleTable;
 
 function v383GetAttendanceDayCell(employee, date) {
     const schedule = getSchedule(employee, date);
+    const dateLabel = date.toLocaleDateString("en-GB", {day:"2-digit",month:"2-digit",year:"numeric"});
+    const weekdayLabel = date.toLocaleDateString("en-US", {weekday:"long"});
     if (!canConfirmEmployeeDate(employee, date)) {
         return {code:"O", className:"off", reason:"", title:`Before start date ${employee.startDate} · No attendance confirmation allowed`};
     }
@@ -8552,9 +8597,6 @@ function v383GetAttendanceDayCell(employee, date) {
     const shiftLabel = SHIFTS[schedule.shift]?.label || String(schedule.shift || "OFF").toUpperCase();
     const status = String(data.status || "Pending").trim();
     const reason = v383AttendanceReasonLabel(data, status);
-    const dateLabel = date.toLocaleDateString("en-GB", {day:"2-digit",month:"2-digit",year:"numeric"});
-    const weekdayLabel = date.toLocaleDateString("en-US", {weekday:"long"});
-
     if (planned <= 0) return {code:"O", className:"off", reason:"Day off", title:`${weekdayLabel}, ${dateLabel} · ${shiftLabel} · Day off / no planned shift`};
     if (!data.confirmed) return {code:"P", className:"pending", reason:"Not confirmed", title:`${weekdayLabel}, ${dateLabel} · ${shiftLabel} · Not confirmed · Planned ${planned.toFixed(2)}h`};
     if (status.toLowerCase() === "absent") return {code:"A", className:"absent", reason, title:`${weekdayLabel}, ${dateLabel} · ${shiftLabel} · Absent${reason ? ` · ${reason}` : ""}`};

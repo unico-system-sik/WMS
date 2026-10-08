@@ -7,7 +7,7 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://ipmyxkhnwijpdweeztgb.supabase.co wss://ipmyxkhnwijpdweeztgb.supabase.co; worker-src 'self' blob:;">
-    <link rel="stylesheet" href="style.css?v=38.7">
+    <link rel="stylesheet" href="style.css?v=38.8">
 </head>
 <body>
 
@@ -1111,6 +1111,27 @@
     </div>
 </div>
 
+<div id="trainingEmployeeHistoryModal" class="modal hidden">
+    <div class="modal-card training-session-modal-card training-employee-history-modal-card">
+        <div class="panel-title">
+            <div><h3 id="trainingEmployeeHistoryTitle">History</h3><p id="trainingEmployeeHistoryMeta" class="modal-subtitle"></p></div>
+            <button id="closeTrainingEmployeeHistory" class="icon-btn" type="button">×</button>
+        </div>
+        <div class="subtabs training-history-type-tabs">
+            <button type="button" class="subtab active" data-training-history-type="all">All</button>
+            <button type="button" class="subtab" data-training-history-type="training">Training</button>
+            <button type="button" class="subtab" data-training-history-type="retraining">Retraining</button>
+        </div>
+        <div class="table-wrap">
+            <table class="training-history-table training-employee-history-table">
+                <thead><tr><th>Date</th><th>Type</th><th>Team</th><th>Shift</th><th>Process</th><th>Instructor</th><th>Note</th><th>Action</th></tr></thead>
+                <tbody id="trainingEmployeeHistoryBody"></tbody>
+            </table>
+        </div>
+        <div class="modal-actions"><button id="closeTrainingEmployeeHistoryBottom" class="secondary" type="button">Close</button></div>
+    </div>
+</div>
+
 <div id="trainingSessionModal" class="modal hidden">
     <div class="modal-card training-session-modal-card">
         <div class="panel-title">
@@ -1417,7 +1438,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=38.7"></script>
+<script src="script.js?v=38.8"></script>
 
 </body>
 </html>
