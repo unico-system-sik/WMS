@@ -727,10 +727,16 @@ function normalizeSecondaryProcess(value) {
     return match || raw;
 }
 
+function normalizeQualification(value) {
+    const raw = String(value || "").trim();
+    const match = EMPLOYEE_QUALIFICATIONS.find(item => item.toLowerCase() === raw.toLowerCase());
+    return match || raw;
+}
+
 function employeeQualifications(employee) {
     return Array.isArray(employee?.qualifications)
         ? employee.qualifications
-            .map(value => String(value || "").trim())
+            .map(normalizeQualification)
             .filter(Boolean)
         : [];
 }
@@ -742,9 +748,9 @@ function employeeProcessSkills(employee) {
 }
 
 function employeeHasQualification(employee, value) {
-    const wanted = String(value || "").trim().toLowerCase();
+    const wanted = normalizeQualification(value).toLowerCase();
     if (!wanted) return false;
-    return employeeQualifications(employee).some(item => String(item).trim().toLowerCase() === wanted);
+    return employeeQualifications(employee).some(item => normalizeQualification(item).toLowerCase() === wanted);
 }
 
 function employeeHasProcessSkill(employee, value) {
@@ -1062,7 +1068,7 @@ async function loadEmployeesFromSupabase() {
         endDate: employee.end_date || "",
         reason: employee.reason || "",
         status: employee.status || "Active",
-        qualifications: Array.isArray(employee.qualifications) ? employee.qualifications : [],
+        qualifications: Array.isArray(employee.qualifications) ? employee.qualifications.map(normalizeQualification).filter(Boolean) : [],
         skills: Array.isArray(employee.skills) ? employee.skills.map(normalizeSecondaryProcess).filter(Boolean) : []
     }));
 
@@ -3244,46 +3250,74 @@ function closeEmployeeCapabilitiesModal() {
 }
 
 async function saveEmployeeCapabilities() {
-    if (!canEditEmployeeSkills()) return;
-    const login = $("employeeCapabilitiesLogin").value;
-    const employee = employeeByLogin(login);
-    if (!employee) return;
-
-    const qualifications = checkedCapabilityValues("employeeQualifications").filter(x => EMPLOYEE_QUALIFICATIONS.includes(x));
-    const skills = checkedCapabilityValues("employeeProcessSkills").filter(x => EMPLOYEE_PROCESS_SKILLS.includes(x));
-
-    const { data, error } = await supabaseClient.rpc("update_employee_capabilities", {
-        p_login: login,
-        p_qualifications: qualifications,
-        p_skills: skills
-    });
-    if (error) {
-        console.error("Employee capabilities update error:", error);
-        toast(error.message || "Could not update employee capabilities.");
+    if (!canEditEmployeeSkills()) {
+        toast("You do not have permission to edit employee qualifications.");
         return;
     }
 
-    const updated = Array.isArray(data) ? data[0] : data;
-    if (updated) {
+    const login = String($("employeeCapabilitiesLogin")?.value || "").trim();
+    const employee = employeeByLogin(login);
+    if (!employee) { toast("Employee was not found. Refresh Employees and try again."); return; }
+
+    const qualifications = checkedCapabilityValues("employeeQualifications")
+        .map(normalizeQualification)
+        .filter(value => EMPLOYEE_QUALIFICATIONS.includes(value));
+    const skills = checkedCapabilityValues("employeeProcessSkills")
+        .map(normalizeSecondaryProcess)
+        .filter(value => EMPLOYEE_PROCESS_SKILLS.includes(value));
+
+    const button = $("employeeCapabilitiesForm")?.querySelector('button[type="submit"]');
+    if (button) { button.disabled = true; button.dataset.oldText = button.textContent; button.textContent = "Saving…"; }
+
+    try {
+        // Capabilities are intentionally saved through the secured RPC.
+        // This keeps the Employees table protected by the same role checks as the DB.
+        const { data, error } = await supabaseClient.rpc("update_employee_capabilities", {
+            p_login: login,
+            p_qualifications: qualifications,
+            p_skills: skills
+        });
+
+        if (error) {
+            console.error("Employee capabilities update error:", error);
+            const message = String(error.message || error.details || "");
+            if (/function .*update_employee_capabilities.*does not exist/i.test(message)) {
+                toast("Employee qualification service is missing in Supabase. Run WMS_REPAIR_V38.6.sql.");
+            } else if (/permission|not authorized|row-level security|forbidden/i.test(message)) {
+                toast("You do not have permission to change employee qualifications.");
+            } else {
+                toast(`Could not update employee qualifications: ${message || "Unknown database error"}`);
+            }
+            return;
+        }
+
+        const updated = Array.isArray(data) ? data[0] : data;
         const index = EMPLOYEES.findIndex(item => item.login === login);
         if (index !== -1) {
             EMPLOYEES[index] = {
                 ...EMPLOYEES[index],
-                qualifications: Array.isArray(updated.qualifications) ? updated.qualifications : qualifications,
-                skills: Array.isArray(updated.skills) ? updated.skills : skills
+                qualifications: Array.isArray(updated?.qualifications)
+                    ? updated.qualifications.map(normalizeQualification).filter(Boolean)
+                    : qualifications,
+                skills: Array.isArray(updated?.skills)
+                    ? updated.skills.map(normalizeSecondaryProcess).filter(Boolean)
+                    : skills
             };
         }
-    }
 
-    closeEmployeeCapabilitiesModal();
-    fillEmployeeFilters();
-    fillFeedbackFilters();
-    updateEmployeeManagementControls();
-    renderEmployeeDatabase();
-    renderFormerEmployees();
-    renderStatistics();
-    renderFeedbackTracker();
-    toast(`${employee.login}: qualifications and process skills updated.`);
+        closeEmployeeCapabilitiesModal();
+        fillEmployeeFilters();
+        fillFeedbackFilters();
+        updateEmployeeManagementControls();
+        renderEmployeeDatabase();
+        renderFormerEmployees();
+        renderStatistics();
+        renderFeedbackTracker();
+        renderOverview();
+        toast(`${login}: qualifications and process skills updated.`);
+    } finally {
+        if (button) { button.disabled = false; button.textContent = button.dataset.oldText || "Save"; }
+    }
 }
 
 function employeeEditButton(employee) {
@@ -3330,7 +3364,7 @@ async function saveEmployeeEdit() {
     const process = $("employeeEditProcess").value;
     const startDate = $("employeeEditStartDate").value || null;
     const effectiveFrom = $("employeeEditEffectiveFrom").value || "";
-    const qualifications = checkedCapabilityValues("employeeEditQualifications").filter(x => EMPLOYEE_QUALIFICATIONS.includes(x));
+    const qualifications = checkedCapabilityValues("employeeEditQualifications").map(normalizeQualification).filter(x => EMPLOYEE_QUALIFICATIONS.includes(x));
     const skills = checkedCapabilityValues("employeeEditProcessSkills").filter(x => EMPLOYEE_PROCESS_SKILLS.includes(x));
     const employee = employeeByLogin(login);
     if (!employee || !BRIGADES.includes(brigade) || !PROCESSES.includes(process) || !effectiveFrom) { toast("Complete the employee data correctly."); return; }
@@ -6802,6 +6836,11 @@ function renderAllHoursAttendance() {
 
 function showMoreHoursEmployees() {
     const employees = hoursAllFilterEmployees(false);
+    if (!employees.length) {
+        hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
+        renderAllHoursAttendance();
+        return;
+    }
     if (hoursAllVisibleCount >= employees.length) return;
     hoursAllVisibleCount = Math.min(hoursAllVisibleCount + LARGE_LIST_PAGE_SIZE, employees.length);
     renderAllHoursAttendance();
@@ -7899,6 +7938,7 @@ function trainingEmployeeLabel(employee) {
 function trainingInstructors() {
     return activeEmployees()
         .filter(e => employeeHasQualification(e, "Instructor"))
+        .filter(e => String(e.status || "Active").toLowerCase() === "active")
         .slice()
         .sort((a,b)=>String(a.login).localeCompare(String(b.login)));
 }
@@ -7948,7 +7988,7 @@ function renderTrainingInstructorDropdown(query = "") {
     const input = $("trainingInstructor");
     if (!box || !input) return;
     const people = trainingInstructorCandidates(query).slice(0, 30);
-    box.innerHTML = people.length ? people.map(e => `<button type="button" class="training-search-option" data-training-instructor-login="${esc(e.login)}"><strong>${esc(e.login)}</strong><span>${esc(e.process || "—")} · Brigade ${esc(e.brigade || "—")}</span></button>`).join("") : `<div class="training-search-empty">No Instructor found.</div>`;
+    box.innerHTML = people.length ? people.map(e => `<button type="button" class="training-search-option" data-training-instructor-login="${esc(e.login)}"><strong>${esc(e.login)}</strong><span>${esc(e.process || "—")} · Brigade ${esc(e.brigade || "—")}</span></button>`).join("") : `<div class="training-search-empty">No Instructor found. First assign the <strong>Instructor</strong> qualification in Employees → Edit skills.</div>`;
     box.classList.remove("hidden");
 }
 function selectTrainingInstructor(login) {
@@ -8481,6 +8521,8 @@ function v383RenderAllHoursAttendance() {
     updateHoursExportVisibility();
     const filteredEmployees = hoursAllFilterEmployees(false);
     const employees = sortHoursAttendanceEmployees(filteredEmployees);
+    if (hoursAllVisibleCount < LARGE_LIST_PAGE_SIZE) hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
+    if (hoursAllVisibleCount > employees.length && employees.length > 0) hoursAllVisibleCount = employees.length;
     const visibleEmployees = employees.slice(0, hoursAllVisibleCount);
     const dayHeaders = getHoursAttendanceDayHeaders(hoursAttendanceMonth);
 
@@ -8709,7 +8751,7 @@ function renderTrainingEditInstructorDropdown(query="") {
     const box=$("trainingEditInstructorDropdown"), input=$("trainingEditInstructor");
     if(!box||!input)return;
     const people=trainingEditInstructorCandidates(query).slice(0,30);
-    box.innerHTML=people.length?people.map(e=>`<button type="button" class="training-search-option" data-training-edit-instructor="${esc(e.login)}"><strong>${esc(e.login)}</strong><span>${esc(e.process||"—")} · Brigade ${esc(e.brigade||"—")}</span></button>`).join(""):`<div class="training-search-empty">No Instructor found.</div>`;
+    box.innerHTML=people.length?people.map(e=>`<button type="button" class="training-search-option" data-training-edit-instructor="${esc(e.login)}"><strong>${esc(e.login)}</strong><span>${esc(e.process||"—")} · Brigade ${esc(e.brigade||"—")}</span></button>`).join(""):`<div class="training-search-empty">No Instructor found. First assign the <strong>Instructor</strong> qualification in Employees → Edit skills.</div>`;
     box.classList.remove("hidden");
 }
 function selectTrainingEditInstructor(login){

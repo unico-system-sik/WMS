@@ -2814,3 +2814,9 @@ button.analytics-detail-kpi:hover {
     .training-edit-note { grid-column: span 1; }
     .training-history-actions { flex-wrap: wrap; }
 }
+
+
+/* V38.6 capability / attendance hardening */
+.capability-checkbox-grid .capability-checkbox { cursor:pointer; }
+.training-search-empty strong { font-weight:700; }
+.hours-all-more-wrap { min-height: 40px; }
