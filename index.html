@@ -60,7 +60,6 @@
 
 <div id="currentUserBox" class="current-user-box hidden">
   <div id="currentUserLoginDisplay" class="current-user-login">—</div>
-  <div id="currentUserLogin" class="current-user-login">—</div>
   <button id="logoutButton" class="logout-button" type="button">Log out</button>
 </div>
 
@@ -487,6 +486,7 @@
     <div class="subtabs scheduling-subtabs">
         <button type="button" class="subtab active" data-scheduling-tab="scheduleTab">Schedule</button>
         <button type="button" class="subtab" data-scheduling-tab="extraDaysTab">Extra Days</button>
+        <button type="button" class="subtab" data-scheduling-tab="restTab">Rest Shifts</button>
         <button type="button" class="subtab" data-scheduling-tab="leaveTab">Leave & Absence</button>
         <button type="button" class="subtab" data-scheduling-tab="historyTab">History</button>
         <button type="button" class="subtab" data-scheduling-tab="auditTab">Audit Log</button>
@@ -535,7 +535,7 @@
                 <div class="individual-schedule-actions">
                     <input id="individualScheduleSearch" class="individual-schedule-search" type="search" placeholder="Search by login" autocomplete="off">
                     <button id="individualScheduleSearchBtn" type="button" class="secondary">Search</button>
-                    <button id="individualScheduleAllBtn" type="button" class="secondary">Open all employees</button>
+                    <button id="individualScheduleAllBtn" type="button" class="secondary">Open first 100</button>
                     <button id="clearIndividualScheduleSearch" type="button" class="secondary">Clear</button>
                     <button id="saveIndividualSchedule" type="button" class="primary">Save individual changes</button>
                 </div>
@@ -547,6 +547,7 @@
                     <tbody id="individualScheduleBody"></tbody>
                 </table>
             </div>
+            <div id="individualScheduleMoreWrap" class="more-wrap" hidden><button id="individualScheduleMoreBtn" type="button" class="secondary">More (100)</button></div>
         </div>
     </section>
 
@@ -582,6 +583,32 @@
         <div class="table-wrap">
             <table><thead><tr><th>Date</th><th>Login</th><th>Brigade</th><th>Process</th><th>Change</th><th>Shift</th><th>Approved by</th><th>Created</th><th>Action</th></tr></thead>
             <tbody id="extraDaysTable"></tbody></table>
+        </div>
+    </section>
+
+    <section id="restTab" class="subpage panel">
+        <div class="panel-title">
+            <div><h3>Rest Shifts</h3><p>Assign a Rest Shift (R) to an employee for a specific date. It is stored as a schedule exception and appears in Schedule & Leave History.</p></div>
+        </div>
+        <div class="quick-stats-grid extra-days-stats leave-stats">
+            <div class="quick-stat"><span>Rest Shifts</span><strong id="restStatTotal">0</strong><small>active records</small></div>
+            <div class="quick-stat"><span>Employees</span><strong id="restStatEmployees">0</strong><small>with Rest Shift</small></div>
+        </div>
+        <div class="extra-form leave-form">
+            <div><label class="control-label">Employee login</label><input id="restEmployeeLogin" placeholder="e.g. 60010001"><small id="restEmployeeHint" class="field-hint">Enter the exact employee login.</small></div>
+            <div><label class="control-label">Date</label><input id="restDate" type="date"></div>
+            <div><label class="control-label">Approved by</label><input id="restRecordedBy" readonly></div>
+            <div class="extra-actions"><button id="saveRestShift" class="primary" type="button">Save Rest Shift</button></div>
+        </div>
+        <div class="history-filters extra-days-filters">
+            <div><label class="control-label">Date</label><input id="restDateFilter" type="date"></div>
+            <div><label class="control-label">Employee login</label><input id="restLoginFilter" placeholder="Employee login"></div>
+            <button id="applyRestFilters" class="primary filter-search-btn" type="button">Search</button>
+            <button id="clearRestFilters" class="secondary" type="button">Clear</button>
+        </div>
+        <div class="table-wrap">
+            <table><thead><tr><th>Date</th><th>Employee</th><th>Shift</th><th>Approved by</th><th>Created</th><th>Action</th></tr></thead>
+            <tbody id="restShiftsTable"></tbody></table>
         </div>
     </section>
 
@@ -623,6 +650,7 @@
         <div class="quick-stats-grid extra-history-stats">
             <div class="quick-stat"><span>Extra work</span><strong id="historyStatWork">0</strong><small>DAY + NIGHT</small></div>
             <div class="quick-stat"><span>Extra OFF</span><strong id="historyStatOff">0</strong><small>day-off events</small></div>
+            <div class="quick-stat"><span>Rest Shift</span><strong id="historyStatRest">0</strong><small>R events</small></div>
             <div class="quick-stat"><span>DAY</span><strong id="historyStatDay">0</strong><small>extra work</small></div>
             <div class="quick-stat"><span>NIGHT</span><strong id="historyStatNight">0</strong><small>extra work</small></div>
             <div class="quick-stat"><span>Total events</span><strong id="historyStatTotal">0</strong><small>including removals</small></div>
@@ -1402,7 +1430,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=38.0"></script>
+<script src="script.js?v=38.4"></script>
 
 </body>
 </html>
