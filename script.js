@@ -4939,8 +4939,20 @@ function renderHoursAttendance() {
         const actualTime = data.confirmed && (data.actualStart || data.actualEnd)
             ? `${esc(data.actualStart || "—")}–${esc(data.actualEnd || "—")}`
             : "—";
-        const detailStatus = isAbsent ? "Absent" : leftEarly ? "Left early" : data.confirmed ? "Confirmed" : (p ? "Not confirmed" : "OFF");
-        const detailReason = data.reason || (isAbsent ? "Absent" : leftEarly ? "Left early" : "—");
+        const leave = leaveRecordForDate(employee, date);
+        const extra = extraDays[scheduleKey(date, employee.login)];
+        const exceptionStatus = leave
+            ? (leave.leaveType === "sick-leave" ? "L4" : "U")
+            : extra?.type === "extra-work-day" ? "D+"
+            : extra?.type === "extra-work-night" ? "N+"
+            : extra?.type === "extra-off" ? "OFF"
+            : "";
+        const detailStatus = exceptionStatus || (isAbsent ? "Absent" : leftEarly ? "Left early" : data.confirmed ? "Confirmed" : (p ? "Not confirmed" : "OFF"));
+        const detailReason = leave
+            ? (leave.note || leaveTypeLabel(leave.leaveType))
+            : extra
+                ? (extra.type === "extra-off" ? "Extra day off" : `Extra ${extra.shift === "night" ? "night" : "day"}`)
+                : (data.reason || (isAbsent ? "Absent" : leftEarly ? "Left early" : "—"));
 
         rows.push(`
             <tr>
@@ -6257,54 +6269,73 @@ function showMoreIndividualScheduleEmployees() {
 function V33_renderIndividualScheduleTable(loginOverride) {
     const body=$("individualScheduleBody"), head=$("individualScheduleHeadRow");
     if (!body || !head) return;
-    const query=( $("individualScheduleSearch")?.value || "").trim().toLowerCase();
-    const moreWrap = document.getElementById("individualScheduleMoreWrap");
+    const query=($("individualScheduleSearch")?.value || "").trim().toLowerCase();
+    const moreWrap=document.getElementById("individualScheduleMoreWrap");
+
+    const renderHeader = totalDays => {
+        head.innerHTML='<th>Employee</th>'+Array.from({length:totalDays},(_,i)=>{
+            const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12);
+            return `<th class="schedule-day-head"><strong>${String(i+1).padStart(2,"0")}</strong><small>${d.toLocaleDateString("en-US",{weekday:"short"})}</small></th>`;
+        }).join("");
+    };
+
+    const renderEmployeeRow = emp => {
+        const totalDays=monthDays(scheduleMonth);
+        const cells=Array.from({length:totalDays},(_,i)=>{
+            const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12);
+            const state=scheduleVisualState(emp,d);
+            const key=scheduleKey(d,emp.login);
+            const override=state.kind==="before-start" ? "" : individualScheduleValue(emp,d);
+            const locked=state.kind!=="normal" || Boolean(extraDays[key]) || Boolean(leaveRecordForDate(emp,d));
+            const effective=state.kind==="normal" ? (override || V33_originalGetSchedule(emp,d).shift || "off") : "off";
+
+            // Exactly one visual control per day: either an editable select or a locked exception badge.
+            if (locked) {
+                return `<td class="schedule-cell individual-schedule-cell ${esc(state.css)} ${override?"has-override":""}"><div class="schedule-state ${esc(state.css)}" title="${esc(state.title)}"><span>${esc(state.label)}</span>${state.kind==="leave"?`<small>${esc(leaveTypeLabel(leaveRecordForDate(emp,d).leaveType))}</small>`:""}</div></td>`;
+            }
+
+            return `<td class="schedule-cell individual-schedule-cell ${esc(effective)} ${override?"has-override":""}"><select class="${esc(effective)}" data-individual-schedule="${esc(emp.login)}" data-schedule-date="${dateKey(d)}" title="${esc(override?`Override: ${override}`:`Brigade: ${effective}`)}">${v383ScheduleOptionHtml(override,effective)}</select></td>`;
+        }).join("");
+        return `<tr><td class="employee-schedule-name"><strong>${esc(emp.login)}</strong><small>${esc(employeeProcessForDate(emp,scheduleMonth))} · Brigade ${esc(employeeBrigadeForDate(emp,scheduleMonth))}</small></td>${cells}</tr>`;
+    };
+
     if (loginOverride === "__ALL__") {
-        const allPeople = activeEmployees().slice().sort((a,b)=>String(a.login).localeCompare(String(b.login)));
-        const people = allPeople.slice(0, Math.max(50, individualScheduleVisibleCount));
-        const totalDays = monthDays(scheduleMonth);
-        head.innerHTML='<th>Employee</th>'+Array.from({length:totalDays},(_,i)=>{const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12);return `<th class="schedule-day-head"><strong>${String(i+1).padStart(2,"0")}</strong><small>${d.toLocaleDateString("en-US",{weekday:"short"})}</small></th>`}).join("");
-        body.innerHTML = people.map(employee => {
-            const cells = Array.from({length:totalDays},(_,i)=>{
-                const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12), state=scheduleVisualState(employee,d), before=state.kind==="before-start", override=before?"":individualScheduleValue(employee,d);
-                const editable=state.kind==="normal" && !leaveRecordForDate(employee,d) && !extraDays[scheduleKey(d,employee.login)];
-                const selectedEffective=state.kind==="normal" ? (override || V33_originalGetSchedule(employee,d).shift || "off") : "off";
-                return `<td class="schedule-cell individual-schedule-cell ${state.css} ${override?"has-override":""}"><div class="schedule-state ${state.css}" title="${esc(state.title)}"><span>${esc(state.label)}</span>${state.kind!=="normal"?`<small>${esc(state.kind==="leave"?leaveTypeLabel(leaveRecordForDate(employee,d).leaveType):state.kind.replaceAll("-"," "))}</small>`:""}</div>${editable?`<select class="${selectedEffective}" data-individual-schedule="${esc(employee.login)}" data-schedule-date="${dateKey(d)}" title="${esc(override?`Override: ${override}`:`Brigade: ${selectedEffective}`)}">${scheduleOptionHtml(override||"")}</select>`:""}</td>`;
-            }).join("");
-            return `<tr><td class="employee-schedule-name"><strong>${esc(employee.login)}</strong><small>${esc(employeeProcessForDate(employee,scheduleMonth))} · Brigade ${esc(employeeBrigadeForDate(employee,scheduleMonth))}</small></td>${cells}</tr>`;
-        }).join("") || '<tr><td><div class="empty">No active employees.</div></td></tr>';
-        body.querySelectorAll("[data-individual-schedule]").forEach(select=>select.addEventListener("change",()=>{const login=select.dataset.individualSchedule,date=select.dataset.scheduleDate,key=`${date}_${login}`; if(select.value) individualSchedules[key]=select.value; else delete individualSchedules[key]; const emp=employeeByLogin(login); if(emp){select.className=select.value||V33_originalGetSchedule(emp,fromKey(date)).shift||"off";} }));
-        const wrap = moreWrap;
-        const btn = document.getElementById("individualScheduleMoreBtn");
-        const hasMore = people.length < allPeople.length;
-        if (wrap) wrap.hidden = !hasMore;
-        if (btn) { btn.textContent = hasMore ? `More (${Math.min(50, allPeople.length - people.length)})` : "More"; btn.disabled = !hasMore; }
+        const allPeople=activeEmployees().slice().sort((a,b)=>String(a.login).localeCompare(String(b.login)));
+        const people=allPeople.slice(0,Math.max(50,individualScheduleVisibleCount));
+        renderHeader(monthDays(scheduleMonth));
+        body.innerHTML=people.map(renderEmployeeRow).join("") || '<tr><td><div class="empty">No active employees.</div></td></tr>';
+        if(moreWrap) moreWrap.hidden=people.length>=allPeople.length;
+        const btn=document.getElementById("individualScheduleMoreBtn");
+        if(btn){btn.textContent=people.length<allPeople.length?`More (${Math.min(50,allPeople.length-people.length)})`:"More";btn.disabled=people.length>=allPeople.length;}
+    } else if (!query && !loginOverride) {
+        if(moreWrap) moreWrap.hidden=true;
+        head.innerHTML="";
+        body.innerHTML='<tr><td><div class="empty">Search for an employee to view their individual schedule.</div></td></tr>';
         return;
-    }
-    if (!query && !loginOverride) { if (moreWrap) moreWrap.hidden = true; head.innerHTML=""; body.innerHTML='<tr><td><div class="empty">Search for an employee to view their individual schedule.</div></td></tr>'; return; }
-    if (moreWrap) moreWrap.hidden = true;
-    let employee=loginOverride ? employeeByLogin(loginOverride) : null;
-    if (!employee) {
-        const people=activeEmployees().filter(e=>String(e.login).toLowerCase().includes(query)).sort((a,b)=>String(a.login).localeCompare(String(b.login)));
-        if (!people.length) { head.innerHTML=""; body.innerHTML='<tr><td><div class="empty">No employees found.</div></td></tr>'; return; }
-        if (people.length>1) {
-            body.innerHTML=`<tr><td><div class="empty"><strong>${people.length} employees found.</strong><br>Select one employee below.<select id="individualEmployeePicker" class="individual-employee-picker"><option value="">Select employee...</option>${people.map(e=>`<option value="${esc(e.login)}">${esc(e.login)} · ${esc(e.login)}</option>`).join("")}</select></div></td></tr>`;
-            $("individualEmployeePicker")?.addEventListener("change",e=>{ if(e.target.value) V33_renderIndividualScheduleTable(e.target.value); });
-            head.innerHTML=""; return;
+    } else {
+        if(moreWrap) moreWrap.hidden=true;
+        let employee=loginOverride ? employeeByLogin(loginOverride) : null;
+        if(!employee){
+            const people=activeEmployees().filter(e=>String(e.login).toLowerCase().includes(query)).sort((a,b)=>String(a.login).localeCompare(String(b.login)));
+            if(!people.length){head.innerHTML="";body.innerHTML='<tr><td><div class="empty">No employees found.</div></td></tr>';return;}
+            if(people.length>1){
+                head.innerHTML="";
+                body.innerHTML=`<tr><td><div class="empty"><strong>${people.length} employees found.</strong><br>Select one employee below.<select id="individualEmployeePicker" class="individual-employee-picker"><option value="">Select employee...</option>${people.map(e=>`<option value="${esc(e.login)}">${esc(e.login)}</option>`).join("")}</select></div></td></tr>`;
+                $("individualEmployeePicker")?.addEventListener("change",e=>{if(e.target.value)V33_renderIndividualScheduleTable(e.target.value);});
+                return;
+            }
+            employee=people[0];
         }
-        employee=people[0];
+        renderHeader(monthDays(scheduleMonth));
+        body.innerHTML=renderEmployeeRow(employee);
     }
-    const totalDays=monthDays(scheduleMonth);
-    head.innerHTML='<th>Employee</th>'+Array.from({length:totalDays},(_,i)=>{const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12);return `<th class="schedule-day-head"><strong>${String(i+1).padStart(2,"0")}</strong><small>${d.toLocaleDateString("en-US",{weekday:"short"})}</small></th>`}).join("");
-    const cells=Array.from({length:totalDays},(_,i)=>{
-        const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12), state=scheduleVisualState(employee,d), before=state.kind==="before-start", override=before?"":individualScheduleValue(employee,d);
-        const editable=state.kind==="normal" && !leaveRecordForDate(employee,d) && !extraDays[scheduleKey(d,employee.login)];
-        const selectValue=editable ? override : "";
-        const selectedEffective=state.kind==="normal" ? (override || V33_originalGetSchedule(employee,d).shift || "off") : "off";
-        return `<td class="schedule-cell individual-schedule-cell ${state.css} ${override?"has-override":""}"><div class="schedule-state ${state.css}" title="${esc(state.title)}"><span>${esc(state.label)}</span>${state.kind!=="normal"?`<small>${esc(state.kind==="leave"?leaveTypeLabel(leaveRecordForDate(employee,d).leaveType):state.kind.replaceAll("-"," "))}</small>`:""}</div>${editable?`<select class="${selectedEffective}" data-individual-schedule="${esc(employee.login)}" data-schedule-date="${dateKey(d)}" title="${esc(override?`Override: ${override}`:`Brigade: ${selectedEffective}`)}">${scheduleOptionHtml(override||"")}</select>`:""}</td>`;
-    }).join("");
-    body.innerHTML=`<tr><td class="employee-schedule-name"><strong>${esc(employee.login)}</strong><small>${esc(employeeProcessForDate(employee,scheduleMonth))} · Brigade ${esc(employeeBrigadeForDate(employee,scheduleMonth))}</small></td>${cells}</tr>`;
-    body.querySelectorAll("[data-individual-schedule]").forEach(select=>select.addEventListener("change",()=>{const login=select.dataset.individualSchedule,date=select.dataset.scheduleDate,key=`${date}_${login}`; if(select.value) individualSchedules[key]=select.value; else delete individualSchedules[key]; const emp=employeeByLogin(login); if(emp){select.className=select.value||V33_originalGetSchedule(emp,fromKey(date)).shift||"off";} }));
+
+    body.querySelectorAll("[data-individual-schedule]").forEach(select=>select.addEventListener("change",()=>{
+        const login=select.dataset.individualSchedule,date=select.dataset.scheduleDate,key=`${date}_${login}`;
+        if(select.value) individualSchedules[key]=select.value; else delete individualSchedules[key];
+        const emp=employeeByLogin(login);
+        if(emp) V33_renderIndividualScheduleTable(login);
+    }));
 }
 renderSelectedIndividualSchedule = V33_renderIndividualScheduleTable;
 
@@ -8092,12 +8123,33 @@ function setTrainingType(type) {
     trainingHistoryAllTypes = false;
     trainingActiveType = type === "retraining" ? "retraining" : "training";
     document.querySelectorAll("[data-training-type]").forEach(btn => btn.classList.toggle("active", btn.dataset.trainingType === trainingActiveType));
+    document.querySelectorAll("[data-training-view]").forEach(btn => btn.classList.remove("active"));
     const title = $("trainingFormTitle");
     const save = $("trainingSaveSession");
+    const createPanel = document.querySelector(".training-create-panel");
+    const historyPanel = document.querySelector(".training-history-panel");
+    const analysisPanel = document.querySelector(".training-analysis-panel");
+    if (createPanel) createPanel.hidden = false;
+    if (historyPanel) historyPanel.hidden = false;
+    if (analysisPanel) analysisPanel.hidden = false;
     if (title) title.textContent = trainingActiveType === "retraining" ? "Create Retraining Team" : "Create Training Team";
     if (save) save.textContent = trainingActiveType === "retraining" ? "Save Retraining Team" : "Save Training Team";
     setTrainingAutoTeamName(true);
     renderTrainingHistory();
+}
+
+function setTrainingHistoryView() {
+    trainingHistoryAllTypes = true;
+    document.querySelectorAll("[data-training-type]").forEach(btn => btn.classList.remove("active"));
+    document.querySelectorAll("[data-training-view]").forEach(btn => btn.classList.toggle("active", btn.dataset.trainingView === "history"));
+    const createPanel = document.querySelector(".training-create-panel");
+    const historyPanel = document.querySelector(".training-history-panel");
+    const analysisPanel = document.querySelector(".training-analysis-panel");
+    if (createPanel) createPanel.hidden = true;
+    if (historyPanel) historyPanel.hidden = false;
+    if (analysisPanel) analysisPanel.hidden = false;
+    renderTrainingHistory();
+    historyPanel?.scrollIntoView({behavior:"smooth", block:"start"});
 }
 function trainingFilteredSessions() {
     const employee = String($("trainingFilterEmployee")?.value || "").trim().toLowerCase();
@@ -8369,6 +8421,7 @@ function initTrainingModule() {
     populateTrainingSelects();
     resetTrainingForm();
     document.querySelectorAll("[data-training-type]").forEach(btn=>btn.addEventListener("click",()=>setTrainingType(btn.dataset.trainingType)));
+    document.querySelectorAll("[data-training-view]").forEach(btn=>btn.addEventListener("click",()=>{ if(btn.dataset.trainingView === "history") setTrainingHistoryView(); }));
     $("trainingParticipantSearch")?.addEventListener("input",renderTrainingParticipantList);
     $("trainingDate")?.addEventListener("change", () => { setTrainingAutoTeamName(false); });
     initTrainingInstructorPicker();
@@ -8634,7 +8687,7 @@ function v383RenderAllHoursAttendance() {
 
     body.innerHTML=visibleEmployees.map(employee=>{
         const summary=getHoursEmployeeSummary(employee), difference=Number(summary.differenceDays||0);
-        const dayCells=dayHeaders.map(({date,key})=>{const cell=v383GetAttendanceDayCell(employee,date);const selectedClass=hoursAttendanceDaySortKey===key?" is-sorted-column":"";return `<td class="hours-matrix-day-cell${selectedClass}"><span class="attendance-day-badge ${cell.className}" title="${esc(cell.title)}"><strong>${esc(cell.code)}</strong>${cell.reason?`<small>${esc(cell.reason)}</small>`:""}</span></td>`;}).join("");
+        const dayCells=dayHeaders.map(({date,key})=>{const cell=v383GetAttendanceDayCell(employee,date);const selectedClass=hoursAttendanceDaySortKey===key?" is-sorted-column":"";return `<td class="hours-matrix-day-cell${selectedClass}"><span class="attendance-day-badge ${cell.className}" title="${esc(cell.title)}"><strong>${esc(cell.code)}</strong></span></td>`;}).join("");
         return `<tr class="hours-employee-row" data-hours-employee="${esc(employee.login)}" tabindex="0" title="Open attendance record"><td class="hours-matrix-employee"><strong>${esc(employee.login)}</strong></td><td class="hours-matrix-brigade">${esc(employee.brigade)}</td><td class="hours-matrix-process">${esc(employee.process)}</td>${dayCells}<td>${summary.plannedDays}</td><td>${summary.workedDays}</td><td>${difference>0?"+":""}${difference}</td><td>${summary.absent}</td><td>${summary.pending}</td><td>${summary.underworked.toFixed(2)}h</td><td>${summary.attendanceRate.toFixed(1)}%</td></tr>`;
     }).join("") || `<tr><td colspan="${3+dayHeaders.length+7}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
 
