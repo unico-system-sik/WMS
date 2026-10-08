@@ -2646,54 +2646,72 @@ button.analytics-detail-kpi:hover {
 .individual-schedule-cell > select{width:42px!important;min-width:42px!important;max-width:42px!important;height:38px;box-sizing:border-box;margin:0 auto;display:block}
 .individual-schedule-cell.leave,.individual-schedule-cell.sick,.individual-schedule-cell.extra-off,.individual-schedule-cell.extra-day,.individual-schedule-cell.extra-night{padding:2px!important}
 
-/* V39 — compact sticky search/filter bars across every data tab. */
-.page .filters,
-.page .history-filters,
-.page .hours-all-filters,
-.page .analytics-filters {
-    position: sticky;
-    top: 0;
-    z-index: 25;
-    margin-top: 0;
-    padding: 8px 10px;
-    background: rgba(255,255,255,.98);
-    border: 1px solid #e3e8ef;
-    border-radius: 10px;
-    box-shadow: 0 3px 12px rgba(20,35,59,.06);
-    backdrop-filter: blur(6px);
+
+/* ================================================================
+   V38.3 — schedule / attendance / analytics polish
+   ================================================================ */
+.schedule-table td,
+.individual-schedule-table td {
+    vertical-align: middle;
 }
-.page .filters input,
-.page .filters select,
-.page .history-filters input,
-.page .history-filters select,
-.page .hours-all-filters input,
-.page .hours-all-filters select,
-.page .analytics-filters input,
-.page .analytics-filters select {
-    min-height: 36px;
+.individual-schedule-cell > select,
+.individual-schedule-cell > .schedule-state {
+    width: 42px !important;
+    min-width: 42px !important;
+    max-width: 42px !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    margin: 0 auto !important;
     box-sizing: border-box;
 }
-
-/* V39 — individual schedule pagination. */
-#individualScheduleMoreWrap {
-    display: flex;
-    justify-content: center;
-    padding: 12px 0 2px;
+.individual-schedule-cell > select {
+    display: block;
+    padding: 0 2px;
 }
-#individualScheduleMoreWrap[hidden] { display:none !important; }
+.individual-schedule-cell > .schedule-state {
+    display: flex;
+}
+.schedule-state.leave,
+.schedule-state.vacation,
+.schedule-state.sick,
+.schedule-state.extra-off,
+.schedule-state.extra-day,
+.schedule-state.extra-night,
+.schedule-state.before-start {
+    font-size: 10px;
+}
+.schedule-state.leave { background:#eef2f7; color:#52627a; }
+.schedule-state.normal { background:transparent; color:inherit; }
 
-/* V39 — make process confirmation compact but always visibly selectable. */
-.confirm-process-row label { min-width: 260px; }
-.confirm-process-row select { width: 100%; min-height: 38px; }
+/* Reason is intentionally visible, not tooltip-only. */
+.attendance-day-badge {
+    width: 42px;
+    min-height: 34px;
+    padding: 3px 3px;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    line-height: 1;
+    box-sizing: border-box;
+}
+.attendance-day-badge strong { font-size: 11px; line-height: 1; }
+.attendance-day-badge small {
+    max-width: 68px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 7px;
+    line-height: 1.05;
+    font-weight: 800;
+}
 
-/* V38.4 — modal must stay above sticky filters and schedule columns stay uniform. */
-.modal { z-index: 2000; }
-.confirm-process-modal-card { position: relative; z-index: 2001; }
-.schedule-table th:not(:first-child),
-.schedule-table td:not(:first-child) { width: 50px; min-width: 50px; max-width: 50px; }
-.schedule-table th:first-child,
-.schedule-table td:first-child { min-width: 190px; width: 190px; }
-.schedule-table td { vertical-align: middle; }
-.schedule-table td .schedule-state,
-.schedule-table td .schedule-state small { overflow: hidden; }
-.rest-badge { display:inline-flex; align-items:center; justify-content:center; min-width:34px; height:28px; padding:0 8px; border-radius:8px; background:#e7edf8; color:#314b78; font-weight:800; font-size:12px; }
+.analytics-daily-table th:last-child,
+.analytics-daily-table td:last-child { white-space: nowrap; }
+.analytics-view-details { font-size: 11px; padding: 6px 9px; white-space: nowrap; }
+.analytics-clickable-row td { vertical-align: middle; }
+
+@media (max-width: 1100px) {
+    .analytics-daily-table { min-width: 1450px; }
+}
