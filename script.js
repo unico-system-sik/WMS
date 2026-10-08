@@ -729,7 +729,9 @@ function normalizeSecondaryProcess(value) {
 
 function employeeQualifications(employee) {
     return Array.isArray(employee?.qualifications)
-        ? employee.qualifications.filter(Boolean)
+        ? employee.qualifications
+            .map(value => String(value || "").trim())
+            .filter(Boolean)
         : [];
 }
 
@@ -740,7 +742,9 @@ function employeeProcessSkills(employee) {
 }
 
 function employeeHasQualification(employee, value) {
-    return employeeQualifications(employee).includes(value);
+    const wanted = String(value || "").trim().toLowerCase();
+    if (!wanted) return false;
+    return employeeQualifications(employee).some(item => String(item).trim().toLowerCase() === wanted);
 }
 
 function employeeHasProcessSkill(employee, value) {
@@ -6087,6 +6091,9 @@ $("saveSchedule").addEventListener(
                 $("editStart").value = "";
                 $("editEnd").value = "";
                 $("editBreak45").checked = false;
+                // Absent does not require a reason. Clear any old reason from
+                // a previously confirmed/edited state so the saved value is "—".
+                if ($("editReason")) $("editReason").value = "";
             }
 
             updateEditPreview();
@@ -8302,7 +8309,9 @@ logout = async function() {
 function v383AttendanceReasonLabel(data, status) {
     const reason = String(data?.reason || "").trim();
     if (reason) return reason;
-    if (status === "Absent") return "Absent";
+    // An absence does not require a reason. Keep the cell visually explicit
+    // without forcing a business reason into the attendance record.
+    if (status === "Absent") return "—";
     if (status === "Confirmed") return "Present";
     if (status === "Pending") return "Pending";
     return "";
@@ -8485,7 +8494,7 @@ function v383RenderAllHoursAttendance() {
     if ($("hoursAllDifference")) $("hoursAllDifference").textContent=`${differenceDays>0?"+":""}${differenceDays}`;
     if (meta) meta.textContent=`${visibleEmployees.length} of ${employees.length} employee${employees.length===1?"":"s"} shown · click a row to open the full attendance record`;
 
-    if (head) head.innerHTML=`<tr><th class="hours-matrix-employee-col">Login</th><th class="hours-matrix-brigade-col">Brigade</th><th class="hours-matrix-process-col">Process</th>${dayHeaders.map(({label,fullLabel,key})=>{const active=hoursAttendanceDaySortKey===key;const arrow=active?(hoursAttendanceDaySortDirection===1?"↑":"↓"):"↕";const title=active?`Sorted by ${fullLabel} · click to reverse order`:`Sort employees by ${fullLabel} · Absent first`;return `<th class="hours-matrix-day-col${active?" is-sorted":""}${isWeekend?" is-weekend":""}" title="${esc(title)}"><button type="button" class="attendance-day-sort-button" data-hours-sort-day="${esc(key)}" aria-label="${esc(title)}"><span>${esc(label)}<small class="attendance-day-weekday">${esc(weekday)}</small></span><small class="attendance-day-arrow">${arrow}</small></button></th>`}).join("")}<th>Planned days</th><th>Worked days</th><th>Difference</th><th>Absent</th><th>Pending</th><th>Underworked</th><th>Attendance</th></tr>`;
+    if (head) head.innerHTML=`<tr><th class="hours-matrix-employee-col">Login</th><th class="hours-matrix-brigade-col">Brigade</th><th class="hours-matrix-process-col">Process</th>${dayHeaders.map(({label,fullLabel,key,weekday,isWeekend})=>{const active=hoursAttendanceDaySortKey===key;const arrow=active?(hoursAttendanceDaySortDirection===1?"↑":"↓"):"↕";const title=active?`Sorted by ${fullLabel} · click to reverse order`:`Sort employees by ${fullLabel} · Absent first`;return `<th class="hours-matrix-day-col${active?" is-sorted":""}${isWeekend?" is-weekend":""}" title="${esc(title)}"><button type="button" class="attendance-day-sort-button" data-hours-sort-day="${esc(key)}" aria-label="${esc(title)}"><span>${esc(label)}<small class="attendance-day-weekday">${esc(weekday)}</small></span><small class="attendance-day-arrow">${arrow}</small></button></th>`}).join("")}<th>Planned days</th><th>Worked days</th><th>Difference</th><th>Absent</th><th>Pending</th><th>Underworked</th><th>Attendance</th></tr>`;
 
     body.innerHTML=visibleEmployees.map(employee=>{
         const summary=getHoursEmployeeSummary(employee), difference=Number(summary.differenceDays||0);
@@ -8516,7 +8525,12 @@ async function v383SaveHoursEdit(event) {
 
     if(requestedStatus==="Confirmed" && !isTodayOrPast(date)){toast("Future hours cannot be confirmed.");return;}
     if(requestedStatus!=="Pending" && !canConfirmEmployeeDate(employee,date)){toast(`Hours cannot be changed before ${employee.startDate}.`);return;}
-    if(requestedStatus==="Absent" && !reason){toast("Select a reason for the absence.");$("editReason")?.focus();return;}
+    // Absence is valid without a business reason. Empty reason is stored as
+    // blank and displayed as "—" in Attendance Monitoring.
+    if(requestedStatus === "Absent") {
+        // Keep the selected reason only when the user intentionally chooses one;
+        // otherwise do not invent a reason.
+    }
 
     const shift=$("editShift")?.value||getSchedule(employee,date).shift||"day";
     const breakMinutes=requestedStatus==="Absent"?0:($("editBreak45")?.checked?45:0);
@@ -8539,7 +8553,7 @@ async function v383SaveHoursEdit(event) {
         actualStart:requestedStatus==="Absent"?"":($("editStart")?.value||""),
         actualEnd:requestedStatus==="Absent"?"":($("editEnd")?.value||""),
         breakMinutes,
-        reason:ALLOWED_ATTENDANCE_REASONS.includes(reason)?reason:"",
+        reason:requestedStatus === "Absent" ? "" : (ALLOWED_ATTENDANCE_REASONS.includes(reason) ? reason : ""),
         note,
         workedProcess:requestedStatus==="Absent"?current.workedProcess||"":selectedProcess,
         terminatedRecord:reason==="Terminated"||isTerminatedOnDate(employee,date),
