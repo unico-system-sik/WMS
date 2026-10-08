@@ -2820,3 +2820,13 @@ button.analytics-detail-kpi:hover {
 .capability-checkbox-grid .capability-checkbox { cursor:pointer; }
 .training-search-empty strong { font-weight:700; }
 .hours-all-more-wrap { min-height: 40px; }
+
+
+/* V38.7 — performance + history + attendance exceptions */
+.schedule-more-wrap { display:flex; justify-content:center; padding:12px 0 4px; }
+.training-history-employee-btn { padding:6px 10px; min-width:74px; }
+.attendance-day-badge.extra-day { background:#f7e6bd; color:#7a4d00; border-color:#d9ad58; }
+.attendance-day-badge.extra-night { background:#dbe7f7; color:#244d82; border-color:#91add0; }
+.attendance-day-badge.extra-off { background:#edeff3; color:#596273; border-color:#c8ced8; }
+.attendance-day-badge.vacation { background:#eadff7; color:#5b3a88; border-color:#c7aee7; }
+.attendance-day-badge.sick { background:#f8d3d3; color:#8b1e1e; border-color:#e8a5a5; }

@@ -7,7 +7,7 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://ipmyxkhnwijpdweeztgb.supabase.co wss://ipmyxkhnwijpdweeztgb.supabase.co; worker-src 'self' blob:;">
-    <link rel="stylesheet" href="style.css?v=38.6">
+    <link rel="stylesheet" href="style.css?v=38.7">
 </head>
 <body>
 
@@ -384,7 +384,7 @@
             </section>
 
             <section class="panel training-history-panel">
-                <div class="panel-title"><div><h3>Training history</h3><p>Search by employee, instructor, date, shift or process. Click a session to see the complete team.</p></div></div>
+                <div class="panel-title"><div><h3 id="trainingHistoryTitle">Training history</h3><p id="trainingHistorySubtitle">Search by employee, instructor, date, shift or process. Click a session to see the complete team.</p></div></div>
                 <div class="history-filters training-filters">
                     <div><label class="control-label">Employee</label><input id="trainingFilterEmployee" placeholder="Login or name"></div>
                     <div><label class="control-label">Instructor</label><input id="trainingFilterInstructor" placeholder="Instructor login"></div>
@@ -408,7 +408,7 @@
                 <div class="panel-title"><div><h3>Participant analysis</h3><p>Shows how many Training / Retraining sessions each employee has attended in the current filtered view.</p></div></div>
                 <div class="table-wrap">
                     <table class="training-analysis-table">
-                        <thead><tr><th>Employee</th><th>Training</th><th>Retraining</th><th>Total sessions</th><th>Processes</th><th>Last session</th></tr></thead>
+                        <thead><tr><th>Employee</th><th>Training</th><th>Retraining</th><th>History</th><th>Total sessions</th><th>Processes</th><th>Last session</th></tr></thead>
                         <tbody id="trainingAnalysisBody"></tbody>
                     </table>
                 </div>
@@ -534,7 +534,7 @@
                 <div class="individual-schedule-actions">
                     <input id="individualScheduleSearch" class="individual-schedule-search" type="search" placeholder="Search by login" autocomplete="off">
                     <button id="individualScheduleSearchBtn" type="button" class="secondary">Search</button>
-                    <button id="individualScheduleAllBtn" type="button" class="secondary">Open all employees</button>
+                    <button id="individualScheduleAllBtn" type="button" class="secondary">Open 50 employees</button>
                     <button id="clearIndividualScheduleSearch" type="button" class="secondary">Clear</button>
                     <button id="saveIndividualSchedule" type="button" class="primary">Save individual changes</button>
                 </div>
@@ -546,6 +546,7 @@
                     <tbody id="individualScheduleBody"></tbody>
                 </table>
             </div>
+            <div id="individualScheduleMoreWrap" class="schedule-more-wrap" hidden><button id="individualScheduleMoreBtn" type="button" class="secondary">More</button></div>
         </div>
     </section>
 
@@ -1416,7 +1417,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=38.6"></script>
+<script src="script.js?v=38.7"></script>
 
 </body>
 </html>

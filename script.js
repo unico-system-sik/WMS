@@ -1113,6 +1113,7 @@ let scheduleMonth = new Date(
 
 let scheduleBrigade = "A";
 let activeSchedulingTab = "scheduleTab";
+let individualScheduleVisibleCount = 50;
 
 let hoursAttendanceMonth = new Date(
     new Date().getFullYear(),
@@ -5951,6 +5952,7 @@ $("saveSchedule").addEventListener(
     });
     $("individualScheduleSearchBtn")?.addEventListener("click", runIndividualSearch);
     $("individualScheduleAllBtn")?.addEventListener("click", () => { if ($("individualScheduleSearch")) $("individualScheduleSearch").value = ""; renderSelectedIndividualScheduleTableAll(); });
+    $("individualScheduleMoreBtn")?.addEventListener("click", showMoreIndividualScheduleEmployees);
     $("clearIndividualScheduleSearch")?.addEventListener("click", () => {
         if (individualSearch) individualSearch.value = "";
         runIndividualSearch();
@@ -6241,14 +6243,25 @@ function scheduleVisualState(employee, date) {
 }
 
 function renderSelectedIndividualScheduleTableAll() {
+    individualScheduleVisibleCount = 50;
+    V33_renderIndividualScheduleTable("__ALL__");
+}
+
+function showMoreIndividualScheduleEmployees() {
+    const people = activeEmployees();
+    if (!people.length) { individualScheduleVisibleCount = 50; renderSelectedIndividualScheduleTableAll(); return; }
+    if (individualScheduleVisibleCount >= people.length) return;
+    individualScheduleVisibleCount = Math.min(individualScheduleVisibleCount + 50, people.length);
     V33_renderIndividualScheduleTable("__ALL__");
 }
 function V33_renderIndividualScheduleTable(loginOverride) {
     const body=$("individualScheduleBody"), head=$("individualScheduleHeadRow");
     if (!body || !head) return;
     const query=( $("individualScheduleSearch")?.value || "").trim().toLowerCase();
+    const moreWrap = document.getElementById("individualScheduleMoreWrap");
     if (loginOverride === "__ALL__") {
-        const people = activeEmployees().slice().sort((a,b)=>String(a.login).localeCompare(String(b.login)));
+        const allPeople = activeEmployees().slice().sort((a,b)=>String(a.login).localeCompare(String(b.login)));
+        const people = allPeople.slice(0, Math.max(50, individualScheduleVisibleCount));
         const totalDays = monthDays(scheduleMonth);
         head.innerHTML='<th>Employee</th>'+Array.from({length:totalDays},(_,i)=>{const d=new Date(scheduleMonth.getFullYear(),scheduleMonth.getMonth(),i+1,12);return `<th class="schedule-day-head"><strong>${String(i+1).padStart(2,"0")}</strong><small>${d.toLocaleDateString("en-US",{weekday:"short"})}</small></th>`}).join("");
         body.innerHTML = people.map(employee => {
@@ -6261,9 +6274,15 @@ function V33_renderIndividualScheduleTable(loginOverride) {
             return `<tr><td class="employee-schedule-name"><strong>${esc(employee.login)}</strong><small>${esc(employeeProcessForDate(employee,scheduleMonth))} · Brigade ${esc(employeeBrigadeForDate(employee,scheduleMonth))}</small></td>${cells}</tr>`;
         }).join("") || '<tr><td><div class="empty">No active employees.</div></td></tr>';
         body.querySelectorAll("[data-individual-schedule]").forEach(select=>select.addEventListener("change",()=>{const login=select.dataset.individualSchedule,date=select.dataset.scheduleDate,key=`${date}_${login}`; if(select.value) individualSchedules[key]=select.value; else delete individualSchedules[key]; const emp=employeeByLogin(login); if(emp){select.className=select.value||V33_originalGetSchedule(emp,fromKey(date)).shift||"off";} }));
+        const wrap = moreWrap;
+        const btn = document.getElementById("individualScheduleMoreBtn");
+        const hasMore = people.length < allPeople.length;
+        if (wrap) wrap.hidden = !hasMore;
+        if (btn) { btn.textContent = hasMore ? `More (${Math.min(50, allPeople.length - people.length)})` : "More"; btn.disabled = !hasMore; }
         return;
     }
-    if (!query && !loginOverride) { head.innerHTML=""; body.innerHTML='<tr><td><div class="empty">Search for an employee to view their individual schedule.</div></td></tr>'; return; }
+    if (!query && !loginOverride) { if (moreWrap) moreWrap.hidden = true; head.innerHTML=""; body.innerHTML='<tr><td><div class="empty">Search for an employee to view their individual schedule.</div></td></tr>'; return; }
+    if (moreWrap) moreWrap.hidden = true;
     let employee=loginOverride ? employeeByLogin(loginOverride) : null;
     if (!employee) {
         const people=activeEmployees().filter(e=>String(e.login).toLowerCase().includes(query)).sort((a,b)=>String(a.login).localeCompare(String(b.login)));
@@ -6648,12 +6667,22 @@ function getHoursAttendanceDayCell(employee, date) {
             title: `${weekdayLabel}, ${dateLabel} · Before start date ${employee.startDate} · No attendance confirmation allowed`
         };
     }
+    const dateLabel = date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const weekdayLabel = date.toLocaleDateString("en-US", { weekday: "long" });
+    const leave = leaveRecordForDate(employee, date);
+    const extra = extraDays[scheduleKey(date, employee.login)];
+    if (leave) {
+        const isSick = leave.leaveType === "sick-leave";
+        return { code: isSick ? "L4" : "U", className: isSick ? "sick" : "vacation", title: `${weekdayLabel}, ${dateLabel} · ${leaveTypeLabel(leave.leaveType)} · ${leave.startDate} → ${leave.endDate}${leave.note ? ` · ${leave.note}` : ""}` };
+    }
+    if (extra?.type === "extra-work-day") return { code: "D+", className: "extra-day", title: `${weekdayLabel}, ${dateLabel} · Extra work · DAY` };
+    if (extra?.type === "extra-work-night") return { code: "N+", className: "extra-night", title: `${weekdayLabel}, ${dateLabel} · Extra work · NIGHT` };
+    if (extra?.type === "extra-off") return { code: "OFF", className: "extra-off", title: `${weekdayLabel}, ${dateLabel} · Extra day off` };
+
     const planned = Number(plannedHours(employee, date) || 0);
     const data = getAttendance(employee, date);
     const actual = Number(data.actualHours || 0);
     const safeActual = Number.isFinite(actual) ? actual : 0;
-    const dateLabel = date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
-    const weekdayLabel = date.toLocaleDateString("en-US", { weekday: "long" });
     const shiftLabel = SHIFTS[schedule.shift]?.label || String(schedule.shift || "OFF").toUpperCase();
 
     // Keep Attendance Monitoring synchronized with the exact schedule source used by Shift Overview.
@@ -6705,7 +6734,7 @@ function getHoursAttendanceDayHeaders(monthDate = hoursAttendanceMonth) {
     const headers = [];
     for (let day = 1; day <= monthDays(monthDate); day++) {
         const date = new Date(year, month, day, 12);
-        const weekday = date.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
+        const weekday = date.toLocaleDateString("en-US", { weekday: "short" }).charAt(0).toUpperCase();
         const isWeekend = date.getDay() === 0 || date.getDay() === 6;
         headers.push({
             date,
@@ -7916,6 +7945,7 @@ let trainingParticipants = [];
 let trainingRemoteLoaded = false;
 let trainingRealtimeChannel = null;
 let trainingActiveType = "training";
+let trainingHistoryAllTypes = false;
 let trainingSelectedParticipants = new Set();
 let trainingOpenSessionId = "";
 
@@ -8059,6 +8089,7 @@ function resetTrainingForm() {
     renderTrainingParticipantList();
 }
 function setTrainingType(type) {
+    trainingHistoryAllTypes = false;
     trainingActiveType = type === "retraining" ? "retraining" : "training";
     document.querySelectorAll("[data-training-type]").forEach(btn => btn.classList.toggle("active", btn.dataset.trainingType === trainingActiveType));
     const title = $("trainingFormTitle");
@@ -8078,7 +8109,7 @@ function trainingFilteredSessions() {
     const process = String($("trainingFilterProcess")?.value || "");
 
     return trainingSessions.filter(session => {
-        if (session.training_type !== trainingActiveType) return false;
+        if (!trainingHistoryAllTypes && session.training_type !== trainingActiveType) return false;
         if (exactDate && session.training_date !== exactDate) return false;
         if (from && session.training_date < from) return false;
         if (to && session.training_date > to) return false;
@@ -8109,6 +8140,8 @@ function renderTrainingHistory() {
     const body = $("trainingHistoryBody");
     if (!body) return;
     const rows = trainingFilteredSessions();
+    if ($("trainingHistoryTitle")) $("trainingHistoryTitle").textContent = trainingHistoryAllTypes ? "Training & Retraining history" : `${trainingTypeLabel(trainingActiveType)} history`;
+    if ($("trainingHistorySubtitle")) $("trainingHistorySubtitle").textContent = trainingHistoryAllTypes ? "Employee history — Training and Retraining together." : "Search by employee, instructor, date, shift or process. Click a session to see the complete team.";
     renderTrainingKpis(rows);
     body.innerHTML = rows.length ? rows.map(session => {
         const count = trainingParticipantsForSession(session.id).length;
@@ -8155,7 +8188,15 @@ function renderTrainingAnalysis(rows) {
         });
     });
     const rowsOut = [...map.values()].sort((a,b)=> (b.training+b.retraining)-(a.training+a.retraining) || a.login.localeCompare(b.login));
-    body.innerHTML = rowsOut.length ? rowsOut.map(item=>`<tr><td><strong>${esc(item.login)}</strong><br><small>${esc(employeeByLogin(item.login)?.process || "")}</small></td><td>${item.training}</td><td>${item.retraining}</td><td><strong>${item.training+item.retraining}</strong></td><td>${esc([...item.processes].sort().join(", "))}</td><td>${esc(item.last || "—")}</td></tr>`).join("") : `<tr><td colspan="6"><div class="training-empty">No participant data in the current filtered view.</div></td></tr>`;
+    body.innerHTML = rowsOut.length ? rowsOut.map(item=>`<tr><td><strong>${esc(item.login)}</strong><br><small>${esc(employeeByLogin(item.login)?.process || "")}</small></td><td>${item.training}</td><td>${item.retraining}</td><td><button type="button" class="secondary training-history-employee-btn" data-training-history-employee="${esc(item.login)}">History</button></td><td><strong>${item.training+item.retraining}</strong></td><td>${esc([...item.processes].sort().join(", "))}</td><td>${esc(item.last || "—")}</td></tr>`).join("") : `<tr><td colspan="7"><div class="training-empty">No participant data in the current filtered view.</div></td></tr>`;
+    body.querySelectorAll("[data-training-history-employee]").forEach(btn => btn.addEventListener("click", event => {
+        event.stopPropagation();
+        const login = btn.dataset.trainingHistoryEmployee || "";
+        trainingHistoryAllTypes = true;
+        if ($("trainingFilterEmployee")) $("trainingFilterEmployee").value = login;
+        renderTrainingHistory();
+        $("trainingHistoryBody")?.closest(".training-history-panel")?.scrollIntoView({behavior:"smooth", block:"start"});
+    }));
 }
 async function loadTrainingData() {
     if (!currentUser) return false;
@@ -8258,6 +8299,7 @@ async function deleteTrainingSession() {
     closeTrainingSession(); renderTrainingHistory(); toast("Training session deleted.");
 }
 function clearTrainingFilters() {
+    trainingHistoryAllTypes = false;
     ["trainingFilterEmployee","trainingFilterInstructor","trainingFilterDate","trainingFilterDateFrom","trainingFilterDateTo"].forEach(id=>{if($(id)) $(id).value="";});
     if($("trainingFilterShift")) $("trainingFilterShift").value="";
     if($("trainingFilterProcess")) $("trainingFilterProcess").value="";
@@ -8494,6 +8536,16 @@ function v383GetAttendanceDayCell(employee, date) {
     if (!canConfirmEmployeeDate(employee, date)) {
         return {code:"O", className:"off", reason:"", title:`Before start date ${employee.startDate} · No attendance confirmation allowed`};
     }
+    const leave = leaveRecordForDate(employee, date);
+    const extra = extraDays[scheduleKey(date, employee.login)];
+    if (leave) {
+        const isSick = leave.leaveType === "sick-leave";
+        return { code: isSick ? "L4" : "U", className: isSick ? "sick" : "vacation", title: `${weekdayLabel}, ${dateLabel} · ${leaveTypeLabel(leave.leaveType)} · ${leave.startDate} → ${leave.endDate}${leave.note ? ` · ${leave.note}` : ""}` };
+    }
+    if (extra?.type === "extra-work-day") return { code: "D+", className: "extra-day", title: `${weekdayLabel}, ${dateLabel} · Extra work · DAY` };
+    if (extra?.type === "extra-work-night") return { code: "N+", className: "extra-night", title: `${weekdayLabel}, ${dateLabel} · Extra work · NIGHT` };
+    if (extra?.type === "extra-off") return { code: "OFF", className: "extra-off", title: `${weekdayLabel}, ${dateLabel} · Extra day off` };
+
     const planned = Number(plannedHours(employee, date) || 0);
     const data = getAttendance(employee, date);
     const actual = Math.max(0, Number(data.actualHours || 0));
