@@ -7,7 +7,7 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://ipmyxkhnwijpdweeztgb.supabase.co wss://ipmyxkhnwijpdweeztgb.supabase.co; worker-src 'self' blob:;">
-    <link rel="stylesheet" href="style.css?v=38.9">
+    <link rel="stylesheet" href="style.css?v=39.1">
 </head>
 <body>
 
@@ -60,7 +60,6 @@
 
 <div id="currentUserBox" class="current-user-box hidden">
   <div id="currentUserLoginDisplay" class="current-user-login">—</div>
-  <div id="currentUserLogin" class="current-user-login">—</div>
   <button id="logoutButton" class="logout-button" type="button">Log out</button>
 </div>
 
@@ -341,7 +340,7 @@
                     <p>Record onboarding training for new employees and retraining for existing employees. Every session keeps the date, shift, process, instructor and participant team for later analysis.</p>
                 </div>
                 <div class="training-title-actions">
-                    <button id="trainingExportBtn" class="secondary" type="button">Export Excel</button>
+                    <button id="trainingExportBtn" class="secondary" type="button">Export CSV</button>
                     <button id="trainingDesktopShortcut" class="secondary" type="button">🖥️ Desktop shortcut</button>
                 </div>
             </div>
@@ -540,7 +539,7 @@
                     <button id="saveIndividualSchedule" type="button" class="primary">Save individual changes</button>
                 </div>
             </div>
-            <div class="schedule-override-note"><strong>Priority:</strong> Individual schedule → Extra Day → Brigade schedule → default. <span>R = additional scheduled day off, not Vacation.</span></div>
+            <div class="schedule-override-note"><strong>Priority:</strong> Start date → Leave (L4 / U) → Extra Day / Night / OFF → Individual schedule → Brigade schedule → default. <span>R = rest shift, not Vacation.</span></div>
             <div class="schedule-table-wrap">
                 <table class="schedule-table individual-schedule-table">
                     <thead><tr id="individualScheduleHeadRow"></tr></thead>
@@ -1439,7 +1438,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=38.9"></script>
+<script src="script.js?v=39.1"></script>
 
 </body>
 </html>

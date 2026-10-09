@@ -1,4 +1,4 @@
-/* WMS V32.0 — 2026-10-02 analytics, feedback timing and effective-dated assignments. */
+/* WMS V39.1 (V39.0 + audit fixes) — production hardening, scheduling alignment and attendance UI. */
 
 /* =========================================================
    AUTHENTICATION — SUPABASE
@@ -353,11 +353,7 @@ function setAuthScreen(isLoggedIn) {
     }
 
     if (isLoggedIn && currentUser) {
-        document.getElementById("currentUserLoginDisplay").textContent =
-            currentUser.login;
-
-        document.getElementById("currentUserLogin").textContent =
-            `${roleLabel(currentUser.role)} · ${currentUser.login}`;
+        document.getElementById("currentUserLoginDisplay").textContent = currentUser.login;
         syncExtraLeaderLogin();
         updateRoleBasedControls();
 
@@ -1004,6 +1000,7 @@ const SHIFTS = {
 };
 
 let EMPLOYEES = [];
+let employeesRemoteLoadError = "";
 
 let employeeAssignmentHistory = [];
 let employeeAssignmentHistoryByLogin = new Map();
@@ -1049,6 +1046,7 @@ async function loadEmployeesFromSupabase() {
         .order("login", { ascending: true });
 
     if (error) {
+        employeesRemoteLoadError = String(error.message || "Employees could not be loaded from Supabase.");
         console.error("Employees load error:", error);
         return false;
     }
@@ -1056,10 +1054,12 @@ async function loadEmployeesFromSupabase() {
     // Supabase is the single source of truth. An empty table means
     // there are currently no employees; do not restore a stale JS list.
     if (!Array.isArray(data)) {
+        employeesRemoteLoadError = "Employees response from Supabase was invalid.";
         EMPLOYEES = [];
         return false;
     }
 
+    employeesRemoteLoadError = "";
     EMPLOYEES = data.map(employee => ({
         login: employee.login,
         process: normalizeProcessName(employee.process),
@@ -1730,8 +1730,7 @@ async function loadExtraDaysFromSupabase() {
                 type: item.type,
                 shift: item.type === "extra-off" ? null : (item.shift || "day"),
                 leader_id: currentUser.id,
-                leader_login: currentUser.login,
-                leader_login: currentUser?.login
+                leader_login: currentUser.login
             };
         });
 
@@ -2007,19 +2006,23 @@ function individualScheduleValue(employee, date) {
 function getSchedule(employee, date) {
     const key = scheduleKey(date, employee.login);
 
-    // Before the employee's official start date they are outside the WMS
-    // operational schedule: always show OFF and ignore individual/extra overrides.
-    // This keeps Scheduling, Shift Overview, Attendance and Analytics consistent.
+    // Priority is consistent everywhere in WMS:
+    // official start date -> leave -> Extra Day -> individual override -> brigade schedule.
     if (!canConfirmEmployeeDate(employee, date)) {
         return { shift: "off", source: "before-start" };
     }
 
-    const individual = individualSchedules[key];
-    const extra = extraDays[key];
+    const leave = leaveRecordForDate(employee, date);
+    if (leave) {
+        return { shift: "off", source: "leave", leaveType: leave.leaveType, leaveId: leave.id };
+    }
 
-    // Priority: individual override > Extra Day exception > brigade schedule > default.
+    const extra = extraDays[key];
+    if (extra) return { shift: extra.type === "extra-off" ? "off" : (extra.shift || "day"), source: "extra" };
+
+    const individual = individualSchedules[key];
     if (individual) return { shift: individual, source: "individual" };
-    if (extra) return { shift: extra.type === "extra-off" ? "off" : extra.shift, source: "extra" };
+
     if (!schedules[key]) return { shift: defaultShiftForBrigade(employeeBrigadeForDate(employee, date)), source: "default" };
     return { shift: schedules[key], source: "saved" };
 }
@@ -4689,7 +4692,10 @@ async function renderScheduleHistory() {
     }).join("") || `<tr><td colspan="7"><div class="empty">No schedule or leave history matches the selected filters.</div></td></tr>`;
 }
 function csvCell(value) {
-    return `"${String(value ?? "").replaceAll('"', '""')}"`;
+    let text = String(value ?? "");
+    // V39.1: neutralise spreadsheet formulas (=, +, -, @) in user-entered text.
+    if (/^[=+\-@\t\r]/.test(text) && !/^-?\d+([.,]\d+)?$/.test(text)) text = "'" + text;
+    return `"${text.replaceAll('"', '""')}"`;
 }
 
 function exportSchedule() {
@@ -6226,19 +6232,24 @@ function employeeLeaveForDate(employee, date) { return leaveRecordForDate(employ
 
 function V33_underlyingShift(employee, date) {
     const key = scheduleKey(date, employee.login);
-    const individual = individualSchedules[key];
-    if (individual === "day" || individual === "night") return individual;
     const extra = extraDays[key];
     if (extra && extra.type !== "extra-off") return extra.shift || "day";
+    const individual = individualSchedules[key];
+    if (individual === "day" || individual === "night") return individual;
     if (schedules[key] === "day" || schedules[key] === "night") return schedules[key];
     return defaultShiftForBrigade(employeeBrigadeForDate(employee,date));
 }
 
 getSchedule = function(employee, date) {
-    const before = !canConfirmEmployeeDate(employee, date);
-    if (before) return { shift:"off", source:"before-start" };
+    // V39 keeps the same precedence as the visual schedule renderer.
+    if (!canConfirmEmployeeDate(employee, date)) return { shift:"off", source:"before-start" };
     const leave = leaveRecordForDate(employee, date);
     if (leave) return { shift:"off", source:"leave", leaveType:leave.leaveType, leaveId:leave.id };
+    const key = scheduleKey(date, employee.login);
+    const extra = extraDays[key];
+    if (extra) return { shift: extra.type === "extra-off" ? "off" : (extra.shift || "day"), source:"extra" };
+    const individual = individualSchedules[key];
+    if (individual) return { shift: individual, source:"individual" };
     return V33_originalGetSchedule(employee, date);
 };
 
@@ -6256,7 +6267,7 @@ function scheduleVisualState(employee, date) {
 
 function renderSelectedIndividualScheduleTableAll() {
     individualScheduleVisibleCount = 50;
-    V33_renderIndividualScheduleTable("__ALL__");
+    renderSelectedIndividualSchedule("__ALL__");
 }
 
 function showMoreIndividualScheduleEmployees() {
@@ -6264,7 +6275,7 @@ function showMoreIndividualScheduleEmployees() {
     if (!people.length) { individualScheduleVisibleCount = 50; renderSelectedIndividualScheduleTableAll(); return; }
     if (individualScheduleVisibleCount >= people.length) return;
     individualScheduleVisibleCount = Math.min(individualScheduleVisibleCount + 50, people.length);
-    V33_renderIndividualScheduleTable("__ALL__");
+    renderSelectedIndividualSchedule("__ALL__");
 }
 function V33_renderIndividualScheduleTable(loginOverride) {
     const body=$("individualScheduleBody"), head=$("individualScheduleHeadRow");
@@ -6291,7 +6302,7 @@ function V33_renderIndividualScheduleTable(loginOverride) {
 
             // Exactly one visual control per day: either an editable select or a locked exception badge.
             if (locked) {
-                return `<td class="schedule-cell individual-schedule-cell ${esc(state.css)} ${override?"has-override":""}"><div class="schedule-state ${esc(state.css)}" title="${esc(state.title)}"><span>${esc(state.label)}</span>${state.kind==="leave"?`<small>${esc(leaveTypeLabel(leaveRecordForDate(emp,d).leaveType))}</small>`:""}</div></td>`;
+                return `<td class="schedule-cell individual-schedule-cell ${esc(state.css)} ${override?"has-override":""}"><div class="schedule-state ${esc(state.css)}" title="${esc(state.title)}"><span>${esc(state.label)}</span></div></td>`;
             }
 
             return `<td class="schedule-cell individual-schedule-cell ${esc(effective)} ${override?"has-override":""}"><select class="${esc(effective)}" data-individual-schedule="${esc(emp.login)}" data-schedule-date="${dateKey(d)}" title="${esc(override?`Override: ${override}`:`Brigade: ${effective}`)}">${v383ScheduleOptionHtml(override,effective)}</select></td>`;
@@ -7300,7 +7311,7 @@ function buildHoursAttendanceWorkbook(employees) {
             daily.push(Number(safeActual.toFixed(2)));
 
             detailRows.push([
-                date.toISOString().slice(0, 10),
+                dateKey(date),
                 date.toLocaleDateString("en-US", { weekday: "long" }),
                 employee.login,
                 employee.brigade,
@@ -8291,12 +8302,30 @@ function closeTrainingEmployeeHistory() {
 
 async function loadTrainingData() {
     if (!currentUser) return false;
+
+    const pageSize = 1000;
+    const loadAll = async (table, select, orderColumn, ascending) => {
+        const all = [];
+        for (let from = 0; ; from += pageSize) {
+            const { data, error } = await supabaseClient
+                .from(table)
+                .select(select)
+                .order(orderColumn, { ascending })
+                .range(from, from + pageSize - 1);
+            if (error) return { data: [], error };
+            const page = Array.isArray(data) ? data : [];
+            all.push(...page);
+            if (page.length < pageSize) break;
+        }
+        return { data: all, error: null };
+    };
+
     const [sessionsResult, participantsResult] = await Promise.all([
-        supabaseClient.from("wms_training_sessions").select("id, training_type, team_name, training_date, shift, process, instructor_login, notes, created_by, created_by_login, created_at, updated_at").order("training_date", {ascending:false}),
-        supabaseClient.from("wms_training_participants").select("id, session_id, employee_login, created_at")
+        loadAll("wms_training_sessions", "id, training_type, team_name, training_date, shift, process, instructor_login, notes, created_by, created_by_login, created_at, updated_at", "training_date", false),
+        loadAll("wms_training_participants", "id, session_id, employee_login, created_at", "created_at", true)
     ]);
-    if (sessionsResult.error) { console.error("Training sessions load error:", sessionsResult.error); toast(`Training data error: ${sessionsResult.error.message}`); return false; }
-    if (participantsResult.error) { console.error("Training participants load error:", participantsResult.error); toast(`Training participants error: ${participantsResult.error.message}`); return false; }
+    if (sessionsResult.error) { console.error("Training sessions load error:", sessionsResult.error); trainingRemoteLoaded = false; toast(`Training data error: ${sessionsResult.error.message}`); return false; }
+    if (participantsResult.error) { console.error("Training participants load error:", participantsResult.error); trainingRemoteLoaded = false; toast(`Training participants error: ${participantsResult.error.message}`); return false; }
     trainingSessions = sessionsResult.data || [];
     trainingParticipants = participantsResult.data || [];
     trainingRemoteLoaded = true;
@@ -8390,7 +8419,8 @@ async function deleteTrainingSession() {
     closeTrainingSession(); renderTrainingHistory(); toast("Training session deleted.");
 }
 function clearTrainingFilters() {
-    trainingHistoryAllTypes = false;
+    const preserveHistory = trainingHistoryAllTypes;
+    trainingHistoryAllTypes = preserveHistory;
     ["trainingFilterEmployee","trainingFilterInstructor","trainingFilterDate","trainingFilterDateFrom","trainingFilterDateTo"].forEach(id=>{if($(id)) $(id).value="";});
     if($("trainingFilterShift")) $("trainingFilterShift").value="";
     if($("trainingFilterProcess")) $("trainingFilterProcess").value="";
@@ -8403,8 +8433,8 @@ function exportTrainingCsv() {
         const ps=trainingParticipantsForSession(s.id);
         (ps.length?ps:[{employee_login:""}]).forEach(p=>lines.push([trainingTypeLabel(s.training_type),s.training_date,s.team_name,trainingShiftLabel(s.shift),s.process,s.instructor_login,p.employee_login,s.created_by_login,s.created_at||"",s.notes||""]));
     });
-    const csv=lines.map(row=>row.map(v=>`"${String(v??"").replaceAll('"','""')}"`).join(",")).join("\r\n");
-    const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`WMS_${trainingTypeLabel(trainingActiveType)}_${dateKey(new Date())}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    const csv=lines.map(row=>row.map(v=>csvCell(v)).join(",")).join("\r\n");
+    const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`WMS_${trainingHistoryAllTypes ? "Training_Retraining" : trainingTypeLabel(trainingActiveType)}_${dateKey(new Date())}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 function downloadTrainingDesktopShortcut() {
     const base = `${location.origin}${location.pathname}`;
@@ -8466,8 +8496,23 @@ switchPage = function(pageId) {
         renderTrainingHistory();
     }
 };
+const V39_originalSwitchPage = switchPage;
+switchPage = function(pageId) {
+    V39_originalSwitchPage(pageId);
+    if (pageId === "hoursAttendancePage" && currentUser && !EMPLOYEES.length) {
+        loadEmployeesFromSupabase().then(loaded => {
+            if (!loaded) { renderAllHoursAttendance(); return; }
+            fillMultiFilter("hoursAllBrigade", BRIGADES, "brigades", Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
+            fillMultiFilter("hoursAllProcess", PROCESSES, "processes");
+            fillMultiFilter("hoursAllStatus", ["Complete","Pending","Has difference","Absent","Left early"], "statuses");
+            renderAllHoursAttendance();
+        });
+    }
+};
+
 const V37_originalLogout = logout;
 logout = async function() {
+    if (leaveRealtimeChannel) { try { await supabaseClient.removeChannel(leaveRealtimeChannel); } catch {} leaveRealtimeChannel=null; }
     if (trainingRealtimeChannel) { try { await supabaseClient.removeChannel(trainingRealtimeChannel); } catch {} trainingRealtimeChannel=null; }
     return V37_originalLogout();
 };
@@ -8526,8 +8571,12 @@ function v383RenderIndividualSchedule(loginOverride) {
 
     let people = [];
     let employee = null;
+    const moreWrap = document.getElementById("individualScheduleMoreWrap");
+    const moreButton = document.getElementById("individualScheduleMoreBtn");
+    let allPeople = [];
     if (loginOverride === "__ALL__") {
-        people = activeEmployees().slice().sort((a,b) => String(a.login).localeCompare(String(b.login)));
+        allPeople = activeEmployees().slice().sort((a,b) => String(a.login).localeCompare(String(b.login)));
+        people = allPeople.slice(0, Math.max(50, individualScheduleVisibleCount));
     } else {
         employee = loginOverride ? employeeByLogin(loginOverride) : null;
         if (!employee) {
@@ -8589,6 +8638,17 @@ function v383RenderIndividualSchedule(loginOverride) {
 
     body.innerHTML = people.map(renderEmployeeRow).join("") || '<tr><td><div class="empty">No active employees.</div></td></tr>';
 
+    if (loginOverride === "__ALL__") {
+        const hasMore = people.length < allPeople.length;
+        if (moreWrap) moreWrap.hidden = !hasMore;
+        if (moreButton) {
+            moreButton.textContent = hasMore ? `More (${Math.min(50, allPeople.length - people.length)})` : "More";
+            moreButton.disabled = !hasMore;
+        }
+    } else if (moreWrap) {
+        moreWrap.hidden = true;
+    }
+
     body.querySelectorAll("[data-individual-schedule]").forEach(select => {
         select.addEventListener("change", () => {
             const login = select.dataset.individualSchedule;
@@ -8598,7 +8658,9 @@ function v383RenderIndividualSchedule(loginOverride) {
             else delete individualSchedules[key];
 
             const emp = employeeByLogin(login);
-            if (emp) v383RenderIndividualSchedule(login);
+            if (!emp) return;
+            if (loginOverride === "__ALL__") v383RenderIndividualSchedule("__ALL__");
+            else v383RenderIndividualSchedule(login);
         });
     });
 }
@@ -8669,7 +8731,8 @@ function v383RenderAllHoursAttendance() {
     const filteredEmployees = hoursAllFilterEmployees(false);
     const employees = sortHoursAttendanceEmployees(filteredEmployees);
     if (hoursAllVisibleCount < LARGE_LIST_PAGE_SIZE) hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
-    if (hoursAllVisibleCount > employees.length && employees.length > 0) hoursAllVisibleCount = employees.length;
+    if (employees.length === 0) hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE;
+    else if (hoursAllVisibleCount > employees.length) hoursAllVisibleCount = employees.length;
     const visibleEmployees = employees.slice(0, hoursAllVisibleCount);
     const dayHeaders = getHoursAttendanceDayHeaders(hoursAttendanceMonth);
 
@@ -8683,13 +8746,13 @@ function v383RenderAllHoursAttendance() {
     if ($("hoursAllDifference")) $("hoursAllDifference").textContent=`${differenceDays>0?"+":""}${differenceDays}`;
     if (meta) meta.textContent=`${visibleEmployees.length} of ${employees.length} employee${employees.length===1?"":"s"} shown · click a row to open the full attendance record`;
 
-    if (head) head.innerHTML=`<tr><th class="hours-matrix-employee-col">Login</th><th class="hours-matrix-brigade-col">Brigade</th><th class="hours-matrix-process-col">Process</th>${dayHeaders.map(({label,fullLabel,key,weekday,isWeekend})=>{const active=hoursAttendanceDaySortKey===key;const arrow=active?(hoursAttendanceDaySortDirection===1?"↑":"↓"):"↕";const title=active?`Sorted by ${fullLabel} · click to reverse order`:`Sort employees by ${fullLabel} · Absent first`;return `<th class="hours-matrix-day-col${active?" is-sorted":""}${isWeekend?" is-weekend":""}" title="${esc(title)}"><button type="button" class="attendance-day-sort-button" data-hours-sort-day="${esc(key)}" aria-label="${esc(title)}"><span>${esc(label)}<small class="attendance-day-weekday">${esc(weekday)}</small></span><small class="attendance-day-arrow">${arrow}</small></button></th>`}).join("")}<th>Planned days</th><th>Worked days</th><th>Difference</th><th>Absent</th><th>Pending</th><th>Underworked</th><th>Attendance</th></tr>`;
+    if (head) head.innerHTML=`<tr><th class="hours-matrix-employee-col">Login</th><th class="hours-matrix-brigade-col">Brigade</th><th class="hours-matrix-process-col">Process</th>${dayHeaders.map(({label,fullLabel,key,weekday,isWeekend})=>{const active=hoursAttendanceDaySortKey===key;const arrow=active?(hoursAttendanceDaySortDirection===1?"↑":"↓"):"↕";const title=active?`Sorted by ${fullLabel} · click to reverse order`:`Sort employees by ${fullLabel} · Absent first`;return `<th class="hours-matrix-day-col${active?" is-sorted":""}${isWeekend?" is-weekend":""}" title="${esc(title)}"><button type="button" class="attendance-day-sort-button" data-hours-sort-day="${esc(key)}" aria-label="${esc(title)}"><span><strong class="attendance-day-number">${esc(label)}</strong><small class="attendance-day-weekday">${esc(weekday)}</small></span><small class="attendance-day-arrow">${arrow}</small></button></th>`}).join("")}<th>Planned days</th><th>Worked days</th><th>Difference</th><th>Absent</th><th>Pending</th><th>Underworked</th><th>Attendance</th></tr>`;
 
     body.innerHTML=visibleEmployees.map(employee=>{
         const summary=getHoursEmployeeSummary(employee), difference=Number(summary.differenceDays||0);
         const dayCells=dayHeaders.map(({date,key})=>{const cell=v383GetAttendanceDayCell(employee,date);const selectedClass=hoursAttendanceDaySortKey===key?" is-sorted-column":"";return `<td class="hours-matrix-day-cell${selectedClass}"><span class="attendance-day-badge ${cell.className}" title="${esc(cell.title)}"><strong>${esc(cell.code)}</strong></span></td>`;}).join("");
         return `<tr class="hours-employee-row" data-hours-employee="${esc(employee.login)}" tabindex="0" title="Open attendance record"><td class="hours-matrix-employee"><strong>${esc(employee.login)}</strong></td><td class="hours-matrix-brigade">${esc(employee.brigade)}</td><td class="hours-matrix-process">${esc(employee.process)}</td>${dayCells}<td>${summary.plannedDays}</td><td>${summary.workedDays}</td><td>${difference>0?"+":""}${difference}</td><td>${summary.absent}</td><td>${summary.pending}</td><td>${summary.underworked.toFixed(2)}h</td><td>${summary.attendanceRate.toFixed(1)}%</td></tr>`;
-    }).join("") || `<tr><td colspan="${3+dayHeaders.length+7}"><div class="empty">No employees match the selected filters.</div></td></tr>`;
+    }).join("") || `<tr><td colspan="${3+dayHeaders.length+7}"><div class="empty">${employeesRemoteLoadError ? `Employees could not be loaded from Supabase.<br><small>${esc(employeesRemoteLoadError)}</small>` : "No employees match the selected filters."}</div></td></tr>`;
 
     head?.querySelectorAll("[data-hours-sort-day]").forEach(button=>button.addEventListener("click",event=>{event.stopPropagation();toggleHoursAttendanceDaySort(button.dataset.hoursSortDay);}));
     body.querySelectorAll("[data-hours-employee]").forEach(row=>{const open=()=>{hoursAttendanceEmployeeLogin=row.dataset.hoursEmployee;renderHoursAttendance();document.getElementById("hoursEmployeeSummary")?.scrollIntoView({behavior:"smooth",block:"start"});};row.addEventListener("click",open);row.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();open();}});});

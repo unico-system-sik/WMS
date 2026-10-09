@@ -1350,8 +1350,7 @@ th {
     background:rgba(255,255,255,.07);
 }
 .current-user-box.hidden{display:none !important;}
-.current-user-login{color:#fff;font-size:13px;font-weight:800}
-.current-user-login{margin-top:3px;color:#9ba8bd;font-size:11px}
+.current-user-login{color:#fff;font-size:13px;font-weight:800;margin-bottom:8px}
 .logout-button{
     width:100%;
     height:31px;
@@ -2873,3 +2872,59 @@ button.analytics-detail-kpi:hover {
 .attendance-day-badge { width:42px; min-width:42px; height:34px !important; min-height:34px !important; max-height:34px !important; padding:0 !important; display:flex !important; align-items:center !important; justify-content:center !important; line-height:1 !important; }
 .attendance-day-badge strong { display:block !important; line-height:1 !important; font-size:11px !important; }
 .attendance-day-badge small { display:none !important; }
+
+
+/* V39.0 — production visual alignment */
+.current-user-login { min-height: 16px; }
+.individual-schedule-table { table-layout: fixed; width: max-content; min-width: 100%; }
+.individual-schedule-table th:first-child,
+.individual-schedule-table td:first-child { width: 210px; min-width: 210px; max-width: 210px; }
+.individual-schedule-table th:not(:first-child),
+.individual-schedule-table td:not(:first-child) { width: 48px; min-width: 48px; max-width: 48px; }
+.individual-schedule-table th.schedule-day-head { padding: 7px 2px !important; text-align: center !important; }
+.individual-schedule-table th.schedule-day-head strong { display:block; line-height:1.05; }
+.individual-schedule-table th.schedule-day-head small { display:block; line-height:1.05; }
+.individual-schedule-table td.individual-schedule-cell { height:46px !important; padding:4px 3px !important; vertical-align:middle !important; text-align:center !important; }
+.individual-schedule-table td.individual-schedule-cell > select,
+.individual-schedule-table td.individual-schedule-cell > .schedule-state { width:40px !important; min-width:40px !important; max-width:40px !important; height:38px !important; min-height:38px !important; max-height:38px !important; margin:0 auto !important; }
+.individual-schedule-cell .schedule-state small { display:none !important; }
+.attendance-day-sort-button { gap:2px; }
+.attendance-day-number { display:block; font-size:11px; line-height:1; }
+.hours-attendance-matrix .attendance-day-weekday { display:block; font-size:8px; font-weight:800; line-height:1; opacity:.6; }
+.hours-attendance-matrix .attendance-day-arrow { display:block; font-size:8px; line-height:1; opacity:.45; }
+.hours-attendance-matrix .hours-matrix-day-cell { width:42px; min-width:42px; max-width:42px; height:46px; padding:4px 2px !important; }
+.hours-attendance-matrix .attendance-day-badge { width:38px !important; min-width:38px !important; max-width:38px !important; height:32px !important; }
+
+/* =========================================================
+   V39.1 THEME — visual refresh (CSS only, no DOM changes)
+========================================================= */
+:root{--c-brand:#4f46e5;--c-brand2:#06b6d4;--c-ink:#172033;--c-line:#e6eaf2;--shadow-s:0 1px 2px rgba(16,24,40,.05),0 4px 14px rgba(16,24,40,.06);--shadow-m:0 8px 28px rgba(79,70,229,.14)}
+body{background:radial-gradient(1200px 500px at 100% -10%,#e0e7ff 0,transparent 60%),#f4f6fc;-webkit-font-smoothing:antialiased}
+*{scrollbar-width:thin;scrollbar-color:#c3cbe0 transparent}
+.sidebar{background:linear-gradient(180deg,#111a3a 0,#0b1226 100%);box-shadow:4px 0 24px rgba(11,18,38,.25)}
+.brand h1{background:linear-gradient(90deg,#fff,#a5b4fc);-webkit-background-clip:text;background-clip:text;color:transparent}
+.nav-btn{transition:background .2s,transform .2s,color .2s;position:relative}
+.nav-btn:hover{background:rgba(255,255,255,.08);transform:translateX(3px)}
+.nav-btn.active{background:linear-gradient(90deg,rgba(79,70,229,.55),rgba(6,182,212,.25));box-shadow:inset 3px 0 0 var(--c-brand2)}
+.sidebar-clock{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:12px}
+.page.active-page{animation:wmsFade .25s ease}
+@keyframes wmsFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.page-header h2{font-size:26px;letter-spacing:-.02em}
+.card,.panel{border:1px solid var(--c-line);border-radius:16px;box-shadow:var(--shadow-s);transition:box-shadow .2s,transform .2s}
+.card{position:relative;overflow:hidden}
+.card::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,var(--c-brand),var(--c-brand2))}
+.card:hover{transform:translateY(-3px);box-shadow:var(--shadow-m)}
+.card strong{font-size:28px;letter-spacing:-.02em}
+button.primary,.primary{background:linear-gradient(135deg,var(--c-brand),#7c3aed);color:#fff;border:0;border-radius:10px;box-shadow:0 4px 12px rgba(79,70,229,.3);transition:transform .15s,box-shadow .2s,filter .2s}
+button.primary:hover{transform:translateY(-1px);filter:brightness(1.08);box-shadow:0 8px 20px rgba(79,70,229,.38)}
+button:active{transform:scale(.98)}
+input,select,textarea{border-radius:10px;transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:0;border-color:var(--c-brand);box-shadow:0 0 0 3px rgba(79,70,229,.2)}
+th{background:#f7f8fd;color:#5b6682;position:sticky;top:0;z-index:2}
+tbody tr{transition:background .12s}
+tbody tr:hover{background:#f5f7ff}
+.modal-card,.modal-content,.modal>div{border-radius:18px}
+.toast{border-radius:12px;box-shadow:0 10px 30px rgba(16,24,40,.25)}
+.login-card{border-radius:22px;backdrop-filter:blur(14px);box-shadow:0 30px 80px rgba(0,0,0,.35)}
+.login-brand{background:linear-gradient(90deg,var(--c-brand),var(--c-brand2));-webkit-background-clip:text;background-clip:text;color:transparent}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
