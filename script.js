@@ -1408,7 +1408,7 @@ function renderFeedbackErrorStats() {
         const nightCount = source.filter(e => e.work_date === date && e.shift === "night").length;
         const count = dayCount + nightCount;
         const pct = monthTotal ? count / monthTotal * 100 : 0;
-        dailyRows.push(`<tr><td>${day}</td><td>${date}</td><td><strong>${dayCount}</strong></td><td><strong>${nightCount}</strong></td><td><strong>${count}</strong></td><td>${pct.toFixed(1)}%</td></tr>`);
+        dailyRows.push(`<tr class="fb-day-row" data-fb-day="${date}" tabindex="0" title="Click to see feedbacks"><td>${day}</td><td>${date}</td><td><strong>${dayCount}</strong></td><td><strong>${nightCount}</strong></td><td><strong>${count}</strong></td><td>${pct.toFixed(1)}%</td></tr>`);
     }
     const dailyBody = $("feedbackDailyStatsBody");
     if (dailyBody) dailyBody.innerHTML = dailyRows.join("");
@@ -1520,7 +1520,7 @@ function renderFeedbackTrackerTable(employees, filtered) {
 }
 
 function renderFeedbackHistory(filtered) {
-    const history = [...filtered].sort((a,b) => String(b.created_at||"").localeCompare(String(a.created_at||""))).slice(0,200);
+    const history = feedbackHistoryApplyFilters(filtered).sort((a,b) => String(b.created_at||"").localeCompare(String(a.created_at||""))).slice(0,500);
     $("feedbackHistoryTable").innerHTML = history.map(entry => `<tr><td>${esc(entry.work_date)}</td><td><strong>${esc(entry.employee_login)}</strong></td><td>${esc(entry.shift === "night" ? "NIGHT" : entry.shift === "day" ? "DAY" : "—")}</td><td>${esc(entry.error_type)}</td><td>${esc(entry.note || "—")}</td><td>${formatActionActor(entry.confirmed_by_login, entry.confirmed_at)}</td></tr>`).join("") || `<tr><td colspan="6"><div class="empty">No feedback entries for this month.</div></td></tr>`;
 }
 
@@ -1801,6 +1801,24 @@ function attendanceKey(date, login) {
     return `${dateKey(date)}_${login}`;
 }
 
+// V39.2: after a brigade change (effective date) the saved per-employee rows may still hold the OLD brigade pattern.
+// For employees whose assignment history has >1 brigade we read the pattern of a peer who really belongs to the brigade on that date.
+function brigadeChangeSafeShift(employee, date) {
+    try {
+        const hist = (employeeAssignmentHistoryByLogin.get(String(employee.login)) || []).map(h => h.brigade).filter(Boolean);
+        if (new Set(hist).size < 2) return null;
+        const brigade = employeeBrigadeForDate(employee, date);
+        const people = typeof activeEmployees === "function" ? activeEmployees() : [];
+        for (const peer of people) {
+            if (String(peer.login) === String(employee.login)) continue;
+            const ph = (employeeAssignmentHistoryByLogin.get(String(peer.login)) || []).map(h => h.brigade).filter(Boolean);
+            if (new Set(ph).size > 1 || employeeBrigadeForDate(peer, date) !== brigade) continue;
+            const v = schedules[scheduleKey(date, peer.login)];
+            if (v) return v;
+        }
+    } catch (e) { console.warn("brigadeChangeSafeShift", e); }
+    return null;
+}
 function defaultShiftForBrigade(brigade) {
     return ["N1", "N2"].includes(brigade) ? "night" : "day";
 }
@@ -2023,6 +2041,8 @@ function getSchedule(employee, date) {
     const individual = individualSchedules[key];
     if (individual) return { shift: individual, source: "individual" };
 
+    const brigadeShift = brigadeChangeSafeShift(employee, date);
+    if (brigadeShift) return { shift: brigadeShift, source: "saved" };
     if (!schedules[key]) return { shift: defaultShiftForBrigade(employeeBrigadeForDate(employee, date)), source: "default" };
     return { shift: schedules[key], source: "saved" };
 }
@@ -2278,6 +2298,14 @@ async function saveAttendanceRowsToSupabase(rows) {
     return true;
 }
 
+let assignmentHistoryRealtimeChannel = null;
+function subscribeToAssignmentHistoryRealtime() {
+    if (assignmentHistoryRealtimeChannel || !currentUser) return;
+    assignmentHistoryRealtimeChannel = supabaseClient.channel("warehouse-assignment-history")
+        .on("postgres_changes", { event: "*", schema: "public", table: "employee_assignment_history" }, async () => {
+            if (await loadEmployeeAssignmentHistoryFromSupabase()) { try { renderScheduling(); renderOverview(); } catch (e) { console.warn(e); } }
+        }).subscribe();
+}
 function subscribeToAttendanceRealtime() {
     if (attendanceRealtimeChannel || !currentUser) return;
 
@@ -2474,7 +2502,7 @@ function fillEmployeeFilters() {
 }
 function fillAdditionalMultiFilters() {
     fillMultiFilter('extraDaysTypeFilter', ['extra-off','extra-work-day','extra-work-night'], 'types', {'extra-off':'Extra OFF','extra-work-day':'Extra DAY','extra-work-night':'Extra NIGHT'});
-    fillMultiFilter('scheduleHistoryType', ['extra-off','extra-work-day','extra-work-night','vacation','sick-leave','removed'], 'types', {'extra-off':'Extra OFF','extra-work-day':'Extra DAY','extra-work-night':'Extra NIGHT',vacation:'Vacation','sick-leave':'L4',removed:'Removed'});
+    fillMultiFilter('scheduleHistoryType', ['rest','sick-leave','vacation','extra-off','extra-work-day','extra-work-night','removed'], 'types', {rest:'Rest shift','sick-leave':'L4 / Sick leave','extra-off':'Extra OFF','extra-work-day':'Extra DAY','extra-work-night':'Extra NIGHT',vacation:'Vacation','sick-leave':'L4',removed:'Removed'});
     fillMultiFilter('hoursAllBrigade', BRIGADES, 'brigades', Object.fromEntries(BRIGADES.map(b => [b, `Brigade ${b}`])));
     fillMultiFilter('hoursAllProcess', PROCESSES, 'processes');
     fillMultiFilter('hoursAllStatus', ['Complete','Pending','Has difference','Absent','Left early'], 'statuses');
@@ -2550,11 +2578,12 @@ function getShiftTimeDeviation(employee, date, data) {
     };
 }
 
+function fmtMinutes(m) { m = Number(m) || 0; return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`; }
 function formatDeviation(late, leftEarly, arrivalEarly) {
     const parts = [];
-    if (late > 0) parts.push(`Late ${late}m`);
-    if (arrivalEarly > 0) parts.push(`Arrived early ${arrivalEarly}m`);
-    if (leftEarly > 0) parts.push(`Left early ${leftEarly}m`);
+    if (late > 0) parts.push(`Late ${fmtMinutes(late)}`);
+    if (arrivalEarly > 0) parts.push(`Arrived early ${fmtMinutes(arrivalEarly)}`);
+    if (leftEarly > 0) parts.push(`Left early ${fmtMinutes(leftEarly)}`);
     return parts.join(" · ") || "—";
 }
 
@@ -2742,12 +2771,12 @@ function renderShiftEmployees(people) {
             <td class="shift-reason-display">${visibleReason ? `<span class="reason-pill">${esc(visibleReason)}</span>` : `<span class="muted">—</span>`}</td>
             <td>${data.confirmed ? formatActionActor(data.confirmedByLogin, data.confirmedAt) : "—"}</td>
             <td>${data.lastChangedAt ? formatActionActor(data.lastChangedByLogin, data.lastChangedAt) : "—"}</td>
-            <td><button type="button" class="mini-btn" data-shift-edit="${esc(employee.login)}">Edit</button></td>
+            <td><button type="button" class="mini-btn" data-shift-edit="${esc(employee.login)}" ${(data.confirmed || data.status === "Absent") ? "" : 'disabled title="Confirm the shift first"'}>Edit</button></td>
         </tr>`;
     }).join("") || `<tr><td colspan="14"><div class="empty">No employees match the selected filters.</div></td></tr>`;
     updateSelectionUI();
     $("overviewEmployeeTable").querySelectorAll("[data-shift-select]").forEach(checkbox => checkbox.addEventListener("change", updateSelectionUI));
-    $("overviewEmployeeTable").querySelectorAll("[data-shift-edit]").forEach(button => button.addEventListener("click", () => { const employee = employeeByLogin(button.dataset.shiftEdit); if (employee) openHoursModal(employee, overviewDate, "overview"); }));
+    $("overviewEmployeeTable").querySelectorAll("[data-shift-edit]").forEach(button => button.addEventListener("click", () => { const employee = employeeByLogin(button.dataset.shiftEdit); if (employee) { const att = getAttendance(employee, overviewDate); if (!(att.confirmed || att.status === "Absent")) { toast("Confirm the shift first, then you can edit it."); return; } openHoursModal(employee, overviewDate, "overview"); } }));
 }
 
 function getSelectedShiftLogins() {
@@ -3387,7 +3416,7 @@ async function saveEmployeeEdit() {
 }
 
 function normalizeImportHeader(value) {
-    return String(value || "").trim().toLowerCase().replace(/[._-]+/g, " ").replace(/\\s+/g, " ");
+    return String(value || "").trim().toLowerCase().replace(/[._-]+/g, " ").replace(/\s+/g, " ");
 }
 
 function importValue(row, aliases) {
@@ -3412,9 +3441,9 @@ function normalizeImportDate(value) {
     }
     const raw = String(value || "").trim();
     if (!raw) return "";
-    const m = raw.match(/^(\\d{1,2})[.\\/-](\\d{1,2})[.\\/-](\\d{4})$/);
+    const m = raw.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
     if (m) return `${m[3]}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;
-    if (/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) return raw;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
     return "";
 }
 
@@ -3966,7 +3995,8 @@ function getBrigadeMonthValue(brigade, date) {
 
 function setSchedulingTab(tabId, renderContent = true) {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    const validTabs = ["scheduleTab", "extraDaysTab", "leaveTab", "historyTab", "auditTab"];
+    const validTabs = ["scheduleTab", "extraDaysTab", "leaveTab", "restTab", "historyTab", "auditTab"];
+    leaveViewRest = tabId === "restTab"; applyLeaveViewMode();
     activeSchedulingTab = validTabs.includes(tabId) ? tabId : "scheduleTab";
 
     document.querySelectorAll("[data-scheduling-tab]").forEach(button => {
@@ -3974,7 +4004,7 @@ function setSchedulingTab(tabId, renderContent = true) {
     });
 
     document.querySelectorAll("#schedulingPage .subpage").forEach(page => {
-        page.classList.toggle("active-subpage", page.id === activeSchedulingTab);
+        page.classList.toggle("active-subpage", page.id === (activeSchedulingTab === "restTab" ? "leaveTab" : activeSchedulingTab));
     });
 
     if (!renderContent) return;
@@ -3987,7 +4017,7 @@ function setSchedulingTab(tabId, renderContent = true) {
                 button.classList.toggle("active", button.dataset.schedulingTab === activeSchedulingTab);
             });
             document.querySelectorAll("#schedulingPage .subpage").forEach(page => {
-                page.classList.toggle("active-subpage", page.id === activeSchedulingTab);
+                page.classList.toggle("active-subpage", page.id === (activeSchedulingTab === "restTab" ? "leaveTab" : activeSchedulingTab));
             });
             return;
         }
@@ -3995,7 +4025,7 @@ function setSchedulingTab(tabId, renderContent = true) {
     } else if (activeSchedulingTab === "extraDaysTab") {
         renderExtraDays();
         updateExtraScheduleHint();
-    } else if (activeSchedulingTab === "leaveTab") {
+    } else if (activeSchedulingTab === "leaveTab" || activeSchedulingTab === "restTab") {
         renderLeaveTab();
     } else if (activeSchedulingTab === "historyTab") {
         renderScheduleHistory();
@@ -4272,6 +4302,8 @@ function renderSelectedIndividualSchedule(login) {
 
 
 async function saveIndividualSchedules() {
+    toast("Individual schedules are read-only. Use the Rest shift tab for extra days off."); return;
+    // eslint-disable-next-line no-unreachable
     if (individualScheduleSaveInProgress) return;
     const role = String(currentUser?.role || "").trim().toLowerCase();
     if (!['coordinator', 'admin'].includes(role)) {
@@ -4625,6 +4657,7 @@ async function renderScheduleHistory() {
     const dateTo = $("scheduleHistoryDateTo")?.value || "";
     const loginSearch = $("scheduleHistoryLogin")?.value.trim().toLowerCase() || "";
     const typeFilters = selectedMultiValues("scheduleHistoryType");
+    const shiftFilter = $("scheduleHistoryShift")?.value || "";
     if (dateFrom && dateTo && dateFrom > dateTo) {
         table.innerHTML = `<tr><td colspan="7"><div class="empty">From date cannot be later than To date.</div></td></tr>`;
         return;
@@ -4649,12 +4682,12 @@ async function renderScheduleHistory() {
     }
     const leaveRows = (employeeLeaveRecords || []).map(r => ({
         id:`leave-${r.id || `${r.employeeLogin}-${r.startDate}`}`,
-        action: r.leaveType === "sick-leave" ? "L4 recorded" : "Vacation recorded",
+        action: `${leaveTypeLabel(r.leaveType)} recorded`,
         work_date: r.startDate,
         end_date: r.endDate,
         employee_login: r.employeeLogin,
         type: r.leaveType,
-        shift: null,
+        shift: (() => { try { const e = employeeByLogin(r.employeeLogin); const v = e ? V33_underlyingShift(e, fromKey(r.startDate)) : null; return v === "day" || v === "night" ? v : null; } catch { return null; } })(),
         leader_login: r.recordedBy || "",
         changed_by_login: r.recordedBy || "",
         created_at: r.createdAt || `${r.startDate}T00:00:00`
@@ -4664,6 +4697,7 @@ async function renderScheduleHistory() {
             const q = `${item.employee_login || ""} ${item.leader_login || ""} ${item.changed_by_login || ""}`.toLowerCase();
             if (!q.includes(loginSearch)) return false;
         }
+        if (shiftFilter && item.shift !== shiftFilter) return false;
         if (typeFilters.length) {
             const matches = typeFilters.some(type => type === "removed" ? item.action === "Extra day removed" : item.type === type);
             if (!matches) return false;
@@ -4678,15 +4712,17 @@ async function renderScheduleHistory() {
         else if (item.type === "extra-work-night") { stats.night++; stats.work++; }
         else if (item.type === "vacation") stats.vacation++;
         else if (item.type === "sick-leave") stats.sick++;
+        else if (item.type === "rest") stats.rest = (stats.rest || 0) + 1;
     });
+    [["historyStatRest", stats.rest || 0], ["historyStatSick", stats.sick], ["historyStatVacation", stats.vacation]].forEach(([id, v]) => { if ($(id)) $(id).textContent = String(v); });
     if ($("historyStatWork")) $("historyStatWork").textContent=String(stats.work);
     if ($("historyStatDay")) $("historyStatDay").textContent=String(stats.day);
     if ($("historyStatNight")) $("historyStatNight").textContent=String(stats.night);
     if ($("historyStatOff")) $("historyStatOff").textContent=String(stats.off);
     if ($("historyStatTotal")) $("historyStatTotal").textContent=String(rows.length);
     table.innerHTML = rows.map(item => {
-        const isLeave = item.type === "vacation" || item.type === "sick-leave";
-        const action = item.action === "Extra day removed" ? "Removed" : isLeave ? (item.type === "sick-leave" ? "L4" : "Vacation") : (item.type === "extra-off" ? "Extra day off" : `Extra work — ${String(item.shift || "day").toUpperCase()}`);
+        const isLeave = item.type === "vacation" || item.type === "sick-leave" || item.type === "rest";
+        const action = item.action === "Extra day removed" ? "Removed" : isLeave ? leaveTypeLabel(item.type) : (item.type === "extra-off" ? "Extra day off" : `Extra work — ${String(item.shift || "day").toUpperCase()}`);
         const workDate = item.end_date && item.end_date !== item.work_date ? `${item.work_date} → ${item.end_date}` : item.work_date;
         return `<tr><td>${new Date(item.created_at).toLocaleString("en-GB")}</td><td><strong>${esc(item.action)}</strong></td><td>${esc(item.employee_login)}</td><td>${esc(workDate)}</td><td>${esc(item.leader_login || "—")}</td><td>${esc(action)}</td><td>${formatActionActor(item.changed_by_login, item.created_at)}</td></tr>`;
     }).join("") || `<tr><td colspan="7"><div class="empty">No schedule or leave history matches the selected filters.</div></td></tr>`;
@@ -4739,7 +4775,6 @@ function exportSchedule() {
         .forEach(employee => {
             const row = [
                 employee.login,
-                employee.login,
                 employee.process,
                 employee.brigade
             ];
@@ -4753,8 +4788,11 @@ function exportSchedule() {
                 );
                 const schedule = getSchedule(employee, date);
                 const extra = extraDays[scheduleKey(date, employee.login)];
+                const leaveRec = leaveRecordForDate(employee, date);
 
-                if (extra?.type === "extra-off") {
+                if (leaveRec) {
+                    row.push(leaveRec.leaveType === "sick-leave" ? "L4" : leaveRec.leaveType === "rest" ? "REST SHIFT" : "VACATION");
+                } else if (extra?.type === "extra-off") {
                     row.push("EXTRA OFF");
                 } else if (extra?.type === "extra-work-day" || extra?.type === "extra-work-night") {
                     row.push(`EXTRA ${String(extra.shift || "day").toUpperCase()}`);
@@ -4762,7 +4800,7 @@ function exportSchedule() {
                     row.push(
                         schedule.shift === "day" ? "DAY" :
                         schedule.shift === "night" ? "NIGHT" :
-                        schedule.shift === "rest" ? "R" : "OFF"
+                        schedule.shift === "rest" ? "REST" : "OFF"
                     );
                 }
             }
@@ -5157,7 +5195,7 @@ function analyticsSelectedShifts() {
 function underlyingShiftBeforeExtraOff(employee, date) {
     const key = scheduleKey(date, employee.login);
     if (individualSchedules[key] === "day" || individualSchedules[key] === "night") return individualSchedules[key];
-    if (schedules[key] === "day" || schedules[key] === "night") return schedules[key];
+    { const sv = brigadeChangeSafeShift(employee, date) || schedules[key]; if (sv === "day" || sv === "night") return sv; }
     return ["N1", "N2"].includes(employeeBrigadeForDate(employee, date)) ? "night" : "day";
 }
 
@@ -6014,6 +6052,7 @@ $("saveSchedule").addEventListener(
         if($("scheduleHistoryDateTo")) $("scheduleHistoryDateTo").value="";
         if($("scheduleHistoryLogin")) $("scheduleHistoryLogin").value="";
         setMultiFilterValues("scheduleHistoryType", []);
+        if ($("scheduleHistoryShift")) $("scheduleHistoryShift").value = "";
         renderScheduleHistory();
     });
 
@@ -6170,6 +6209,7 @@ async function initApp() {
     subscribeToExtraDaysRealtime();
     subscribeToAttendanceRealtime();
     subscribeToHistoryRealtime();
+    subscribeToAssignmentHistoryRealtime();
     subscribeToEmployeesRealtime();
     subscribeToFeedbackRealtime();
 
@@ -6213,11 +6253,23 @@ const V33_originalAnalyticsRowFor = analyticsRowFor;
 const V33_originalAnalyticsDetailLists = analyticsDetailLists;
 const V33_originalOpenAnalyticsDrilldown = openAnalyticsDrilldown;
 
+let leaveViewRest = false;
 function leaveTypeLabel(type) {
-    return type === "sick-leave" ? "L4" : "Vacation";
+    return type === "sick-leave" ? "L4" : type === "rest" ? "Rest shift" : "Vacation";
 }
 function leaveTypeClass(type) {
-    return type === "sick-leave" ? "sick" : "vacation";
+    return type === "sick-leave" ? "sick" : type === "rest" ? "rest" : "vacation";
+}
+function applyLeaveViewMode() {
+    const sec = $("leaveTab"); if (!sec) return;
+    sec.classList.toggle("rest-mode", leaveViewRest);
+    const h = sec.querySelector(".panel-title h3"), p = sec.querySelector(".panel-title p");
+    if (h) h.textContent = leaveViewRest ? "Rest shift" : "Leave & Absence";
+    if (p) p.textContent = leaveViewRest ? "Additional day off at the employer's request. Shown as Rest in the schedule and attendance; the employee is not planned to work." : "Plan Vacation and sick leave (L4). Leave is shown in the employee schedule with a dedicated color and removes the employee from planned working shifts for those dates.";
+    const opts = leaveViewRest ? [["rest","Rest shift"]] : [["vacation","Vacation"],["sick-leave","L4 / Sick leave"]];
+    const t = $("leaveType"); if (t) t.innerHTML = opts.map(o => `<option value="${o[0]}">${o[1]}</option>`).join("");
+    const f = $("leaveFilterType"); if (f) f.innerHTML = `<option value="">All types</option>` + opts.map(o => `<option value="${o[0]}">${o[1]}</option>`).join("");
+    const b = $("saveLeave"); if (b) b.textContent = leaveViewRest ? "Save Rest shift" : "Save leave";
 }
 function leaveDays(record) {
     if (!record?.startDate || !record?.endDate) return 0;
@@ -6236,7 +6288,7 @@ function V33_underlyingShift(employee, date) {
     if (extra && extra.type !== "extra-off") return extra.shift || "day";
     const individual = individualSchedules[key];
     if (individual === "day" || individual === "night") return individual;
-    if (schedules[key] === "day" || schedules[key] === "night") return schedules[key];
+    { const sv = brigadeChangeSafeShift(employee, date) || schedules[key]; if (sv === "day" || sv === "night") return sv; }
     return defaultShiftForBrigade(employeeBrigadeForDate(employee,date));
 }
 
@@ -6256,7 +6308,7 @@ getSchedule = function(employee, date) {
 function scheduleVisualState(employee, date) {
     if (!canConfirmEmployeeDate(employee,date)) return {kind:"before-start", label:"O", css:"before-start", title:`Before start date ${employee.startDate}`};
     const leave = leaveRecordForDate(employee,date);
-    if (leave) return {kind:"leave", label:leave.leaveType === "sick-leave" ? "L4" : "U", css:leaveTypeClass(leave.leaveType), title:`${leaveTypeLabel(leave.leaveType)} · ${leave.startDate} → ${leave.endDate}`};
+    if (leave) return {kind:"leave", label:leave.leaveType === "sick-leave" ? "L4" : leave.leaveType === "rest" ? "R" : "U", css:leaveTypeClass(leave.leaveType), title:`${leaveTypeLabel(leave.leaveType)} · ${leave.startDate} → ${leave.endDate}`};
     const extra = extraDays[scheduleKey(date, employee.login)];
     if (extra?.type === "extra-off") return {kind:"extra-off", label:"OFF", css:"extra-off", title:"Extra OFF"};
     if (extra?.type === "extra-work-day") return {kind:"extra-work-day", label:"D+", css:"extra-day", title:"Extra work · DAY"};
@@ -6373,7 +6425,7 @@ function subscribeToLeaveRealtime(){
 }
 function renderLeaveTab(){
     const loginFilter=($("leaveFilterLogin")?.value||"").trim().toLowerCase(), typeFilter=$("leaveFilterType")?.value||"";
-    const rows=(employeeLeaveRecords||[]).filter(r=>(!loginFilter||String(r.employeeLogin).toLowerCase().includes(loginFilter))&&(!typeFilter||r.leaveType===typeFilter)).sort((a,b)=>String(a.startDate).localeCompare(String(b.startDate))||String(a.employeeLogin).localeCompare(String(b.employeeLogin)));
+    const rows=(employeeLeaveRecords||[]).filter(r=>(!loginFilter||String(r.employeeLogin).toLowerCase().includes(loginFilter))&&(!typeFilter||r.leaveType===typeFilter)&&((r.leaveType==="rest")===leaveViewRest)).sort((a,b)=>String(a.startDate).localeCompare(String(b.startDate))||String(a.employeeLogin).localeCompare(String(b.employeeLogin)));
     let vac=0,sick=0,days=0;const employees=new Set();
     rows.forEach(r=>{employees.add(r.employeeLogin);days+=leaveDays(r);if(r.leaveType==="vacation")vac++;else sick++;});
     $("leaveStatVacation")&&( $("leaveStatVacation").textContent=String(vac)); $("leaveStatSick")&&( $("leaveStatSick").textContent=String(sick)); $("leaveStatEmployees")&&( $("leaveStatEmployees").textContent=String(employees.size)); $("leaveStatDays")&&( $("leaveStatDays").textContent=String(days));
@@ -6427,7 +6479,7 @@ function V33_analyticsEnrich(row){
         const leave=leaveRecordForDate(employee,date);
         if(leave){const underlying=V33_underlyingShift(employee,date);if(underlying===row.shift){const detail=analyticsDetailEmployee(employee,date);row.leaveDetails.push({...detail,leaveType:leave.leaveType,leaveStart:leave.startDate,leaveEnd:leave.endDate,recordedBy:leave.recordedBy,recordedAt:leave.createdAt});const processName=normalizeProcessName(detail.process);let ps=row.processStats.get(processName);if(!ps){ps={process:processName,planned:0,present:0,absent:0,pending:0,feedback:0,feedbackEmployees:new Set(),extraOff:0,extraWork:0,leave:0};row.processStats.set(processName,ps);}ps.leave=(ps.leave||0)+1;}return;}
         if(getSchedule(employee,date).shift!==row.shift)return;
-        const data=getAttendance(employee,date),dev=getShiftTimeDeviation(employee,date,data),common={...analyticsDetailEmployee(employee,date),reason:String(data.reason||"").trim(),confirmedByLogin:String(data.confirmedByLogin||"").trim(),confirmedAt:data.confirmedAt||"",actualStart:String(data.actualStart||""),actualEnd:String(data.actualEnd||"")};
+        const data=getAttendance(employee,date),dev=getShiftTimeDeviation(employee,date,data),common={...analyticsDetailEmployee(employee,date),reason:String(data.reason||"").trim(),confirmedByLogin:String(data.confirmedByLogin||"").trim(),confirmedAt:data.confirmedAt||"",actualStart:String(data.actualStart||""),actualEnd:String(data.actualEnd||""),breakMinutes:Number(data.breakMinutes||0),actualHours:Number(data.actualHours||0),plannedStart:SHIFTS[row.shift]?.start||"",plannedEnd:SHIFTS[row.shift]?.end||""};
         if(dev.late>0)row.lateDetails.push({...common,lateMinutes:dev.late});
         if(dev.leftEarly>0){row.leftEarlyDetails.push({...common,leftEarlyMinutes:dev.leftEarly});const key=earlyLeaveReasonKey(data);row.leftEarlyReasonStats[key]=(row.leftEarlyReasonStats[key]||0)+1;}
         if(dev.arrivalEarly>0)row.arrivalEarlyDetails.push({...common,arrivalEarlyMinutes:dev.arrivalEarly});
@@ -6460,8 +6512,8 @@ openAnalyticsDrilldown=function(row,key){
     const items=analyticsDetailLists(row,key);const labels={present:"Present",absent:"Absent",late:"Late arrival",leftEarly:"Left early",early:"Arrived / left early",pending:"Pending",feedback:"Feedback",terminated:"Terminated",extraOff:"Extra OFF",extraWork:"Extra work",leave:"Leave"};const title=`${fromKey(row.date).toLocaleDateString("en-GB")} · ${row.shift==="day"?"DAY":"NIGHT"} · ${labels[key]||"Details"}`;const countText=key==="feedback"?`${row.feedbackEmployees} employees · ${items.length} feedback entries`:`${items.length} employees`;const head=$("analyticsDrilldownHead"),body=$("analyticsDrilldownBody");if(!head||!body)return;let columns,renderRow;
     if(key==="feedback"){columns=["Employee","Process","Brigade","Error type","Note","Confirmed by","Confirmed at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(i.errorType)}</td><td>${esc(i.note||"—")}</td><td>${esc(i.confirmedByLogin||"—")}</td><td>${esc(formatDateTime(i.confirmedAt))}</td></tr>`;}
     else if(key==="leave"){columns=["Employee","Process","Brigade","Type","From","To","Recorded by","Recorded at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(leaveTypeLabel(i.leaveType))}</td><td>${esc(i.leaveStart)}</td><td>${esc(i.leaveEnd)}</td><td>${esc(i.recordedBy||"—")}</td><td>${esc(formatDateTime(i.recordedAt))}</td></tr>`;}
-    else if(key==="late"){columns=["Employee","Process","Brigade","Late","Confirmed by","Confirmed at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(`${i.lateMinutes||0}m`)}</td><td>${esc(i.confirmedByLogin||"—")}</td><td>${esc(formatDateTime(i.confirmedAt))}</td></tr>`;}
-    else if(key==="leftEarly"){columns=["Employee","Process","Brigade","Left early","Reason","Confirmed by","Confirmed at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(`${i.leftEarlyMinutes||0}m`)}</td><td>${esc(i.reason||"No reason recorded")}</td><td>${esc(i.confirmedByLogin||"—")}</td><td>${esc(formatDateTime(i.confirmedAt))}</td></tr>`;}
+    else if(key==="late"){columns=["Employee","Process","Brigade","Late","Confirmed by","Confirmed at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(fmtMinutes(i.lateMinutes||0))}</td><td>${esc(i.confirmedByLogin||"—")}</td><td>${esc(formatDateTime(i.confirmedAt))}</td></tr>`;}
+    else if(key==="leftEarly"){columns=["Employee","Process","Brigade","Planned shift","Started","Finished","Hours worked","Break","Left early by","Reason","Confirmed by","Confirmed at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(`${i.plannedStart||"—"} – ${i.plannedEnd||"—"}`)}</td><td>${esc(i.actualStart||"—")}</td><td>${esc(i.actualEnd||"—")}</td><td>${esc(`${Number(i.actualHours||0).toFixed(2)}h`)}</td><td>${esc(i.breakMinutes>0?`${i.breakMinutes}m deducted`:"No break")}</td><td>${esc(fmtMinutes(i.leftEarlyMinutes||0))}</td><td>${esc(i.reason||"No reason recorded")}</td><td>${esc(i.confirmedByLogin||"—")}</td><td>${esc(formatDateTime(i.confirmedAt))}</td></tr>`;}
     else if(key==="extraOff"||key==="extraWork"){columns=["Employee","Process","Brigade","Recorded by","Recorded at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(i.recordedBy||"—")}</td><td>${esc(formatDateTime(i.recordedAt))}</td></tr>`;}
     else {columns=["Employee","Process","Brigade","Reason","Confirmed by","Confirmed at"];renderRow=i=>`<tr><td><strong>${esc(i.login)}</strong></td><td>${esc(i.process)}</td><td>${esc(i.brigade)}</td><td>${esc(i.reason||(key==="pending"?"Waiting for confirmation":"—"))}</td><td>${esc(i.confirmedByLogin||"—")}</td><td>${esc(formatDateTime(i.confirmedAt))}</td></tr>`;}
     head.innerHTML=`<tr>${columns.map(c=>`<th>${esc(c)}</th>`).join("")}</tr>`;body.innerHTML=items.map(renderRow).join("")||`<tr><td colspan="${columns.length}"><div class="empty">No records.</div></td></tr>`;$("analyticsDrilldownTitle").textContent=title;$("analyticsDrilldownSubtitle").textContent="Employee-level records are opened only when requested.";$("analyticsDrilldownMeta").textContent=countText;$("analyticsDrilldownModal").classList.remove("hidden");
@@ -6715,7 +6767,7 @@ function getHoursAttendanceDayCell(employee, date) {
     const extra = extraDays[scheduleKey(date, employee.login)];
     if (leave) {
         const isSick = leave.leaveType === "sick-leave";
-        return { code: isSick ? "L4" : "U", className: isSick ? "sick" : "vacation", title: `${weekdayLabel}, ${dateLabel} · ${leaveTypeLabel(leave.leaveType)} · ${leave.startDate} → ${leave.endDate}${leave.note ? ` · ${leave.note}` : ""}` };
+        return { code: isSick ? "L4" : leave.leaveType === "rest" ? "R" : "U", className: isSick ? "sick" : leave.leaveType === "rest" ? "rest" : "vacation", title: `${weekdayLabel}, ${dateLabel} · ${leaveTypeLabel(leave.leaveType)} · ${leave.startDate} → ${leave.endDate}${leave.note ? ` · ${leave.note}` : ""}` };
     }
     if (extra?.type === "extra-work-day") return { code: "D+", className: "extra-day", title: `${weekdayLabel}, ${dateLabel} · Extra work · DAY` };
     if (extra?.type === "extra-work-night") return { code: "N+", className: "extra-night", title: `${weekdayLabel}, ${dateLabel} · Extra work · NIGHT` };
@@ -6922,7 +6974,7 @@ function hoursExportRows(ignoreFilters) {
     for (const employee of employees) for (let day=1; day<=monthDays(hoursAttendanceMonth); day++) {
         const date=new Date(hoursAttendanceMonth.getFullYear(),hoursAttendanceMonth.getMonth(),day,12), schedule=getSchedule(employee,date), data=getAttendance(employee,date), planned=plannedHours(employee,date);
         const actual=data.confirmed ? Number(data.actualHours||0) : "", difference=actual === "" ? "" : actual-planned;
-        rows.push([employee.login,employee.brigade,employee.process,date.toLocaleDateString("en-GB"),date.toLocaleDateString("en-US",{weekday:"long"}),schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "R" : "OFF",planned.toFixed(2),actual === "" ? "" : actual.toFixed(2),difference === "" ? "" : difference.toFixed(2),data.confirmed ? (data.status || "Confirmed") : (planned>0 ? "Pending" : "OFF"),data.reason||"",data.note||""]);
+        rows.push([employee.login,employee.brigade,employee.process,date.toLocaleDateString("en-GB"),date.toLocaleDateString("en-US",{weekday:"long"}),schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "Rest" : "OFF",planned.toFixed(2),actual === "" ? "" : actual.toFixed(2),difference === "" ? "" : difference.toFixed(2),data.confirmed ? (data.status || "Confirmed") : (planned>0 ? "Pending" : "OFF"),data.reason||"",data.note||""]);
     }
     return rows;
 }
@@ -7257,6 +7309,12 @@ function exportShiftEmployees() {
     toast("Shift employees exported to Excel.");
 }
 
+// V39.3: Excel export uses full words instead of one-letter codes.
+function hoursCodeWord(code, shift) {
+    const words = { A: "Absent", E: "Left early", P: "Pending", O: "OFF", U: "Vacation", L4: "Sick leave (L4)", R: "Rest shift", "D+": "Extra DAY", "N+": "Extra NIGHT", OFF: "Extra OFF" };
+    if (code === "C") return shift === "night" ? "Night" : shift === "day" ? "Day" : "Present";
+    return words[code] || String(code || "");
+}
 function buildHoursAttendanceWorkbook(employees) {
     const year = hoursAttendanceMonth.getFullYear();
     const month = hoursAttendanceMonth.getMonth();
@@ -7307,7 +7365,7 @@ function buildHoursAttendanceWorkbook(employees) {
             }
             if (planned > 0 && !data.confirmed) pending++;
             const matrixCell = getHoursAttendanceDayCell(employee, date);
-            matrix.push(matrixCell.code);
+            matrix.push(hoursCodeWord(matrixCell.code, schedule.shift));
             daily.push(Number(safeActual.toFixed(2)));
 
             detailRows.push([
@@ -7901,6 +7959,12 @@ function v36RenderEmployeeDetails(login) {
         }).join("")
         : `<tr><td colspan="6"><div class="employee-details-empty">No confirmed working days in this period.</div></td></tr>`;
 
+    const box = $("employeeDetailsLeaveBox");
+    if (box) {
+        const m = /^\d{4}-\d{2}$/.test(selectedPeriod) ? selectedPeriod : "";
+        const recs = (employeeLeaveRecords || []).filter(r => String(r.employeeLogin) === String(employee.login) && (!m || (r.startDate.slice(0,7) <= m && r.endDate.slice(0,7) >= m))).sort((a,b) => a.startDate.localeCompare(b.startDate));
+        box.innerHTML = recs.length ? `<h4>Leave & Rest shift</h4><ul>` + recs.map(r => `<li><span class="leave-badge ${leaveTypeClass(r.leaveType)}">${esc(leaveTypeLabel(r.leaveType))}</span> ${esc(r.startDate)} → ${esc(r.endDate)} · ${leaveDays(r)} d${r.note ? " · " + esc(r.note) : ""}</li>`).join("") + `</ul>` : "";
+    }
     modal.classList.remove("hidden");
 }
 
@@ -8112,12 +8176,8 @@ function setTrainingAutoTeamName(force = false) {
     const input = $("trainingTeamName");
     if (!input) return;
     const pattern = /^(TT|RT)\d{8}\d{3}$/;
-    if (force || !input.value || pattern.test(input.value.trim())) {
-        input.value = trainingAutoTeamName();
-        input.dataset.autoGenerated = "1";
-    } else {
-        input.dataset.autoGenerated = "0";
-    }
+    input.maxLength = 30; input.dataset.autoGenerated = "0";
+    if (force) input.value = "";  // V39.2: no default name, the user types it
 }
 function resetTrainingForm() {
     trainingSelectedParticipants = new Set();
@@ -8351,15 +8411,15 @@ async function saveTrainingSession() {
         return;
     }
     const trainingDate = String($("trainingDate")?.value || "").trim();
-    const teamName = trainingAutoTeamName(trainingDate);
-    if ($("trainingTeamName")) $("trainingTeamName").value = teamName;
+    const teamName = String($("trainingTeamName")?.value || "").replace(/\s+/g, " ").trim();
+    if (teamName.length > 30) { toast("Team name can have at most 30 characters."); return; }
     const shift = String($("trainingShift")?.value || "").trim();
     const process = String($("trainingProcess")?.value || "").trim();
     const instructor = String($("trainingInstructorLogin")?.value || "").trim();
     const instructorEmployee = trainingInstructors().find(e => String(e.login) === instructor);
     const note = String($("trainingNote")?.value || "").trim();
     const participants = trainingCurrentParticipantLogins();
-    if (!teamName) { toast("Enter a team name."); return; }
+    if (!teamName) { toast("Enter a team name (max 30 characters)."); return; }
     if (!trainingDate || !shift || !process || !instructor || !instructorEmployee) { toast("Date, shift, process and a valid instructor are required."); return; }
     if (!participants.length) { toast("Select at least one participant."); return; }
     const duplicate = trainingSessions.some(s => s.training_type === trainingActiveType && s.training_date === trainingDate && s.shift === shift && s.team_name.toLowerCase() === teamName.toLowerCase());
@@ -8427,6 +8487,35 @@ function clearTrainingFilters() {
     renderTrainingHistory();
 }
 function exportTrainingCsv() {
+    if (!window.XLSX) { exportTrainingCsvFallback(); return; }
+    const sessions = trainingFilteredSessions().slice().sort((a, b) => String(b.training_date).localeCompare(String(a.training_date)) || String(a.team_name).localeCompare(String(b.team_name)));
+    if (!sessions.length) { toast("No training sessions to export."); return; }
+    const sRows = [["Type", "Date", "Team name", "Shift", "Process", "Instructor", "Participants", "Participant logins", "Created by", "Created at", "Note"]];
+    const pRows = [["Type", "Date", "Team name", "Shift", "Process", "Instructor", "Participant", "Created by"]];
+    const perEmp = new Map();
+    sessions.forEach(s => {
+        const type = trainingTypeLabel(s.training_type), ps = trainingParticipantsForSession(s.id), logins = ps.map(p => p.employee_login).filter(Boolean);
+        sRows.push([type, s.training_date, s.team_name || "", trainingShiftLabel(s.shift), s.process || "", s.instructor_login || "", logins.length, logins.join("; "), s.created_by_login || "", s.created_at ? formatDateTime(s.created_at) : "", s.notes || ""]);
+        logins.forEach(l => {
+            pRows.push([type, s.training_date, s.team_name || "", trainingShiftLabel(s.shift), s.process || "", s.instructor_login || "", l, s.created_by_login || ""]);
+            const e = perEmp.get(l) || { t: 0, r: 0, last: "" };
+            if (s.training_type === "retraining") e.r++; else e.t++;
+            if (String(s.training_date) > e.last) e.last = String(s.training_date);
+            perEmp.set(l, e);
+        });
+    });
+    const eRows = [["Employee", "Training", "Retraining", "Total", "Last session"], ...[...perEmp].sort((a, b) => (b[1].t + b[1].r) - (a[1].t + a[1].r) || a[0].localeCompare(b[0])).map(([l, e]) => [l, e.t, e.r, e.t + e.r, e.last])];
+    const wb = XLSX.utils.book_new();
+    [["Sessions", sRows, [14, 12, 24, 10, 16, 16, 12, 46, 16, 18, 30]], ["Participants", pRows, [14, 12, 24, 10, 16, 16, 16, 16]], ["Per employee", eRows, [16, 12, 12, 10, 14]]].forEach(([name, rows, widths]) => {
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        ws["!cols"] = widths.map(wch => ({ wch }));
+        ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length - 1, c: rows[0].length - 1 } }) };
+        XLSX.utils.book_append_sheet(wb, ws, name);
+    });
+    XLSX.writeFile(wb, `WMS_${trainingHistoryAllTypes ? "Training_Retraining" : trainingTypeLabel(trainingActiveType)}_${dateKey(new Date())}.xlsx`);
+    toast(`Exported ${sessions.length} session${sessions.length === 1 ? "" : "s"} to Excel.`);
+}
+function exportTrainingCsvFallback() {
     const rows = trainingFilteredSessions();
     const lines = [["Type","Date","Team","Shift","Process","Instructor","Participant","Created by","Created at","Note"]];
     rows.forEach(s=>{
@@ -8438,12 +8527,12 @@ function exportTrainingCsv() {
 }
 function downloadTrainingDesktopShortcut() {
     const base = `${location.origin}${location.pathname}`;
-    const target = `${base}?open=training`;
-    const icon = `${base.replace(/[^/]*$/, "")}training-retraining.ico`;
-    const content = `[InternetShortcut]\nURL=${target}\nIconFile=${icon}\nIconIndex=0\n`;
+    const target = base;
+    const icon = `${base.replace(/[^/]*$/, "")}favicon.ico`;
+    const content = `[InternetShortcut]\r\nURL=${target}\r\nIconFile=${icon}\r\nIconIndex=0\r\n`;
     const blob = new Blob([content], {type:"application/internet-shortcut"});
-    const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="WMS_Training_Retraining.url"; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-    toast("Desktop shortcut downloaded. Save it to your Desktop.");
+    const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="WMS.url"; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast("Shortcut downloaded — move it to your Desktop. Tip: in Chrome/Edge use ⋮ → Install WMS for a real app icon.");
 }
 function initTrainingModule() {
     if (window.__wmsTrainingInitialized) return;
@@ -8512,6 +8601,7 @@ switchPage = function(pageId) {
 
 const V37_originalLogout = logout;
 logout = async function() {
+    if (assignmentHistoryRealtimeChannel) { try { await supabaseClient.removeChannel(assignmentHistoryRealtimeChannel); } catch {} assignmentHistoryRealtimeChannel=null; }
     if (leaveRealtimeChannel) { try { await supabaseClient.removeChannel(leaveRealtimeChannel); } catch {} leaveRealtimeChannel=null; }
     if (trainingRealtimeChannel) { try { await supabaseClient.removeChannel(trainingRealtimeChannel); } catch {} trainingRealtimeChannel=null; }
     return V37_originalLogout();
@@ -9049,3 +9139,45 @@ openTrainingSession = function(id) {
     $("trainingEditPanel")?.setAttribute("hidden","");
     if($("trainingSessionActions")) $("trainingSessionActions").hidden=false;
 };
+
+
+/* V39.2 — Individual schedule is read-only (changes go through Rest shift / Extra Days / Leave). */
+(function lockIndividualSchedule(){
+    let queued = false;
+    const lock = () => { queued = false; document.querySelectorAll("#individualScheduleBody select").forEach(s => { s.disabled = true; s.title = "Read-only — use the Rest shift tab"; }); };
+    new MutationObserver(() => { if (!queued) { queued = true; requestAnimationFrame(lock); } }).observe(document.body, { childList: true, subtree: true });
+})();
+
+
+/* V39.3 — Feedback: day pop-up + History filters */
+function openFeedbackDayPopup(date) {
+    const list = feedbackEntriesFilteredForView().filter(e => e.work_date === date).sort((a, b) => String(a.shift).localeCompare(String(b.shift)));
+    const byType = new Map(); list.forEach(e => byType.set(e.error_type || "Other", (byType.get(e.error_type || "Other") || 0) + 1));
+    const dayN = list.filter(e => e.shift === "day").length, nightN = list.filter(e => e.shift === "night").length;
+    let pop = $("feedbackDayPopup");
+    if (!pop) { pop = document.createElement("div"); pop.id = "feedbackDayPopup"; pop.className = "wms-pop hidden"; document.body.appendChild(pop); pop.addEventListener("click", ev => { if (ev.target === pop || ev.target.closest("[data-pop-close]")) pop.classList.add("hidden"); }); }
+    pop.innerHTML = `<div class="wms-pop-card"><div class="wms-pop-head"><h3>Feedback · ${esc(date)}</h3><button type="button" class="icon-btn" data-pop-close>×</button></div>
+        <p><strong>${list.length}</strong> total · DAY <strong>${dayN}</strong> · NIGHT <strong>${nightN}</strong></p>
+        <div class="wms-pop-chips">${[...byType].map(([t, c]) => `<span class="chip">${esc(t)}: <b>${c}</b></span>`).join("") || "<span class='chip'>No feedback</span>"}</div>
+        <div class="table-wrap"><table><thead><tr><th>Login</th><th>Shift</th><th>Error type</th><th>Note</th><th>Confirmed by</th></tr></thead><tbody>${list.map(e => `<tr><td><strong>${esc(e.employee_login)}</strong></td><td>${e.shift === "night" ? "NIGHT" : e.shift === "day" ? "DAY" : "—"}</td><td>${esc(e.error_type)}</td><td>${esc(e.note || "—")}</td><td>${formatActionActor(e.confirmed_by_login, e.confirmed_at)}</td></tr>`).join("") || `<tr><td colspan="5"><div class="empty">No feedback on this day.</div></td></tr>`}</tbody></table></div></div>`;
+    pop.classList.remove("hidden");
+}
+document.addEventListener("click", e => { const r = e.target.closest("#feedbackDailyStatsBody [data-fb-day]"); if (r) openFeedbackDayPopup(r.dataset.fbDay); });
+document.addEventListener("keydown", e => { if (e.key === "Enter") { const r = e.target.closest?.("#feedbackDailyStatsBody [data-fb-day]"); if (r) openFeedbackDayPopup(r.dataset.fbDay); } });
+function feedbackHistoryApplyFilters(list) {
+    const day = $("feedbackHistoryDay")?.value || "", emp = ($("feedbackHistoryEmployee")?.value || "").trim().toLowerCase(), by = ($("feedbackHistoryConfirmedBy")?.value || "").trim().toLowerCase();
+    return list.filter(e => (!day || e.work_date === day) && (!emp || String(e.employee_login || "").toLowerCase().includes(emp)) && (!by || String(e.confirmed_by_login || "").toLowerCase().includes(by)));
+}
+document.addEventListener("input", e => { if (e.target.matches?.("#feedbackHistoryDay,#feedbackHistoryEmployee,#feedbackHistoryConfirmedBy")) renderFeedbackCurrentSubtab(); });
+document.addEventListener("click", e => { if (e.target.id === "feedbackHistoryClear") { ["feedbackHistoryDay", "feedbackHistoryEmployee", "feedbackHistoryConfirmedBy"].forEach(id => { if ($(id)) $(id).value = ""; }); renderFeedbackCurrentSubtab(); } });
+
+
+/* V39.3 — global "Desktop shortcut": installs the site as an app (PWA) or downloads a .url shortcut */
+let deferredInstallPrompt = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); deferredInstallPrompt = e; });
+window.addEventListener("appinstalled", () => { deferredInstallPrompt = null; toast("WMS installed."); $("installAppButton")?.classList.add("hidden"); });
+if (window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone) $("installAppButton")?.classList.add("hidden");
+$("installAppButton")?.addEventListener("click", async () => {
+    if (deferredInstallPrompt) { deferredInstallPrompt.prompt(); try { await deferredInstallPrompt.userChoice; } catch {} deferredInstallPrompt = null; return; }
+    downloadTrainingDesktopShortcut();
+});

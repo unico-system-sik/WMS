@@ -2,12 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <meta name="theme-color" content="#4f46e5">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="WMS">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Warehouse Management System</title>
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://ipmyxkhnwijpdweeztgb.supabase.co wss://ipmyxkhnwijpdweeztgb.supabase.co; worker-src 'self' blob:;">
-    <link rel="stylesheet" href="style.css?v=39.1">
+    <link rel="stylesheet" href="style.css?v=39.3">
 </head>
 <body>
 
@@ -60,6 +67,7 @@
 
 <div id="currentUserBox" class="current-user-box hidden">
   <div id="currentUserLoginDisplay" class="current-user-login">—</div>
+  <button id="installAppButton" class="install-button" type="button" title="Install WMS as an app / create a desktop shortcut">🖥️ Desktop shortcut</button>
   <button id="logoutButton" class="logout-button" type="button">Log out</button>
 </div>
 
@@ -340,8 +348,7 @@
                     <p>Record onboarding training for new employees and retraining for existing employees. Every session keeps the date, shift, process, instructor and participant team for later analysis.</p>
                 </div>
                 <div class="training-title-actions">
-                    <button id="trainingExportBtn" class="secondary" type="button">Export CSV</button>
-                    <button id="trainingDesktopShortcut" class="secondary" type="button">🖥️ Desktop shortcut</button>
+                    <button id="trainingExportBtn" class="secondary" type="button">Export Excel</button>
                 </div>
             </div>
 
@@ -363,7 +370,7 @@
                     <div><h3 id="trainingFormTitle">Create Training Team</h3><p>Choose the shift and process that the team is being trained for.</p></div>
                 </div>
                 <div class="training-form-grid">
-                    <div><label class="control-label">Team name</label><input id="trainingTeamName" maxlength="100" readonly aria-readonly="true"><small class="field-hint">Automatically generated: TTYYYYMMDD001 for Training / RTYYYYMMDD001 for Retraining.</small></div>
+                    <div><label class="control-label">Team name</label><input id="trainingTeamName" maxlength="30" placeholder="Enter team name" autocomplete="off"><small class="field-hint">Required · up to 30 characters.</small></div>
                     <div><label class="control-label">Date</label><input id="trainingDate" type="date"></div>
                     <div><label class="control-label">Shift</label><select id="trainingShift"><option value="day">DAY</option><option value="night">NIGHT</option></select></div>
                     <div><label class="control-label">Process</label><select id="trainingProcess"></select></div>
@@ -487,6 +494,7 @@
         <button type="button" class="subtab active" data-scheduling-tab="scheduleTab">Schedule</button>
         <button type="button" class="subtab" data-scheduling-tab="extraDaysTab">Extra Days</button>
         <button type="button" class="subtab" data-scheduling-tab="leaveTab">Leave & Absence</button>
+        <button type="button" class="subtab" data-scheduling-tab="restTab">Rest shift</button>
         <button type="button" class="subtab" data-scheduling-tab="historyTab">History</button>
         <button type="button" class="subtab" data-scheduling-tab="auditTab">Audit Log</button>
     </div>
@@ -507,7 +515,7 @@
             <div class="schedule-legend">
                 <span><i class="legend-day"></i> DAY</span>
                 <span><i class="legend-night"></i> NIGHT</span>
-                <span><i class="legend-off"></i> OFF</span><span><i class="legend-rest"></i> R</span>
+                <span><i class="legend-off"></i> OFF</span><span><i class="legend-rest"></i> Rest</span>
                 <span><i class="legend-extra-off"></i> Extra OFF</span>
                 <span><i class="legend-extra-day"></i> Extra DAY</span>
                 <span><i class="legend-extra-night"></i> Extra NIGHT</span>
@@ -539,7 +547,7 @@
                     <button id="saveIndividualSchedule" type="button" class="primary">Save individual changes</button>
                 </div>
             </div>
-            <div class="schedule-override-note"><strong>Priority:</strong> Start date → Leave (L4 / U) → Extra Day / Night / OFF → Individual schedule → Brigade schedule → default. <span>R = rest shift, not Vacation.</span></div>
+            <div class="schedule-override-note"><strong>Priority:</strong> Start date → Leave (L4 / U) → Extra Day / Night / OFF → Individual schedule → Brigade schedule → default. <span>Individual schedules are read-only. Add an extra day off in the <b>Rest shift</b> tab.</span></div>
             <div class="schedule-table-wrap">
                 <table class="schedule-table individual-schedule-table">
                     <thead><tr id="individualScheduleHeadRow"></tr></thead>
@@ -621,6 +629,9 @@
             <div><h3>Schedule & Leave History</h3><p>History of Extra Days plus Vacation and L4 records.</p></div>
         </div>
         <div class="quick-stats-grid extra-history-stats">
+            <div class="quick-stat"><span>Rest shift</span><strong id="historyStatRest">0</strong><small>records</small></div>
+            <div class="quick-stat"><span>L4</span><strong id="historyStatSick">0</strong><small>sick leave</small></div>
+            <div class="quick-stat"><span>Vacation</span><strong id="historyStatVacation">0</strong><small>records</small></div>
             <div class="quick-stat"><span>Extra work</span><strong id="historyStatWork">0</strong><small>DAY + NIGHT</small></div>
             <div class="quick-stat"><span>Extra OFF</span><strong id="historyStatOff">0</strong><small>day-off events</small></div>
             <div class="quick-stat"><span>DAY</span><strong id="historyStatDay">0</strong><small>extra work</small></div>
@@ -631,6 +642,7 @@
             <div class="history-filter-note">Search by operator/employee, select a date, or combine filters to see exactly who performed the Extra Day action.</div>
             <div><label class="control-label">From date</label><input id="scheduleHistoryDateFrom" type="date"></div>
             <div><label class="control-label">To date</label><input id="scheduleHistoryDateTo" type="date"></div>
+            <div><label class="control-label">Shift</label><select id="scheduleHistoryShift"><option value="">All shifts</option><option value="day">DAY</option><option value="night">NIGHT</option></select></div>
             <div><label class="control-label">Operator / employee login</label><input id="scheduleHistoryLogin" placeholder="Login"></div>
             <div class="filter-control"><label class="control-label">Type</label><div class="multi-filter" id="scheduleHistoryType"><button type="button" class="multi-filter-button" data-multi-toggle="scheduleHistoryType">All types ▾</button><div class="multi-filter-menu" data-multi-menu="scheduleHistoryType"></div></div></div>
             <button id="applyScheduleHistoryFilters" class="primary filter-search-btn" type="button">Search</button>
@@ -804,6 +816,12 @@
                 <h3>Feedback History</h3>
                 <p>Each entry records who confirmed the feedback and when.</p>
             </div>
+        </div>
+        <div class="history-filters feedback-history-filters">
+            <div><label class="control-label">Day</label><input type="date" id="feedbackHistoryDay"></div>
+            <div><label class="control-label">Employee</label><input id="feedbackHistoryEmployee" placeholder="Search login" autocomplete="off"></div>
+            <div><label class="control-label">Confirmed by</label><input id="feedbackHistoryConfirmedBy" placeholder="Search who confirmed" autocomplete="off"></div>
+            <div><label class="control-label">&nbsp;</label><button type="button" id="feedbackHistoryClear">Clear</button></div>
         </div>
         <div class="table-wrap">
             <table>
@@ -1103,6 +1121,7 @@
                     <thead><tr><th>Process</th><th>Days</th><th>Hours</th><th>Share</th><th>DAY</th><th>NIGHT</th></tr></thead>
                     <tbody id="employeeDetailsProcessBody"></tbody>
                 </table>
+                <div id="employeeDetailsLeaveBox" class="employee-details-leave"></div>
             </div>
         </section>
         <div class="modal-actions">
@@ -1438,7 +1457,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=39.1"></script>
+<script src="script.js?v=39.3"></script>
 
 </body>
 </html>
