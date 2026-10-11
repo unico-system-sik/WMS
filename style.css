@@ -2976,3 +2976,25 @@ tbody button.mini-btn:disabled{opacity:.4;cursor:not-allowed}
 .install-button{width:100%;margin:0 0 6px;padding:7px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:inherit;font-weight:700;cursor:pointer;transition:background .2s}
 .install-button:hover{background:rgba(255,255,255,.28)}
 .install-button.hidden{display:none}
+
+/* V39.4 — modal always above the page (the sticky Search wrap had z-index 25 > modal 10), Clear button */
+.modal{z-index:1000!important}
+.overview-filter-search-wrap{z-index:5!important;display:flex;gap:8px;align-items:center}
+.toast{z-index:2000!important}
+.filter-clear-btn{white-space:nowrap;min-width:82px}
+
+/* =========================================================
+   V39.6 — hidden fix, unified badges, colour sync, charts
+========================================================= */
+[hidden]{display:none!important}
+.leave-badge{display:inline-flex;padding:4px 10px;border-radius:999px;font-weight:800;font-size:11px;white-space:nowrap}
+.leave-badge.extra-off,.legend-extra-off,.schedule-state.extra-off,.individual-schedule-cell.extra-off .schedule-state,.attendance-day-badge.extra-off{background:#f8c8dc!important;color:#9d174d!important;border-color:#f1a6c6!important}
+.leave-badge.extra-day,.legend-extra-day,.schedule-state.extra-day,.individual-schedule-cell.extra-day .schedule-state,.attendance-day-badge.extra-day{background:#c88b17!important;color:#fff!important;border-color:#a8730f!important}
+.leave-badge.extra-night,.legend-extra-night,.schedule-state.extra-night,.individual-schedule-cell.extra-night .schedule-state,.attendance-day-badge.extra-night{background:#315b9f!important;color:#fff!important;border-color:#264a82!important}
+.leave-badge.sick,.legend-sick,.schedule-state.sick,.individual-schedule-cell.sick .schedule-state,.attendance-day-badge.sick{background:#e5736d!important;color:#fff!important;border-color:#c85a54!important}
+.legend-vacation{background:#d6f3df!important}.legend-rest{background:#f0e9ff!important}
+.abs-count{color:#8a93ab;font-weight:600}
+.analytics-subtabs{margin:0 0 12px}
+.chart-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--c-line,#e6eaf2);border-radius:12px;padding:6px;background:#fff}
+.chart-block{margin:0 0 26px}.chart-block h4{display:flex;gap:8px;align-items:center}
+.chart-legend{font-size:12px;color:#6b7592;margin:10px 0 6px}.chart-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 4px 0 10px;vertical-align:middle}

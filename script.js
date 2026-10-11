@@ -2433,7 +2433,7 @@ function fillOverviewFilters() {
     fillMultiFilter('overviewProcessFilter', PROCESSES, 'processes');
     fillMultiFilter('overviewSecondaryProcessFilter', EMPLOYEE_PROCESS_SKILLS, 'secondary processes');
     fillMultiFilter('overviewAttendanceFilter', ['confirmed', 'pending'], 'attendance', {confirmed:'Confirmed', pending:'Not confirmed'});
-    fillMultiFilter('overviewExceptionFilter', ['private-leave','forced-leave','feeling-unwell','terminated','other','absent','late','left-early'], 'exceptions', {'private-leave':'Private leave','forced-leave':'Forced leave','feeling-unwell':'Feeling unwell',terminated:'Terminated',other:'Other',absent:'Absent',late:'Late arrival', 'left-early':'Left early'});
+    fillMultiFilter('overviewExceptionFilter', ['private-leave','forced-leave','feeling-unwell','late-arrival','terminated','other','absent','late','left-early'], 'exceptions', {'private-leave':'Private leave','forced-leave':'Forced leave','feeling-unwell':'Feeling unwell','late-arrival':'Late arrival','terminated':'Terminated',other:'Other',absent:'Absent',late:'Late (by time)','left-early':'Left early (by time)'});
     updateAllMultiFilterLabels();
 }
 async function loadSystemUsers() {
@@ -2749,7 +2749,7 @@ function renderShiftEmployees(people) {
         if (exceptionFilters.length) {
             const e = getHoursException(employee, overviewDate);
             const deviation = getShiftTimeDeviation(employee, overviewDate, data);
-            const matches = {"private-leave":e.privateLeave,"forced-leave":e.forcedLeave,"feeling-unwell":e.feelingUnwell,"terminated":e.terminated,"other":e.other,"absent":e.absent,"late":deviation.late > 0,"left-early":deviation.leftEarly > 0};
+            const matches = {"private-leave":e.privateLeave,"forced-leave":e.forcedLeave,"feeling-unwell":e.feelingUnwell,"late-arrival":data.confirmed && data.reason === "Late arrival","terminated":e.terminated,"other":e.other,"absent":e.absent,"late":deviation.late > 0,"left-early":deviation.leftEarly > 0};
             if (!exceptionFilters.some(key => matches[key])) return false;
         }
         return true;
@@ -3995,7 +3995,7 @@ function getBrigadeMonthValue(brigade, date) {
 
 function setSchedulingTab(tabId, renderContent = true) {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    const validTabs = ["scheduleTab", "extraDaysTab", "leaveTab", "restTab", "historyTab", "auditTab"];
+    const validTabs = ["scheduleTab", "extraDaysTab", "leaveTab", "restTab", "historyTab"];
     leaveViewRest = tabId === "restTab"; applyLeaveViewMode();
     activeSchedulingTab = validTabs.includes(tabId) ? tabId : "scheduleTab";
 
@@ -4653,8 +4653,8 @@ async function removeExtraDay(key) {
 async function renderScheduleHistory() {
     const table = $("scheduleHistoryTable");
     if (!table || !currentUser) return;
-    const dateFrom = $("scheduleHistoryDateFrom")?.value || "";
-    const dateTo = $("scheduleHistoryDateTo")?.value || "";
+    let dateFrom = $("scheduleHistoryDateFrom")?.value || "";
+    let dateTo = $("scheduleHistoryDateTo")?.value || "";
     const loginSearch = $("scheduleHistoryLogin")?.value.trim().toLowerCase() || "";
     const typeFilters = selectedMultiValues("scheduleHistoryType");
     const shiftFilter = $("scheduleHistoryShift")?.value || "";
@@ -4662,6 +4662,16 @@ async function renderScheduleHistory() {
         table.innerHTML = `<tr><td colspan="7"><div class="empty">From date cannot be later than To date.</div></td></tr>`;
         return;
     }
+    if (!(dateFrom || dateTo || loginSearch || typeFilters.length || shiftFilter)) {
+        table.innerHTML = `<tr><td colspan="7"><div class="empty">Choose filters and press Search to see history (maximum 7 days at a time).</div></td></tr>`;
+        return;
+    }
+    const shiftDay = (k, n) => { const d = fromKey(k); d.setDate(d.getDate() + n); return dateKey(d); };
+    if (dateFrom && dateTo) {
+        if (dateTo > shiftDay(dateFrom, 6)) { table.innerHTML = `<tr><td colspan="7"><div class="empty">The date range can be at most 7 days. Choose a shorter period.</div></td></tr>`; return; }
+    } else if (dateFrom) dateTo = shiftDay(dateFrom, 6);
+    else if (dateTo) dateFrom = shiftDay(dateTo, -6);
+    else { dateTo = dateKey(new Date()); dateFrom = shiftDay(dateTo, -6); }
     let allRows = [];
     const pageSize = 1000;
     for (let from = 0; ; from += pageSize) {
@@ -4680,18 +4690,19 @@ async function renderScheduleHistory() {
         allRows.push(...page);
         if (page.length < pageSize) break;
     }
-    const leaveRows = (employeeLeaveRecords || []).map(r => ({
-        id:`leave-${r.id || `${r.employeeLogin}-${r.startDate}`}`,
-        action: `${leaveTypeLabel(r.leaveType)} recorded`,
-        work_date: r.startDate,
-        end_date: r.endDate,
-        employee_login: r.employeeLogin,
-        type: r.leaveType,
-        shift: (() => { try { const e = employeeByLogin(r.employeeLogin); const v = e ? V33_underlyingShift(e, fromKey(r.startDate)) : null; return v === "day" || v === "night" ? v : null; } catch { return null; } })(),
-        leader_login: r.recordedBy || "",
-        changed_by_login: r.recordedBy || "",
-        created_at: r.createdAt || `${r.startDate}T00:00:00`
-    })).filter(r => (!dateFrom || r.work_date >= dateFrom) && (!dateTo || r.work_date <= dateTo));
+    let leaveLog = [];
+    try {
+        const { data: lh, error: lhErr } = await supabaseClient.from("employee_leave_history")
+            .select("id, record_id, action, employee_login, leave_type, start_date, end_date, note, actor_login, created_at")
+            .gte("start_date", dateFrom).lte("start_date", dateTo).order("created_at", { ascending: false }).limit(1000);
+        if (!lhErr && Array.isArray(lh)) leaveLog = lh;
+    } catch (e) { console.warn("Leave history unavailable", e); }
+    const shiftOfLeave = (login, start) => { try { const e = employeeByLogin(login); const v = e ? V33_underlyingShift(e, fromKey(start)) : null; return v === "day" || v === "night" ? v : null; } catch { return null; } };
+    const seenLeave = new Set(leaveLog.filter(x => x.action === "created").map(x => String(x.record_id)));
+    const leaveRows = [
+        ...leaveLog.map(x => ({ id: `lh-${x.id}`, action: `${leaveTypeLabel(x.leave_type)} ${x.action === "removed" ? "removed" : "recorded"}`, removed: x.action === "removed", work_date: x.start_date, end_date: x.end_date, employee_login: x.employee_login, type: x.leave_type, shift: shiftOfLeave(x.employee_login, x.start_date), leader_login: x.actor_login || "", changed_by_login: x.actor_login || "", created_at: x.created_at })),
+        ...(employeeLeaveRecords || []).filter(r => !seenLeave.has(String(r.id))).map(r => ({ id: `leave-${r.id}`, action: `${leaveTypeLabel(r.leaveType)} recorded`, work_date: r.startDate, end_date: r.endDate, employee_login: r.employeeLogin, type: r.leaveType, shift: shiftOfLeave(r.employeeLogin, r.startDate), leader_login: r.recordedBy || "", changed_by_login: r.recordedBy || "", created_at: r.createdAt || `${r.startDate}T00:00:00` }))
+    ].filter(r => r.work_date >= dateFrom && r.work_date <= dateTo);
     const rows = [...allRows, ...leaveRows].filter(item => {
         if (loginSearch) {
             const q = `${item.employee_login || ""} ${item.leader_login || ""} ${item.changed_by_login || ""}`.toLowerCase();
@@ -4699,14 +4710,14 @@ async function renderScheduleHistory() {
         }
         if (shiftFilter && item.shift !== shiftFilter) return false;
         if (typeFilters.length) {
-            const matches = typeFilters.some(type => type === "removed" ? item.action === "Extra day removed" : item.type === type);
+            const matches = typeFilters.some(type => type === "removed" ? (item.action === "Extra day removed" || item.removed) : item.type === type);
             if (!matches) return false;
         }
         return true;
     }).sort((a,b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
     const stats = { work:0, day:0, night:0, off:0, vacation:0, sick:0, removed:0 };
     rows.forEach(item => {
-        if (item.action === "Extra day removed") { stats.removed++; return; }
+        if (item.action === "Extra day removed" || item.removed) { stats.removed++; return; }
         if (item.type === "extra-off") stats.off++;
         else if (item.type === "extra-work-day") { stats.day++; stats.work++; }
         else if (item.type === "extra-work-night") { stats.night++; stats.work++; }
@@ -4722,7 +4733,7 @@ async function renderScheduleHistory() {
     if ($("historyStatTotal")) $("historyStatTotal").textContent=String(rows.length);
     table.innerHTML = rows.map(item => {
         const isLeave = item.type === "vacation" || item.type === "sick-leave" || item.type === "rest";
-        const action = item.action === "Extra day removed" ? "Removed" : isLeave ? leaveTypeLabel(item.type) : (item.type === "extra-off" ? "Extra day off" : `Extra work — ${String(item.shift || "day").toUpperCase()}`);
+        const action = item.action === "Extra day removed" ? "Removed" : item.removed ? `${leaveTypeLabel(item.type)} (removed)` : isLeave ? leaveTypeLabel(item.type) : (item.type === "extra-off" ? "Extra day off" : `Extra work — ${String(item.shift || "day").toUpperCase()}`);
         const workDate = item.end_date && item.end_date !== item.work_date ? `${item.work_date} → ${item.end_date}` : item.work_date;
         return `<tr><td>${new Date(item.created_at).toLocaleString("en-GB")}</td><td><strong>${esc(item.action)}</strong></td><td>${esc(item.employee_login)}</td><td>${esc(workDate)}</td><td>${esc(item.leader_login || "—")}</td><td>${esc(action)}</td><td>${formatActionActor(item.changed_by_login, item.created_at)}</td></tr>`;
     }).join("") || `<tr><td colspan="7"><div class="empty">No schedule or leave history matches the selected filters.</div></td></tr>`;
@@ -5789,6 +5800,14 @@ function initEvents() {
         if (event.key === "Enter") { event.preventDefault(); renderOverview(); }
     });
     $("applyOverviewFilters")?.addEventListener("click", renderOverview);
+    $("clearOverviewFilters")?.addEventListener("click", () => {
+        const box = $("overviewSearch")?.closest(".filters"); if (!box) return;
+        box.querySelectorAll("input:not([type=date]):not([type=checkbox])").forEach(el => { el.value = ""; });
+        box.querySelectorAll("select").forEach(el => { el.selectedIndex = 0; });
+        box.querySelectorAll(".multi-filter").forEach(el => setMultiFilterValues(el.id, []));
+        renderOverview();
+        toast("Filters cleared.");
+    });
 
     document
         .querySelectorAll("[data-employees-tab]")
@@ -6435,11 +6454,12 @@ function renderLeaveTab(){
 async function saveLeaveRecord(){
     const login=$("leaveEmployeeLogin").value.trim(), type=$("leaveType").value, start=$("leaveStartDate").value, end=$("leaveEndDate").value, note=$("leaveNote").value.trim();
     const employee=employeeByLogin(login);
-    if(!employee||!login){toast("Employee login not found.");return;} if(!start||!end||end<start){toast("Select a valid leave period.");return;} if(start<employee.startDate){toast(`Leave cannot start before ${employee.startDate}.`);return;} if(employee.endDate&&end>employee.endDate){toast(`Leave cannot continue after employee end date ${employee.endDate}.`);return;}
+    if(!employee||!login){toast("Employee login not found.");return;}
+    { const hit=confirmedHoursInRange(login,start,end); if(hit){toast(`Error: hours for ${login} on ${hit} are already confirmed — ${leaveTypeLabel(type)} cannot be added.`);return;} } if(!start||!end||end<start){toast("Select a valid leave period.");return;} if(start<employee.startDate){toast(`Leave cannot start before ${employee.startDate}.`);return;} if(employee.endDate&&end>employee.endDate){toast(`Leave cannot continue after employee end date ${employee.endDate}.`);return;}
     for(const r of employeeLeaveRecords){if(r.employeeLogin===login && !(end<r.startDate||start>r.endDate)){toast("This leave period overlaps an existing leave record.");return;}}
     for(const d of [start,end]){const date=fromKey(d), key=scheduleKey(date,login); if(extraDays[key]){toast("Leave cannot overlap an Extra Day. Remove the Extra Day first.");return;}}
     const {data,error}=await supabaseClient.rpc("save_employee_leave",{p_employee_login:login,p_leave_type:type,p_start_date:start,p_end_date:end,p_note:note||null});
-    if(error){console.error("Leave save error:",error);toast(`Could not save leave: ${error.message}`);return;}
+    if(error){console.error("Leave save error:",error);toast(/leave_type|Invalid leave type|check constraint/i.test(error.message)?`Could not save: the database is not updated yet. Run the latest WMS SQL (V39.6) in Supabase. (${error.message})`:`Could not save: ${error.message}`);return;}
     if(data){employeeLeaveRecords.push({id:data.id,employeeLogin:data.employee_login,leaveType:data.leave_type,startDate:data.start_date,endDate:data.end_date,note:data.note||"",recordedBy:data.recorded_by_login||currentUser?.login||"",createdAt:data.created_at||new Date().toISOString()});}
     $("leaveEmployeeLogin").value="";$("leaveNote").value="";renderLeaveTab();renderScheduling();renderOverview();if($("analyticsPage")?.classList.contains("active-page"))renderAnalytics();toast("Leave saved and shown in the schedule.");
 }
@@ -6448,6 +6468,7 @@ async function removeLeaveRecord(id){if(!canManageEmployees()){toast("Only Coord
 const V33_originalSaveExtraDay = saveExtraDay;
 saveExtraDay = async function(){
     const login=$("extraEmployeeLogin")?.value.trim(), date=$("extraDate")?.value;
+    if(login && date){ const hit=confirmedHoursInRange(login,date,date); if(hit){toast(`Error: hours for ${login} on ${hit} are already confirmed — Extra Day cannot be added.`);return;} }
     if(login && date && leaveRecordForDate(employeeByLogin(login), fromKey(date))){toast("This date is already covered by leave. Remove the leave record first.");return;}
     return V33_originalSaveExtraDay();
 };
@@ -6609,8 +6630,9 @@ function initHoursMatrixHorizontalScroll() {
 }
 
 /* Attendance Monitoring: all employees + filters + export */
+function canExportAttendance() { const r = currentUserRole(); return r === "leader" || r === "coordinator" || r === "admin"; }
 function hoursExportAllowed() {
-    return canExportData();
+    return canExportAttendance();
 }
 function updateHoursExportVisibility() {
     const toolbar = $("hoursExportToolbar");
@@ -6687,13 +6709,21 @@ function renderAttendanceMonthlyStats() {
         }).join('');
     }
 
+    (employeeLeaveRecords || []).forEach(r => {
+        const cls = r.leaveType === "sick-leave" ? "sick" : r.leaveType === "rest" ? "rest" : "vac";
+        for (let d = fromKey(r.startDate), n = 0; dateKey(d) <= r.endDate && n < 400; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 12), n++) {
+            const k = dateKey(d); if (!inMonth(k)) continue;
+            if (!extraByDate.has(k)) extraByDate.set(k, { day: 0, night: 0, off: 0 });
+            const b = extraByDate.get(k); b[cls] = (b[cls] || 0) + 1;
+        }
+    });
     const extraBody = $("attendanceStatsExtraByDate");
     if (extraBody) {
         const rows = [...extraByDate.entries()].sort((a,b) => a[0].localeCompare(b[0]));
         extraBody.innerHTML = rows.map(([key, bucket]) => {
             const date = new Date(`${key}T12:00:00`);
-            return `<tr><td>${date.toLocaleDateString('en-GB')}</td><td>${bucket.day}</td><td>${bucket.night}</td><td>${bucket.off}</td></tr>`;
-        }).join('') || `<tr><td colspan="4"><div class="empty">No Extra Days records for this month.</div></td></tr>`;
+            return `<tr><td>${date.toLocaleDateString('en-GB')}</td><td>${bucket.day}</td><td>${bucket.night}</td><td>${bucket.off}</td><td>${bucket.sick || 0}</td><td>${bucket.vac || 0}</td><td>${bucket.rest || 0}</td></tr>`;
+        }).join('') || `<tr><td colspan="7"><div class="empty">No Extra Days, leave or Rest shift records for this month.</div></td></tr>`;
     }
 }
 
@@ -9172,12 +9202,149 @@ document.addEventListener("input", e => { if (e.target.matches?.("#feedbackHisto
 document.addEventListener("click", e => { if (e.target.id === "feedbackHistoryClear") { ["feedbackHistoryDay", "feedbackHistoryEmployee", "feedbackHistoryConfirmedBy"].forEach(id => { if ($(id)) $(id).value = ""; }); renderFeedbackCurrentSubtab(); } });
 
 
-/* V39.3 — global "Desktop shortcut": installs the site as an app (PWA) or downloads a .url shortcut */
-let deferredInstallPrompt = null;
-window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); deferredInstallPrompt = e; });
-window.addEventListener("appinstalled", () => { deferredInstallPrompt = null; toast("WMS installed."); $("installAppButton")?.classList.add("hidden"); });
-if (window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone) $("installAppButton")?.classList.add("hidden");
-$("installAppButton")?.addEventListener("click", async () => {
-    if (deferredInstallPrompt) { deferredInstallPrompt.prompt(); try { await deferredInstallPrompt.userChoice; } catch {} deferredInstallPrompt = null; return; }
-    downloadTrainingDesktopShortcut();
-});
+
+
+/* =====================================================================
+   V39.6 — unified action tabs (24 h), confirmed-hours guard, sort,
+   analytics charts, feedback export
+===================================================================== */
+const WMS_24H = 24 * 3600 * 1000;
+function within24h(ts) { const t = ts ? new Date(ts).getTime() : NaN; return Number.isFinite(t) && Date.now() - t <= WMS_24H && t <= Date.now() + 120000; }
+function confirmedHoursInRange(login, start, end) {
+    const e = employeeByLogin(login); if (!e || !start || !end) return null;
+    let d = fromKey(start); const last = fromKey(end);
+    for (let n = 0; d <= last && n < 400; n++, d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 12)) {
+        try { if (getAttendance(e, d)?.confirmed) return dateKey(d); } catch {}
+    }
+    return null;
+}
+function wmsActionRow(o) {
+    const e = employeeByLogin(o.login);
+    return `<tr><td><strong>${esc(o.login)}</strong><br><small>${esc(e?.process || "")} · ${esc(e?.brigade || "")}</small></td><td><span class="leave-badge ${o.cls}">${esc(o.label)}</span></td><td>${esc(o.from)}</td><td>${esc(o.to)}</td><td>${o.days}</td><td>${esc(o.shift || "—")}</td><td><strong>${esc(o.by || "—")}</strong></td><td>${esc(o.createdAt ? new Date(o.createdAt).toLocaleString("en-GB") : "—")}</td><td>${esc(o.note || "—")}</td><td>${o.action}</td></tr>`;
+}
+function renderExtraDays() {
+    const dateFilter = $("extraDaysDateFilter")?.value || "", loginFilter = ($("extraDaysLoginFilter")?.value || "").trim().toLowerCase(), typeFilters = selectedMultiValues("extraDaysTypeFilter");
+    const entries = Object.entries(extraDays).map(([key, item]) => { const s = key.lastIndexOf("_"); return { key, date: key.slice(0, s), login: key.slice(s + 1), item }; })
+        .filter(e => within24h(e.item.createdAt) && (!dateFilter || e.date === dateFilter) && (!loginFilter || e.login.toLowerCase().includes(loginFilter)) && (!typeFilters.length || typeFilters.includes(e.item.type)))
+        .sort((a, b) => String(b.item.createdAt).localeCompare(String(a.item.createdAt)));
+    let off = 0, day = 0, night = 0;
+    entries.forEach(e => { if (e.item.type === "extra-off") off++; else if (e.item.type === "extra-work-night") night++; else if (e.item.type === "extra-work-day") day++; });
+    [["extraStatOff", off], ["extraStatDay", day], ["extraStatNight", night], ["extraStatTotal", entries.length]].forEach(([id, v]) => { if ($(id)) $(id).textContent = String(v); });
+    $("extraDaysTable").innerHTML = entries.map(({ key, date, login, item }) => {
+        if (!employeeByLogin(login)) return "";
+        const t = item.type, cls = t === "extra-off" ? "extra-off" : t === "extra-work-night" ? "extra-night" : "extra-day";
+        const label = t === "extra-off" ? "Extra OFF" : t === "extra-work-night" ? "Extra NIGHT" : "Extra DAY";
+        const action = canDeleteExtraDays() ? `<button class="icon-btn" type="button" data-remove-extra="${esc(key)}" title="Remove Extra Day">×</button>` : "—";
+        return wmsActionRow({ login, cls, label, from: date, to: date, days: 1, shift: t === "extra-off" ? "—" : String(item.shift || "day").toUpperCase(), by: item.leaderLogin, createdAt: item.createdAt, note: "", action });
+    }).join("") || `<tr><td colspan="10"><div class="empty">No Extra Days added in the last 24 hours. Older actions are in History.</div></td></tr>`;
+    $("extraDaysTable").querySelectorAll("[data-remove-extra]").forEach(b => b.addEventListener("click", () => removeExtraDay(b.dataset.removeExtra)));
+}
+function renderLeaveTab() {
+    const loginFilter = ($("leaveFilterLogin")?.value || "").trim().toLowerCase(), typeFilter = $("leaveFilterType")?.value || "";
+    const rows = (employeeLeaveRecords || []).filter(r => within24h(r.createdAt) && (!loginFilter || String(r.employeeLogin).toLowerCase().includes(loginFilter)) && (!typeFilter || r.leaveType === typeFilter) && ((r.leaveType === "rest") === leaveViewRest))
+        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    let vac = 0, sick = 0, days = 0; const emps = new Set();
+    rows.forEach(r => { emps.add(r.employeeLogin); days += leaveDays(r); if (r.leaveType === "vacation") vac++; else sick++; });
+    [["leaveStatVacation", vac], ["leaveStatSick", sick], ["leaveStatEmployees", emps.size], ["leaveStatDays", days]].forEach(([id, v]) => { if ($(id)) $(id).textContent = String(v); });
+    $("leaveTable").innerHTML = rows.map(r => wmsActionRow({ login: r.employeeLogin, cls: leaveTypeClass(r.leaveType), label: leaveTypeLabel(r.leaveType), from: r.startDate, to: r.endDate, days: leaveDays(r), shift: shiftOfLeaveRow(r), by: r.recordedBy, createdAt: r.createdAt, note: r.note, action: canManageEmployees() ? `<button class="icon-btn" type="button" data-remove-leave="${esc(r.id)}">×</button>` : "—" })).join("")
+        || `<tr><td colspan="10"><div class="empty">No ${leaveViewRest ? "Rest shift" : "leave"} records added in the last 24 hours. Older records are in History.</div></td></tr>`;
+    $("leaveTable").querySelectorAll("[data-remove-leave]").forEach(b => b.addEventListener("click", () => removeLeaveRecord(b.dataset.removeLeave)));
+}
+function shiftOfLeaveRow(r) { try { const e = employeeByLogin(r.employeeLogin); const v = e ? V33_underlyingShift(e, fromKey(r.startDate)) : null; return v === "day" ? "DAY" : v === "night" ? "NIGHT" : "—"; } catch { return "—"; } }
+setInterval(() => { if (typeof activeSchedulingTab === "string" && currentUser) { if (activeSchedulingTab === "extraDaysTab") renderExtraDays(); else if (activeSchedulingTab === "leaveTab" || activeSchedulingTab === "restTab") renderLeaveTab(); } }, 60000);
+
+// History date inputs: max 7 days between From and To
+(function () {
+    const f = $("scheduleHistoryDateFrom"), t = $("scheduleHistoryDateTo"); if (!f || !t) return;
+    const add = (k, n) => { const d = fromKey(k); d.setDate(d.getDate() + n); return dateKey(d); };
+    const sync = () => { t.min = f.value || ""; t.max = f.value ? add(f.value, 6) : ""; f.max = t.value || ""; f.min = t.value ? add(t.value, -6) : ""; };
+    f.addEventListener("change", sync); t.addEventListener("change", sync);
+})();
+
+// Attendance monitoring: sort by absences and more
+function hoursAbsenceCounts(employee) {
+    const c = { a: 0, e: 0, p: 0 };
+    getHoursAttendanceDayHeaders(hoursAttendanceMonth).forEach(({ date }) => { const k = v383GetAttendanceDayCell(employee, date).code; if (k === "A") c.a++; else if (k === "E") c.e++; else if (k === "P") c.p++; });
+    return c;
+}
+const wmsOrigSortHours = sortHoursAttendanceEmployees;
+sortHoursAttendanceEmployees = function (list) {
+    const m = $("hoursAllSort")?.value || ""; if (!m) return wmsOrigSortHours(list);
+    const k = m.startsWith("absent") ? "a" : m.startsWith("early") ? "e" : "p", dir = m.endsWith("asc") ? 1 : -1, cache = new Map(list.map(e => [e.login, hoursAbsenceCounts(e)[k]]));
+    return [...list].sort((x, y) => (cache.get(x.login) - cache.get(y.login)) * dir || String(x.login).localeCompare(String(y.login)));
+};
+const wmsOrigRenderAllHours = renderAllHoursAttendance;
+renderAllHoursAttendance = function () {
+    wmsOrigRenderAllHours();
+    if (!($("hoursAllSort")?.value)) return;
+    document.querySelectorAll("#hoursAllTableBody tr[data-hours-employee]").forEach(tr => { const e = employeeByLogin(tr.dataset.hoursEmployee), cell = tr.querySelector("td"); if (!e || !cell || cell.querySelector(".abs-count")) return; const c = hoursAbsenceCounts(e); cell.insertAdjacentHTML("beforeend", `<small class="abs-count"> · ${c.a} absent · ${c.e} left early · ${c.p} pending</small>`); });
+};
+$("hoursAllSort")?.addEventListener("change", () => { hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE; renderAllHoursAttendance(); });
+
+// Analytics: charts tab (inline SVG, no external libraries)
+function setAnalyticsTab(tab) {
+    const charts = tab === "charts";
+    document.querySelectorAll("[data-analytics-tab]").forEach(b => b.classList.toggle("active", b.dataset.analyticsTab === tab));
+    if ($("analyticsChartsPanel")) $("analyticsChartsPanel").hidden = !charts;
+    document.querySelectorAll("#analyticsPage .analytics-daily-panel, #analyticsPage .analytics-period-panel").forEach(p => { p.hidden = charts; });
+    if (charts) renderAnalyticsCharts();
+}
+document.querySelectorAll("[data-analytics-tab]").forEach(b => b.addEventListener("click", () => setAnalyticsTab(b.dataset.analyticsTab)));
+function svgBars(items, colorB) {
+    const W = Math.max(760, items.length * 28), H = 240, L = 36, B = 26, T = 14, max = Math.max(1, ...items.map(i => Math.max(i.planned, i.present)));
+    const slot = (W - L - 8) / items.length, bw = Math.min(11, slot / 2.6), y = v => T + (H - T - B) * (1 - v / max);
+    const grid = [0, .25, .5, .75, 1].map(f => { const v = Math.round(max * f), yy = y(v); return `<line x1="${L}" x2="${W - 4}" y1="${yy}" y2="${yy}" stroke="#e6eaf2"/><text x="${L - 6}" y="${yy + 4}" font-size="10" text-anchor="end" fill="#6b7592">${v}</text>`; }).join("");
+    const bars = items.map((it, i) => { const x = L + i * slot + slot / 2; return `<g><title>${it.date}: planned ${it.planned}, present ${it.present}, absent ${it.absent}</title><rect x="${x - bw - 1}" y="${y(it.planned)}" width="${bw}" height="${H - B - y(it.planned)}" rx="2" fill="#cbd5e1"/><rect x="${x + 1}" y="${y(it.present)}" width="${bw}" height="${H - B - y(it.present)}" rx="2" fill="${colorB}"/><text x="${x}" y="${H - 8}" font-size="10" text-anchor="middle" fill="#6b7592">${it.d}</text></g>`; }).join("");
+    return `<div class="chart-scroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Planned vs present">${grid}${bars}</svg></div>`;
+}
+function svgRate(items, color) {
+    const W = Math.max(760, items.length * 28), H = 200, L = 36, B = 26, T = 14, slot = (W - L - 8) / items.length, y = v => T + (H - T - B) * (1 - v / 100);
+    const grid = [0, 50, 100].map(v => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" stroke="#e6eaf2"/><text x="${L - 6}" y="${y(v) + 4}" font-size="10" text-anchor="end" fill="#6b7592">${v}%</text>`).join("");
+    const pts = items.map((it, i) => it.rate == null ? null : [L + i * slot + slot / 2, y(it.rate), it]).filter(Boolean);
+    const path = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+    const dots = pts.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="3.5" fill="${color}"><title>${p[2].date}: ${p[2].rate.toFixed(1)}%</title></circle>`).join("");
+    const labels = items.map((it, i) => `<text x="${L + i * slot + slot / 2}" y="${H - 8}" font-size="10" text-anchor="middle" fill="#6b7592">${it.d}</text>`).join("");
+    return `<div class="chart-scroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Attendance rate">${grid}<path d="${path}" fill="none" stroke="${color}" stroke-width="2.5"/>${dots}${labels}</svg></div>`;
+}
+function renderAnalyticsCharts() {
+    const host = $("analyticsCharts"); if (!host) return;
+    const employees = analyticsSelectedEmployees(), n = analyticsDays(), data = { day: [], night: [] };
+    for (let d = 1; d <= n; d++) {
+        const date = new Date(analyticsMonth.getFullYear(), analyticsMonth.getMonth(), d, 12);
+        ["day", "night"].forEach(sh => { const r = analyticsRowFor(date, sh, employees), done = r.present + r.absent; data[sh].push({ d, date: dateKey(date), planned: r.planned, present: r.present, absent: r.absent, rate: done > 0 ? r.present / done * 100 : null }); });
+    }
+    host.innerHTML = ["day", "night"].map(sh => {
+        const items = data[sh], color = sh === "day" ? "#e0a21a" : "#315b9f", P = items.reduce((s, i) => s + i.planned, 0), A = items.reduce((s, i) => s + i.present, 0), X = items.reduce((s, i) => s + i.absent, 0), rate = A + X ? (A / (A + X) * 100).toFixed(1) : "—";
+        return `<section class="chart-block"><h4><span class="shift-pill ${sh}">${sh === "day" ? "DAY" : "NIGHT"}</span> shift</h4>
+            <div class="cards four"><div class="card"><span>Planned</span><strong>${P}</strong></div><div class="card"><span>Present</span><strong>${A}</strong></div><div class="card"><span>Absent</span><strong>${X}</strong></div><div class="card"><span>Attendance rate</span><strong>${rate}${rate === "—" ? "" : "%"}</strong></div></div>
+            <p class="chart-legend"><i style="background:#cbd5e1"></i> Planned <i style="background:${color}"></i> Present</p>${svgBars(items, color)}<p class="chart-legend">Attendance rate by day</p>${svgRate(items, color)}</section>`;
+    }).join("");
+}
+{ const prev = renderAnalytics; renderAnalytics = function () { prev(); if (!$("analyticsChartsPanel")?.hidden) renderAnalyticsCharts(); }; }
+
+// Feedback tracker: Excel export (Entries / By day / By employee / By error type)
+function exportFeedbackExcel() {
+    if (!canExportAttendance()) { toast("Only Leader, Coordinator or Admin can export."); return; }
+    if (!window.XLSX) { toast("Excel library not loaded."); return; }
+    const list = feedbackEntriesFilteredForView().slice().sort((a, b) => String(a.work_date).localeCompare(String(b.work_date)) || String(a.employee_login).localeCompare(String(b.employee_login)));
+    if (!list.length) { toast("No feedback entries to export."); return; }
+    const types = [...new Set(list.map(e => e.error_type || "Other"))].sort();
+    const entries = [["Date", "Weekday", "Shift", "Login", "Brigade", "Process", "Error type", "Note", "Confirmed by", "Confirmed at"], ...list.map(e => { const emp = employeeByLogin(e.employee_login), d = fromKey(e.work_date); return [e.work_date, d.toLocaleDateString("en-US", { weekday: "long" }), e.shift === "night" ? "Night" : e.shift === "day" ? "Day" : "", e.employee_login, emp?.brigade || "", emp?.process || "", e.error_type || "", e.note || "", e.confirmed_by_login || "", e.confirmed_at ? new Date(e.confirmed_at).toLocaleString("en-GB") : ""]; })];
+    const byDay = new Map(), byEmp = new Map(), byType = new Map();
+    list.forEach(e => {
+        const t = e.error_type || "Other", dd = byDay.get(e.work_date) || { total: 0, day: 0, night: 0, t: {} }; dd.total++; if (e.shift === "night") dd.night++; else dd.day++; dd.t[t] = (dd.t[t] || 0) + 1; byDay.set(e.work_date, dd);
+        const ee = byEmp.get(e.employee_login) || { total: 0, t: {} }; ee.total++; ee.t[t] = (ee.t[t] || 0) + 1; byEmp.set(e.employee_login, ee);
+        byType.set(t, (byType.get(t) || 0) + 1);
+    });
+    const dayRows = [["Date", "Total", "Day", "Night", ...types], ...[...byDay].sort((a, b) => a[0].localeCompare(b[0])).map(([d, v]) => [d, v.total, v.day, v.night, ...types.map(t => v.t[t] || 0)])];
+    const empRows = [["Login", "Brigade", "Process", "Total", ...types], ...[...byEmp].sort((a, b) => b[1].total - a[1].total || a[0].localeCompare(b[0])).map(([l, v]) => { const emp = employeeByLogin(l); return [l, emp?.brigade || "", emp?.process || "", v.total, ...types.map(t => v.t[t] || 0)]; })];
+    const typeRows = [["Error type", "Count", "Share %"], ...[...byType].sort((a, b) => b[1] - a[1]).map(([t, c]) => [t, c, Number((c / list.length * 100).toFixed(1))])];
+    const wb = XLSX.utils.book_new();
+    [["Entries", entries], ["By day", dayRows], ["By employee", empRows], ["By error type", typeRows]].forEach(([name, rows]) => {
+        const ws = XLSX.utils.aoa_to_sheet(rows); ws["!cols"] = rows[0].map((_, i) => ({ wch: Math.min(40, Math.max(10, ...rows.map(r => String(r[i] ?? "").length)) + 2) }));
+        ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length - 1, c: rows[0].length - 1 } }) }; XLSX.utils.book_append_sheet(wb, ws, name);
+    });
+    XLSX.writeFile(wb, `WMS_Feedback_${feedbackMonth.getFullYear()}-${String(feedbackMonth.getMonth() + 1).padStart(2, "0")}.xlsx`);
+    toast(`Exported ${list.length} feedback entries.`);
+}
+$("feedbackExportBtn")?.addEventListener("click", exportFeedbackExcel);

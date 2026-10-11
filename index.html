@@ -14,7 +14,7 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://ipmyxkhnwijpdweeztgb.supabase.co wss://ipmyxkhnwijpdweeztgb.supabase.co; worker-src 'self' blob:;">
-    <link rel="stylesheet" href="style.css?v=39.3">
+    <link rel="stylesheet" href="style.css?v=39.6">
 </head>
 <body>
 
@@ -67,7 +67,6 @@
 
 <div id="currentUserBox" class="current-user-box hidden">
   <div id="currentUserLoginDisplay" class="current-user-login">—</div>
-  <button id="installAppButton" class="install-button" type="button" title="Install WMS as an app / create a desktop shortcut">🖥️ Desktop shortcut</button>
   <button id="logoutButton" class="logout-button" type="button">Log out</button>
 </div>
 
@@ -201,6 +200,7 @@
                 </div>
                 <div class="overview-filter-search-wrap">
                     <button id="applyOverviewFilters" type="button" class="primary filter-search-btn">Search</button>
+                    <button id="clearOverviewFilters" type="button" class="secondary filter-clear-btn" title="Clear all filters">✕ Clear</button>
                 </div>
             </div>
         </div>
@@ -496,7 +496,6 @@
         <button type="button" class="subtab" data-scheduling-tab="leaveTab">Leave & Absence</button>
         <button type="button" class="subtab" data-scheduling-tab="restTab">Rest shift</button>
         <button type="button" class="subtab" data-scheduling-tab="historyTab">History</button>
-        <button type="button" class="subtab" data-scheduling-tab="auditTab">Audit Log</button>
     </div>
 
     <section id="scheduleTab" class="subpage active-subpage panel">
@@ -586,9 +585,9 @@
             <button id="clearExtraDaysFilters" class="secondary" type="button">Clear</button>
         </div>
 
-        <div class="panel-title extra-history-inline-title"><div><h3>Current Extra Days</h3><p>All active exceptions, ordered by date and latest action.</p></div></div>
+        <div class="panel-title extra-history-inline-title"><div><h3>Current Extra Days</h3><p>Actions from the last 24 hours. Older actions disappear here but stay in History.</p></div></div>
         <div class="table-wrap">
-            <table><thead><tr><th>Date</th><th>Login</th><th>Brigade</th><th>Process</th><th>Change</th><th>Shift</th><th>Approved by</th><th>Created</th><th>Action</th></tr></thead>
+            <table><thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Shift</th><th>Confirmed by</th><th>Created</th><th>Note</th><th>Action</th></tr></thead>
             <tbody id="extraDaysTable"></tbody></table>
         </div>
     </section>
@@ -619,7 +618,7 @@
             <button id="clearLeaveFilters" class="secondary" type="button">Clear</button>
         </div>
         <div class="table-wrap">
-            <table><thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Recorded by</th><th>Created</th><th>Note</th><th>Action</th></tr></thead>
+            <table><thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Shift</th><th>Confirmed by</th><th>Created</th><th>Note</th><th>Action</th></tr></thead>
             <tbody id="leaveTable"></tbody></table>
         </div>
     </section>
@@ -649,45 +648,12 @@
             <button id="clearScheduleHistoryFilters" class="secondary" type="button">Clear</button>
         </div>
         <div class="table-wrap">
-            <table><thead><tr><th>Created at</th><th>Action</th><th>Login</th><th>Work date</th><th>Approved by</th><th>Change</th><th>Changed by</th></tr></thead>
+            <table><thead><tr><th>Created at</th><th>Action</th><th>Login</th><th>Work date</th><th>Confirmed by</th><th>Change</th><th>Changed by</th></tr></thead>
             <tbody id="scheduleHistoryTable"></tbody></table>
         </div>
     </section>
 
-    <div id="auditTab" class="subpage">
-  <section class="panel">
-    <div class="panel-title">
-      <div>
-        <h3>Audit Log</h3>
-        <p>Login and logout activity only. History cannot be deleted from the application.</p>
-      </div>
-    </div>
-    <div class="history-filters">
-      <div>
-        <label class="control-label">Date</label>
-        <input id="auditDate" type="date">
-      </div>
-      <div>
-        <label class="control-label">Login</label>
-        <input id="auditLogin" placeholder="Employee or user login">
-      </div>
-      <button id="applyAuditFilters" class="primary filter-search-btn" type="button">Search</button>
-      <button id="clearAuditFilters" class="secondary" type="button">Clear</button>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Created at</th>
-            <th>User</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="auditTable"></tbody>
-      </table>
-    </div>
-  </section>
-</div>
+    
 
 </section>
 
@@ -703,6 +669,7 @@
             <button id="feedbackMonthPrev" class="secondary" type="button">←</button>
             <strong id="feedbackMonthLabel" class="month-label"></strong>
             <button id="feedbackMonthNext" class="secondary" type="button">→</button>
+            <button id="feedbackExportBtn" class="secondary" type="button">Export Excel</button>
         </div>
     </header>
 
@@ -932,6 +899,10 @@
                 <label class="control-label" for="hoursAllSearch">Search employee</label>
                 <input id="hoursAllSearch" type="search" placeholder="Employee login" autocomplete="off">
             </div>
+            <div class="hours-all-search-field">
+                <label class="control-label" for="hoursAllSort">Sort</label>
+                <select id="hoursAllSort"><option value="">Default (login)</option><option value="absent-desc">Most absences first</option><option value="absent-asc">Fewest absences first</option><option value="early-desc">Most left early first</option><option value="pending-desc">Most pending first</option></select>
+            </div>
             <button id="hoursFiltersToggle" class="secondary" type="button" aria-expanded="false">Filters</button>
             <button id="hoursClearAllFilters" class="secondary" type="button">Clear</button>
         </div>
@@ -989,10 +960,10 @@
                 </div>
             </section>
             <section class="attendance-stat-box">
-                <div class="panel-title"><div><h4>Extra days by date</h4><p>Extra DAY, NIGHT and OFF records in the selected month.</p></div></div>
+                <div class="panel-title"><div><h4>Extra days by date</h4><p>Extra DAY, NIGHT, OFF, L4, Vacation and Rest shift in the selected month.</p></div></div>
                 <div class="table-wrap">
                     <table class="attendance-stats-table">
-                        <thead><tr><th>Date</th><th>Extra DAY</th><th>Extra NIGHT</th><th>Extra OFF</th></tr></thead>
+                        <thead><tr><th>Date</th><th>Extra DAY</th><th>Extra NIGHT</th><th>Extra OFF</th><th>L4</th><th>Vacation</th><th>Rest shift</th></tr></thead>
                         <tbody id="attendanceStatsExtraByDate"></tbody>
                     </table>
                 </div>
@@ -1009,6 +980,14 @@
         <div><h2>Analytics</h2><p>Daily warehouse analysis with shift-level drill-down and process staffing for the selected period.</p></div>
         <div class="toolbar"><button id="analyticsMonthPrev" class="secondary" type="button">←</button><strong id="analyticsMonthLabel" class="month-label"></strong><button id="analyticsMonthNext" class="secondary" type="button">→</button><button id="exportAnalytics" class="secondary" type="button" title="Coordinator/Admin only">Export Excel</button></div>
     </header>
+    <div class="subtabs analytics-subtabs">
+        <button type="button" class="subtab active" data-analytics-tab="table">Daily analysis</button>
+        <button type="button" class="subtab" data-analytics-tab="charts">Charts</button>
+    </div>
+    <section id="analyticsChartsPanel" class="panel" hidden>
+        <div class="panel-title"><div><h3>Planned vs attendance</h3><p>Day and Night shifts separately for the selected month. Rate = present ÷ (present + absent) on confirmed days.</p></div></div>
+        <div id="analyticsCharts"></div>
+    </section>
     <section class="panel analytics-daily-panel">
         <div class="panel-title"><div><h3>Daily shifts</h3><p>Click a DAY/NIGHT row. Details open directly under the selected shift. Feedback counts employees with at least one entry; drill-down shows all entries.</p></div><span id="analyticsMeta" class="muted">0 shifts</span></div>
         <div class="table-wrap analytics-table-wrap"><table class="analytics-table analytics-daily-table"><thead><tr><th>Date</th><th>Day</th><th>Shift</th><th>Planned</th><th>Present</th><th>Absent</th><th>Late</th><th>Left early</th><th>Pending</th><th>Feedback</th><th>Terminated</th><th>Extra OFF</th><th>Extra Work</th><th>Leave</th></tr></thead><tbody id="analyticsDailyBody"></tbody></table></div>
@@ -1457,7 +1436,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=39.3"></script>
+<script src="script.js?v=39.6"></script>
 
 </body>
 </html>
