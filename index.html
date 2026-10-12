@@ -14,7 +14,7 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://ipmyxkhnwijpdweeztgb.supabase.co wss://ipmyxkhnwijpdweeztgb.supabase.co; worker-src 'self' blob:;">
-    <link rel="stylesheet" href="style.css?v=39.6">
+    <link rel="stylesheet" href="style.css?v=39.7">
 </head>
 <body>
 
@@ -86,6 +86,7 @@
         <button class="nav-btn" data-page="hoursAttendancePage">⏱️ <span>Attendance Monitoring</span></button>
         <button class="nav-btn" data-page="feedbackTrackerPage">📝 <span>Feedback Tracker</span></button>
         <button class="nav-btn" data-page="analyticsPage">📈 <span>Analytics</span></button>
+        <button class="nav-btn" data-page="processPage">🧩 <span>Process</span></button>
     </nav>
 </aside>
 
@@ -121,6 +122,7 @@
 
     <div class="cards four overview-main-kpis">
         <div class="card"><span>Should be working</span><strong id="ovPlanned">0</strong><small>scheduled employees</small></div>
+        <div class="card"><span>Absent</span><strong id="ovAbsentTotal">0</strong><small>marked absent</small></div>
         <div class="card"><span>Arrived / left early</span><strong id="ovEarlyChange">0</strong><small>time status</small></div>
         <div class="card"><span>Pending</span><strong id="ovMissing">0</strong><small>waiting for confirmation</small></div>
         <div class="card"><span>Attendance</span><strong id="ovRateCard">0%</strong><small>present / scheduled</small></div>
@@ -563,10 +565,10 @@
         </div>
 
         <div class="quick-stats-grid extra-days-stats">
-            <div class="quick-stat"><span>Extra OFF</span><strong id="extraStatOff">0</strong><small>current records</small></div>
-            <div class="quick-stat"><span>Extra DAY</span><strong id="extraStatDay">0</strong><small>current records</small></div>
-            <div class="quick-stat"><span>Extra NIGHT</span><strong id="extraStatNight">0</strong><small>current records</small></div>
-            <div class="quick-stat"><span>Total</span><strong id="extraStatTotal">0</strong><small>current records</small></div>
+            <div class="quick-stat"><span>Extra OFF</span><strong id="extraStatOff">0</strong><small class="stat-month"></small></div>
+            <div class="quick-stat"><span>Extra DAY</span><strong id="extraStatDay">0</strong><small class="stat-month"></small></div>
+            <div class="quick-stat"><span>Extra NIGHT</span><strong id="extraStatNight">0</strong><small class="stat-month"></small></div>
+            <div class="quick-stat"><span>Total</span><strong id="extraStatTotal">0</strong><small class="stat-month"></small></div>
         </div>
 
         <div class="extra-form">
@@ -597,10 +599,16 @@
             <div><h3>Leave & Absence</h3><p>Plan Vacation and sick leave (L4). Leave is shown in the employee schedule with a dedicated color and removes the employee from planned working shifts for those dates.</p></div>
         </div>
         <div class="quick-stats-grid extra-days-stats leave-stats">
-            <div class="quick-stat"><span>Vacation</span><strong id="leaveStatVacation">0</strong><small>active records</small></div>
-            <div class="quick-stat"><span>L4</span><strong id="leaveStatSick">0</strong><small>active records</small></div>
-            <div class="quick-stat"><span>Employees</span><strong id="leaveStatEmployees">0</strong><small>with leave</small></div>
-            <div class="quick-stat"><span>Days</span><strong id="leaveStatDays">0</strong><small>calendar days</small></div>
+            <div class="quick-stat"><span>Vacation</span><strong id="leaveStatVacation">0</strong><small class="stat-month"></small></div>
+            <div class="quick-stat"><span>L4</span><strong id="leaveStatSick">0</strong><small class="stat-month"></small></div>
+            <div class="quick-stat"><span>Employees</span><strong id="leaveStatEmployees">0</strong><small class="stat-month"></small></div>
+            <div class="quick-stat"><span>Days</span><strong id="leaveStatDays">0</strong><small class="stat-month"></small></div>
+        </div>
+        <div class="quick-stats-grid extra-days-stats rest-stats">
+            <div class="quick-stat"><span>Rest shift records</span><strong id="restStatRecords">0</strong><small class="stat-month"></small></div>
+            <div class="quick-stat"><span>Rest days</span><strong id="restStatDays">0</strong><small class="stat-month"></small></div>
+            <div class="quick-stat"><span>Employees</span><strong id="restStatEmployees">0</strong><small class="stat-month"></small></div>
+            <div class="quick-stat"><span>Peak day</span><strong id="restStatPeak">0</strong><small>most employees on rest in one day</small></div>
         </div>
         <div class="extra-form leave-form">
             <div><label class="control-label">Employee login</label><input id="leaveEmployeeLogin" placeholder="e.g. 60010001"><small id="leaveEmployeeHint" class="field-hint">Enter the exact employee login.</small></div>
@@ -961,7 +969,8 @@
             </section>
             <section class="attendance-stat-box">
                 <div class="panel-title"><div><h4>Extra days by date</h4><p>Extra DAY, NIGHT, OFF, L4, Vacation and Rest shift in the selected month.</p></div></div>
-                <div class="table-wrap">
+                <div id="attendanceExtraTotals" class="quick-stats-grid extra-totals"></div>
+            <div class="table-wrap">
                     <table class="attendance-stats-table">
                         <thead><tr><th>Date</th><th>Extra DAY</th><th>Extra NIGHT</th><th>Extra OFF</th><th>L4</th><th>Vacation</th><th>Rest shift</th></tr></thead>
                         <tbody id="attendanceStatsExtraByDate"></tbody>
@@ -973,6 +982,29 @@
     </div>
 
 
+</section>
+
+<section id="processPage" class="page">
+    <div class="page-header">
+        <div><h2>Process</h2><p>Required headcount per process, planned vs present, and a headcount calculator.</p></div>
+        <div class="header-actions">
+            <button id="processMonthPrev" class="secondary" type="button">←</button>
+            <strong id="processMonthLabel" class="month-label"></strong>
+            <button id="processMonthNext" class="secondary" type="button">→</button>
+        </div>
+    </div>
+    <div class="subtabs">
+        <button type="button" class="subtab active" data-process-tab="coverage">Coverage</button>
+        <button type="button" class="subtab" data-process-tab="calculator">Calculator</button>
+    </div>
+    <div id="processCoveragePanel">
+        <section class="panel">
+            <div class="panel-title"><div><h3>Required headcount</h3><p>People needed per shift on each process. Only Coordinator or Admin can change it.</p></div><button id="processReqSave" class="primary" type="button">Save requirements</button></div>
+            <div class="table-wrap"><table><thead><tr><th>Process</th><th>DAY shift</th><th>NIGHT shift</th></tr></thead><tbody id="processReqBody"></tbody></table></div>
+        </section>
+        <div id="processCharts"></div>
+    </div>
+    <div id="processCalculatorPanel" hidden></div>
 </section>
 
 <section id="analyticsPage" class="page">
@@ -1387,7 +1419,7 @@
             </div>
 
             <label>
-                Reason
+                Reason <span class="req-star" title="Required when editing confirmed hours or leaving early">*</span>
                 <select id="editReason">
                     <option value="">—</option>
                     <option value="Private leave">Private leave</option>
@@ -1436,7 +1468,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=39.6"></script>
+<script src="script.js?v=39.7"></script>
 
 </body>
 </html>

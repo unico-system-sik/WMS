@@ -4997,10 +4997,10 @@ function renderHoursAttendance() {
         const leave = leaveRecordForDate(employee, date);
         const extra = extraDays[scheduleKey(date, employee.login)];
         const exceptionStatus = leave
-            ? (leave.leaveType === "sick-leave" ? "L4" : "U")
-            : extra?.type === "extra-work-day" ? "D+"
-            : extra?.type === "extra-work-night" ? "N+"
-            : extra?.type === "extra-off" ? "OFF"
+            ? leaveTypeLabel(leave.leaveType)
+            : extra?.type === "extra-work-day" ? "Extra DAY"
+            : extra?.type === "extra-work-night" ? "Extra NIGHT"
+            : extra?.type === "extra-off" ? "Extra OFF"
             : "";
         const detailStatus = exceptionStatus || (isAbsent ? "Absent" : leftEarly ? "Left early" : data.confirmed ? "Confirmed" : (p ? "Not confirmed" : "OFF"));
         const detailReason = leave
@@ -5015,7 +5015,7 @@ function renderHoursAttendance() {
                 <td>${date.toLocaleDateString("en-US", { weekday: "short" })}</td>
                 <td>
                     <span class="shift-pill ${schedule.shift}">
-                        ${schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "R" : "OFF"}
+                        ${schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "REST" : "OFF"}
                     </span>
                 </td>
                 <td>${p.toFixed(2)}h</td>
@@ -5122,6 +5122,10 @@ function switchPage(pageId) {
 
     if (pageId === "overviewPage") {
         renderOverview();
+    }
+
+    if (pageId === "processPage") {
+        renderProcessPage();
     }
 
     if (pageId === "employeesPage") {
@@ -6717,13 +6721,21 @@ function renderAttendanceMonthlyStats() {
             const b = extraByDate.get(k); b[cls] = (b[cls] || 0) + 1;
         }
     });
+    for (let d = 1, last = new Date(year, month + 1, 0).getDate(); d <= last; d++) {
+        const k = dateKey(new Date(year, month, d, 12));
+        if (!extraByDate.has(k)) extraByDate.set(k, { day: 0, night: 0, off: 0 });
+    }
     const extraBody = $("attendanceStatsExtraByDate");
     if (extraBody) {
         const rows = [...extraByDate.entries()].sort((a,b) => a[0].localeCompare(b[0]));
+        const tot = rows.reduce((t, [, b]) => ({ day: t.day + b.day, night: t.night + b.night, off: t.off + b.off, sick: t.sick + (b.sick || 0), vac: t.vac + (b.vac || 0), rest: t.rest + (b.rest || 0) }), { day: 0, night: 0, off: 0, sick: 0, vac: 0, rest: 0 });
+        const box = $("attendanceExtraTotals");
+        if (box) box.innerHTML = [["Extra DAY", tot.day], ["Extra NIGHT", tot.night], ["Extra OFF", tot.off], ["L4", tot.sick], ["Vacation", tot.vac], ["Rest shift", tot.rest]].map(([l, v]) => `<div class="quick-stat"><span>${l}</span><strong>${v}</strong><small>in month</small></div>`).join("");
         extraBody.innerHTML = rows.map(([key, bucket]) => {
             const date = new Date(`${key}T12:00:00`);
-            return `<tr><td>${date.toLocaleDateString('en-GB')}</td><td>${bucket.day}</td><td>${bucket.night}</td><td>${bucket.off}</td><td>${bucket.sick || 0}</td><td>${bucket.vac || 0}</td><td>${bucket.rest || 0}</td></tr>`;
-        }).join('') || `<tr><td colspan="7"><div class="empty">No Extra Days, leave or Rest shift records for this month.</div></td></tr>`;
+            const z = v => v ? `<strong>${v}</strong>` : `<span class="zero">0</span>`;
+            return `<tr><td>${date.toLocaleDateString('en-GB')} <small>${date.toLocaleDateString('en-US', { weekday: 'short' })}</small></td><td>${z(bucket.day)}</td><td>${z(bucket.night)}</td><td>${z(bucket.off)}</td><td>${z(bucket.sick || 0)}</td><td>${z(bucket.vac || 0)}</td><td>${z(bucket.rest || 0)}</td></tr>`;
+        }).join('') + `<tr class="total-row"><td>Total</td><td>${tot.day}</td><td>${tot.night}</td><td>${tot.off}</td><td>${tot.sick}</td><td>${tot.vac}</td><td>${tot.rest}</td></tr>`;
     }
 }
 
@@ -7266,7 +7278,7 @@ function buildShiftEmployeesXlsx(people) {
             employee.login,
             employee.brigade,
             employee.process,
-            schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "R" : "OFF",
+            schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "REST" : "OFF",
             employeeWorkedDaysForMonth(employee, overviewDate),
             planned.toFixed(2),
             actual.toFixed(2),
@@ -7404,7 +7416,7 @@ function buildHoursAttendanceWorkbook(employees) {
                 employee.login,
                 employee.brigade,
                 employee.process,
-                schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "R" : "OFF",
+                schedule.shift === "day" ? "DAY" : schedule.shift === "night" ? "NIGHT" : schedule.shift === "rest" ? "REST" : "OFF",
                 Number(planned.toFixed(2)),
                 Number(safeActual.toFixed(2)),
                 Number(difference.toFixed(2)),
@@ -8631,6 +8643,7 @@ switchPage = function(pageId) {
 
 const V37_originalLogout = logout;
 logout = async function() {
+    if (processRealtimeChannel) { try { await supabaseClient.removeChannel(processRealtimeChannel); } catch {} processRealtimeChannel=null; }
     if (assignmentHistoryRealtimeChannel) { try { await supabaseClient.removeChannel(assignmentHistoryRealtimeChannel); } catch {} assignmentHistoryRealtimeChannel=null; }
     if (leaveRealtimeChannel) { try { await supabaseClient.removeChannel(leaveRealtimeChannel); } catch {} leaveRealtimeChannel=null; }
     if (trainingRealtimeChannel) { try { await supabaseClient.removeChannel(trainingRealtimeChannel); } catch {} trainingRealtimeChannel=null; }
@@ -8909,7 +8922,10 @@ async function v383SaveHoursEdit(event) {
     const gross=requestedStatus==="Absent"?0:calculateHours($("editStart")?.value||"",$("editEnd")?.value||"");
     const actual=requestedStatus==="Absent"?0:Math.max(0,gross-breakMinutes/60);
     const planned=plannedHours(employee,date);
-    if(requestedStatus==="Confirmed" && actual<planned-0.01 && !reason){toast("A reason is required when confirmed hours are below the planned hours.");$("editReason")?.focus();return;}
+    if(requestedStatus!=="Pending" && !reason){
+        if(current.confirmed){toast("A reason is required to edit confirmed hours.");$("editReason")?.focus();return;}
+        if(requestedStatus==="Confirmed" && actual<planned-0.01){toast("A reason is required when the employee left early or worked fewer hours than planned.");$("editReason")?.focus();return;}
+    }
 
     const selectedProcess=String($("editWorkedProcess")?.value||current.workedProcess||normalizeProcessName(employee.process||"")).trim();
     const allowed=[normalizeProcessName(employee.process||""),...employeeProcessSkills(employee).map(normalizeSecondaryProcess)];
@@ -9227,9 +9243,14 @@ function renderExtraDays() {
     const entries = Object.entries(extraDays).map(([key, item]) => { const s = key.lastIndexOf("_"); return { key, date: key.slice(0, s), login: key.slice(s + 1), item }; })
         .filter(e => within24h(e.item.createdAt) && (!dateFilter || e.date === dateFilter) && (!loginFilter || e.login.toLowerCase().includes(loginFilter)) && (!typeFilters.length || typeFilters.includes(e.item.type)))
         .sort((a, b) => String(b.item.createdAt).localeCompare(String(a.item.createdAt)));
-    let off = 0, day = 0, night = 0;
-    entries.forEach(e => { if (e.item.type === "extra-off") off++; else if (e.item.type === "extra-work-night") night++; else if (e.item.type === "extra-work-day") day++; });
-    [["extraStatOff", off], ["extraStatDay", day], ["extraStatNight", night], ["extraStatTotal", entries.length]].forEach(([id, v]) => { if ($(id)) $(id).textContent = String(v); });
+    const mr = wmsMonthRange(); let off = 0, day = 0, night = 0;
+    Object.entries(extraDays).forEach(([key, item]) => {
+        const s = key.lastIndexOf("_"), d = key.slice(0, s);
+        if (d < mr.a || d > mr.b || !employeeByLogin(key.slice(s + 1))) return;
+        if (item.type === "extra-off") off++; else if (item.type === "extra-work-night") night++; else if (item.type === "extra-work-day") day++;
+    });
+    [["extraStatOff", off], ["extraStatDay", day], ["extraStatNight", night], ["extraStatTotal", off + day + night]].forEach(([id, v]) => { if ($(id)) $(id).textContent = String(v); });
+    document.querySelectorAll("#extraDaysTab .stat-month").forEach(el => { el.textContent = mr.label; });
     $("extraDaysTable").innerHTML = entries.map(({ key, date, login, item }) => {
         if (!employeeByLogin(login)) return "";
         const t = item.type, cls = t === "extra-off" ? "extra-off" : t === "extra-work-night" ? "extra-night" : "extra-day";
@@ -9243,9 +9264,16 @@ function renderLeaveTab() {
     const loginFilter = ($("leaveFilterLogin")?.value || "").trim().toLowerCase(), typeFilter = $("leaveFilterType")?.value || "";
     const rows = (employeeLeaveRecords || []).filter(r => within24h(r.createdAt) && (!loginFilter || String(r.employeeLogin).toLowerCase().includes(loginFilter)) && (!typeFilter || r.leaveType === typeFilter) && ((r.leaveType === "rest") === leaveViewRest))
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-    let vac = 0, sick = 0, days = 0; const emps = new Set();
-    rows.forEach(r => { emps.add(r.employeeLogin); days += leaveDays(r); if (r.leaveType === "vacation") vac++; else sick++; });
-    [["leaveStatVacation", vac], ["leaveStatSick", sick], ["leaveStatEmployees", emps.size], ["leaveStatDays", days]].forEach(([id, v]) => { if ($(id)) $(id).textContent = String(v); });
+    const mr = wmsMonthRange(); let vac = 0, sick = 0, days = 0, rRec = 0, rDays = 0; const emps = new Set(), rEmps = new Set(), perDay = new Map();
+    (employeeLeaveRecords || []).forEach(r => {
+        const n = leaveDaysInMonth(r, mr.a, mr.b); if (!n) return;
+        if (r.leaveType === "rest") {
+            rRec++; rDays += n; rEmps.add(r.employeeLogin);
+            for (let d = fromKey(r.startDate < mr.a ? mr.a : r.startDate), i = 0; i < n; i++, d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 12)) { const k = dateKey(d); perDay.set(k, (perDay.get(k) || 0) + 1); }
+        } else { emps.add(r.employeeLogin); days += n; if (r.leaveType === "vacation") vac++; else sick++; }
+    });
+    [["leaveStatVacation", vac], ["leaveStatSick", sick], ["leaveStatEmployees", emps.size], ["leaveStatDays", days], ["restStatRecords", rRec], ["restStatDays", rDays], ["restStatEmployees", rEmps.size], ["restStatPeak", Math.max(0, ...perDay.values())]].forEach(([id, v]) => { if ($(id)) $(id).textContent = String(v); });
+    document.querySelectorAll("#leaveTab .stat-month").forEach(el => { el.textContent = mr.label; });
     $("leaveTable").innerHTML = rows.map(r => wmsActionRow({ login: r.employeeLogin, cls: leaveTypeClass(r.leaveType), label: leaveTypeLabel(r.leaveType), from: r.startDate, to: r.endDate, days: leaveDays(r), shift: shiftOfLeaveRow(r), by: r.recordedBy, createdAt: r.createdAt, note: r.note, action: canManageEmployees() ? `<button class="icon-btn" type="button" data-remove-leave="${esc(r.id)}">×</button>` : "—" })).join("")
         || `<tr><td colspan="10"><div class="empty">No ${leaveViewRest ? "Rest shift" : "leave"} records added in the last 24 hours. Older records are in History.</div></td></tr>`;
     $("leaveTable").querySelectorAll("[data-remove-leave]").forEach(b => b.addEventListener("click", () => removeLeaveRecord(b.dataset.removeLeave)));
@@ -9348,3 +9376,180 @@ function exportFeedbackExcel() {
     toast(`Exported ${list.length} feedback entries.`);
 }
 $("feedbackExportBtn")?.addEventListener("click", exportFeedbackExcel);
+
+
+/* =====================================================================
+   V39.7 — month stats helpers, Analytics charts v2 (percent panel + donuts),
+   Process page (requirements, coverage charts, headcount calculator)
+===================================================================== */
+function wmsMonthRange() {
+    const y = scheduleMonth.getFullYear(), m = scheduleMonth.getMonth(), first = new Date(y, m, 1, 12), last = new Date(y, m + 1, 0, 12);
+    return { a: dateKey(first), b: dateKey(last), label: first.toLocaleDateString("en-GB", { month: "long", year: "numeric" }) };
+}
+function leaveDaysInMonth(r, a, b) {
+    const s = r.startDate > a ? r.startDate : a, e = r.endDate < b ? r.endDate : b;
+    return e < s ? 0 : Math.round((fromKey(e) - fromKey(s)) / 86400000) + 1;
+}
+
+const WMS_COLORS = { present: "#22a06b", early: "#f59e0b", absent: "#ef4444", pending: "#94a3b8", planned: "#cbd5e1", day: "#e0a21a", night: "#315b9f" };
+function pct(v, total) { return total > 0 ? `${(v / total * 100).toFixed(1)}%` : "—"; }
+function svgDonut(segs, centerTop, centerBottom) {
+    const R = 54, Cc = 2 * Math.PI * R, total = segs.reduce((s, x) => s + x.value, 0); let off = 0;
+    const arcs = total > 0 ? segs.filter(x => x.value > 0).map(x => { const len = x.value / total * Cc, el = `<circle cx="70" cy="70" r="${R}" fill="none" stroke="${x.color}" stroke-width="18" stroke-dasharray="${len.toFixed(2)} ${(Cc - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}"><title>${x.label}: ${x.value} (${(x.value / total * 100).toFixed(1)}%)</title></circle>`; off += len; return el; }).join("") : "";
+    return `<svg viewBox="0 0 140 140" width="150" height="150" role="img"><g transform="rotate(-90 70 70)"><circle cx="70" cy="70" r="${R}" fill="none" stroke="#eef1f8" stroke-width="18"/>${arcs}</g><text x="70" y="68" text-anchor="middle" font-size="20" font-weight="800" fill="#172033">${centerTop}</text><text x="70" y="86" text-anchor="middle" font-size="10" fill="#6b7592">${centerBottom}</text></svg>`;
+}
+function donutBlock(title, segs, centerTop, centerBottom) {
+    const total = segs.reduce((s, x) => s + x.value, 0);
+    return `<div class="donut-card"><h5>${esc(title)}</h5><div class="donut-body">${svgDonut(segs, centerTop, centerBottom)}<ul class="donut-legend">${segs.map(x => `<li><i style="background:${x.color}"></i><span>${esc(x.label)}</span><b>${x.value}</b><em>${pct(x.value, total)}</em></li>`).join("")}</ul></div></div>`;
+}
+function renderAnalyticsCharts() {
+    const host = $("analyticsCharts"); if (!host) return;
+    const employees = analyticsSelectedEmployees(), n = analyticsDays(), data = { day: [], night: [] };
+    for (let d = 1; d <= n; d++) {
+        const date = new Date(analyticsMonth.getFullYear(), analyticsMonth.getMonth(), d, 12);
+        ["day", "night"].forEach(sh => { const r = analyticsRowFor(date, sh, employees); data[sh].push({ d, date: dateKey(date), planned: r.planned, present: r.present, absent: r.absent, leftEarly: r.leftEarly, pending: r.pending, rate: r.present + r.absent > 0 ? r.present / (r.present + r.absent) * 100 : null, absentDetails: r.absentDetails || [], processStats: r.processStats }); });
+    }
+    host.innerHTML = ["day", "night"].map(sh => {
+        const items = data[sh], color = sh === "day" ? WMS_COLORS.day : WMS_COLORS.night;
+        const P = items.reduce((s, i) => s + i.planned, 0), PR = items.reduce((s, i) => s + i.present, 0), LE = items.reduce((s, i) => s + Math.min(i.leftEarly, i.present), 0), AB = items.reduce((s, i) => s + i.absent, 0), PE = items.reduce((s, i) => s + i.pending, 0), OT = Math.max(0, PR - LE);
+        const rate = PR + AB ? (PR / (PR + AB) * 100).toFixed(1) + "%" : "—";
+        const withRate = items.filter(i => i.rate != null), worst = withRate.length ? withRate.reduce((a, b) => b.rate < a.rate ? b : a) : null, best = withRate.length ? withRate.reduce((a, b) => b.rate > a.rate ? b : a) : null;
+        const reasons = new Map(); items.forEach(i => i.absentDetails.forEach(a => { const k = a.reason || "No reason"; reasons.set(k, (reasons.get(k) || 0) + 1); }));
+        const palette = ["#6366f1", "#06b6d4", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b", "#94a3b8"];
+        const reasonSegs = [...reasons].sort((a, b) => b[1] - a[1]).map(([label, value], i) => ({ label, value, color: palette[i % palette.length] }));
+        const byProc = new Map(); items.forEach(i => i.processStats && i.processStats.forEach((v, k) => byProc.set(k, (byProc.get(k) || 0) + (v.absent || 0))));
+        const procSegs = [...byProc].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([label, value], i) => ({ label, value, color: palette[i % palette.length] }));
+        const sideRows = [["Present on time", OT, WMS_COLORS.present], ["Left early", LE, WMS_COLORS.early], ["Absent", AB, WMS_COLORS.absent], ["Pending (not confirmed)", PE, WMS_COLORS.pending]];
+        return `<section class="chart-block"><h4><span class="shift-pill ${sh}">${sh === "day" ? "DAY" : "NIGHT"}</span> shift</h4>
+            <div class="chart-layout">
+                <div class="chart-main"><p class="chart-legend"><i style="background:${WMS_COLORS.planned}"></i> Planned <i style="background:${color}"></i> Present</p>${svgBars(items, color)}</div>
+                <aside class="chart-side">
+                    <div class="side-kpi"><span>Attendance rate</span><strong>${rate}</strong><small>present ÷ (present + absent)</small></div>
+                    <div class="side-base"><span>Planned (100%)</span><b>${P}</b></div>
+                    ${sideRows.map(([l, v, c]) => `<div class="side-row"><i style="background:${c}"></i><span>${l}</span><b>${v}</b><em>${pct(v, P)}</em></div>`).join("")}
+                    <div class="side-note">${best ? `Best day: <b>${best.date.slice(8)}</b> (${best.rate.toFixed(0)}%)<br>Lowest day: <b>${worst.date.slice(8)}</b> (${worst.rate.toFixed(0)}%)` : "No confirmed days yet"}</div>
+                </aside>
+            </div>
+            <div class="donut-row">${donutBlock("Outcome of planned shifts", [{ label: "Present on time", value: OT, color: WMS_COLORS.present }, { label: "Left early", value: LE, color: WMS_COLORS.early }, { label: "Absent", value: AB, color: WMS_COLORS.absent }, { label: "Pending", value: PE, color: WMS_COLORS.pending }], P, "planned")}
+                ${donutBlock("Absence reasons", reasonSegs, AB, "absences")}${donutBlock("Absences by process", procSegs, AB, "absences")}</div></section>`;
+    }).join("");
+}
+
+// ---------- Process page ----------
+const PROCESS_LIST = ["Pick", "Putaway", "Abnormal"];
+let processMonth = new Date(); processMonth = new Date(processMonth.getFullYear(), processMonth.getMonth(), 1, 12);
+let processRequirements = {}, processRealtimeChannel = null, processTab = "coverage";
+const reqKey = (p, s) => `${p}|${s}`;
+async function loadProcessRequirements() {
+    const { data, error } = await supabaseClient.from("process_requirements").select("process, shift, headcount");
+    if (error) { console.warn("process_requirements:", error.message); return false; }
+    processRequirements = {}; (data || []).forEach(r => { processRequirements[reqKey(r.process, r.shift)] = Number(r.headcount) || 0; });
+    return true;
+}
+function subscribeToProcessRealtime() {
+    if (processRealtimeChannel || !currentUser) return;
+    processRealtimeChannel = supabaseClient.channel("warehouse-process-requirements")
+        .on("postgres_changes", { event: "*", schema: "public", table: "process_requirements" }, async () => { if (await loadProcessRequirements()) { renderProcessRequirementInputs(); renderProcessCharts(); } })
+        .subscribe();
+}
+function renderProcessRequirementInputs() {
+    const body = $("processReqBody"); if (!body) return; const can = canManageEmployees();
+    body.innerHTML = PROCESS_LIST.map(p => `<tr><td><strong>${p}</strong></td>${["day", "night"].map(s => `<td><input type="number" min="0" max="2000" step="1" class="req-input" data-req="${reqKey(p, s)}" value="${processRequirements[reqKey(p, s)] ?? 0}" ${can ? "" : "disabled"}></td>`).join("")}</tr>`).join("");
+    if ($("processReqSave")) $("processReqSave").hidden = !can;
+}
+async function saveProcessRequirements() {
+    if (!canManageEmployees()) { toast("Only Coordinator or Admin can change requirements."); return; }
+    const rows = [...document.querySelectorAll("#processReqBody .req-input")].map(i => { const [process, shift] = i.dataset.req.split("|"); return { process, shift, headcount: Math.max(0, Math.min(2000, parseInt(i.value, 10) || 0)) }; });
+    const { error } = await supabaseClient.from("process_requirements").upsert(rows, { onConflict: "process,shift" });
+    if (error) { toast(/process_requirements|relation|does not exist/i.test(error.message) ? "Database not updated: run the latest WMS SQL (V39.7)." : `Could not save: ${error.message}`); return; }
+    rows.forEach(r => { processRequirements[reqKey(r.process, r.shift)] = r.headcount; });
+    renderProcessCharts(); toast("Requirements saved.");
+}
+function svgProcessChart(items, color, required) {
+    const W = Math.max(760, items.length * 28), H = 230, L = 36, B = 26, T = 14, max = Math.max(1, required, ...items.map(i => Math.max(i.planned, i.present)));
+    const slot = (W - L - 8) / items.length, bw = Math.min(11, slot / 2.6), y = v => T + (H - T - B) * (1 - v / max);
+    const grid = [0, .25, .5, .75, 1].map(f => { const v = Math.round(max * f), yy = y(v); return `<line x1="${L}" x2="${W - 4}" y1="${yy}" y2="${yy}" stroke="#e6eaf2"/><text x="${L - 6}" y="${yy + 4}" font-size="10" text-anchor="end" fill="#6b7592">${v}</text>`; }).join("");
+    const bars = items.map((it, i) => { const x = L + i * slot + slot / 2; return `<g><title>${it.date}: required ${required}, planned ${it.planned}, present ${it.present}</title><rect x="${x - bw - 1}" y="${y(it.planned)}" width="${bw}" height="${H - B - y(it.planned)}" rx="2" fill="#cbd5e1"/><rect x="${x + 1}" y="${y(it.present)}" width="${bw}" height="${H - B - y(it.present)}" rx="2" fill="${color}"/><text x="${x}" y="${H - 8}" font-size="10" text-anchor="middle" fill="#6b7592">${it.d}</text></g>`; }).join("");
+    const line = required > 0 ? `<line x1="${L}" x2="${W - 4}" y1="${y(required)}" y2="${y(required)}" stroke="#ef4444" stroke-width="2" stroke-dasharray="6 4"/><text x="${W - 6}" y="${y(required) - 5}" font-size="11" text-anchor="end" fill="#ef4444" font-weight="700">Required ${required}</text>` : "";
+    return `<div class="chart-scroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img">${grid}${bars}${line}</svg></div>`;
+}
+function renderProcessCharts() {
+    const host = $("processCharts"); if (!host) return;
+    $("processMonthLabel").textContent = processMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+    const people = activeEmployees(), y = processMonth.getFullYear(), m = processMonth.getMonth(), n = new Date(y, m + 1, 0).getDate(), cache = {};
+    ["day", "night"].forEach(sh => { cache[sh] = []; for (let d = 1; d <= n; d++) { const date = new Date(y, m, d, 12); cache[sh].push({ d, date: dateKey(date), ps: analyticsRowFor(date, sh, people).processStats }); } });
+    host.innerHTML = PROCESS_LIST.map(p => `<section class="panel chart-block"><h4>${p}</h4>${["day", "night"].map(sh => {
+        const req = processRequirements[reqKey(p, sh)] || 0, color = sh === "day" ? WMS_COLORS.day : WMS_COLORS.night;
+        const items = cache[sh].map(c => { const v = c.ps && c.ps.get(p) || {}; return { d: c.d, date: c.date, planned: v.planned || 0, present: v.present || 0, absent: v.absent || 0 }; });
+        const confirmed = items.filter(i => i.present + i.absent > 0), avg = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
+        const avgPlanned = avg(items.filter(i => i.planned > 0).map(i => i.planned)), avgPresent = avg(confirmed.map(i => i.present));
+        const below = items.filter(i => req > 0 && i.planned > 0 && i.planned < req).length, belowPresent = confirmed.filter(i => req > 0 && i.present < req).length;
+        return `<div class="proc-shift"><div class="proc-head"><span class="shift-pill ${sh}">${sh === "day" ? "DAY" : "NIGHT"}</span>
+            <span class="proc-stat">Required <b>${req}</b></span><span class="proc-stat">Avg planned <b>${avgPlanned.toFixed(1)}</b> <em>${req ? pct(avgPlanned, req) : "—"}</em></span>
+            <span class="proc-stat">Avg present <b>${avgPresent.toFixed(1)}</b> <em>${req ? pct(avgPresent, req) : "—"}</em></span>
+            <span class="proc-stat ${below ? "bad" : ""}">Days planned below requirement <b>${below}</b></span><span class="proc-stat ${belowPresent ? "bad" : ""}">Days present below requirement <b>${belowPresent}</b></span></div>
+            <p class="chart-legend"><i style="background:${WMS_COLORS.planned}"></i> Planned <i style="background:${color}"></i> Present <i style="background:#ef4444"></i> Required</p>${svgProcessChart(items, color, req)}</div>`;
+    }).join("")}</section>`).join("");
+}
+// Headcount calculator
+const CALC_DEFAULT = { hours: 10, Pick: { plan: 0, rate: 0, direct: 75 }, Putaway: { plan: 0, rate: 0, direct: 75 }, Abnormal: { plan: 0, rate: 0, direct: 75 }, date: "", shift: "day" };
+const CALC_INDIRECT_NOTE = { Pick: "Consolidation, leaders, instructors …", Putaway: "Buffer, leaders, instructors …", Abnormal: "support roles" };
+const CALC_INDIRECT_PROCESS = { Pick: "Consolidation", Putaway: "Buffer", Abnormal: null };
+function calcProcess(plan, rate, hours, directPct) {
+    plan = Number(plan) || 0; rate = Number(rate) || 0; hours = Number(hours) || 0;
+    const dp = Math.min(100, Math.max(1, Number(directPct) || 0)), direct = plan > 0 && rate > 0 && hours > 0 ? Math.ceil(plan / (rate * hours)) : 0;
+    const total = direct ? Math.ceil(direct / (dp / 100)) : 0;
+    return { direct, total, indirect: total - direct, directPct: dp, indirectPct: 100 - dp };
+}
+function loadCalc() { try { return { ...CALC_DEFAULT, ...JSON.parse(localStorage.getItem("wms_calc_v1") || "{}") }; } catch { return { ...CALC_DEFAULT }; } }
+function saveCalc(c) { try { localStorage.setItem("wms_calc_v1", JSON.stringify(c)); } catch {} }
+function renderProcessCalculator() {
+    const host = $("processCalculatorPanel"); if (!host) return;
+    const c = loadCalc(); if (!c.date) c.date = dateKey(new Date());
+    host.innerHTML = `<section class="panel"><div class="panel-title"><div><h3>Headcount calculator</h3><p>Enter the plan and the norm. Direct = people working on the process itself; Indirect = support (Consolidation for Pick, Buffer for Putaway, leaders, instructors …). Direct % + Indirect % = 100% of the total headcount.</p></div></div>
+        <div class="calc-top"><div><label class="control-label">Productive hours per person</label><input id="calcHours" type="number" min="1" max="24" step="0.25" value="${c.hours}"></div>
+        <div><label class="control-label">Compare with schedule: date</label><input id="calcDate" type="date" value="${c.date}"></div>
+        <div><label class="control-label">Shift</label><select id="calcShift"><option value="day" ${c.shift === "day" ? "selected" : ""}>DAY</option><option value="night" ${c.shift === "night" ? "selected" : ""}>NIGHT</option></select></div></div>
+        <div class="calc-grid">${PROCESS_LIST.map(p => `<div class="calc-card" data-calc="${p}"><h4>${p}</h4>
+            <label class="control-label">Plan (units)</label><input type="number" min="0" step="1" data-f="plan" value="${c[p].plan || ""}" placeholder="e.g. 12000">
+            <label class="control-label">Units per person per hour</label><input type="number" min="0" step="0.1" data-f="rate" value="${c[p].rate || ""}" placeholder="e.g. 120">
+            <div class="calc-pct"><div><label class="control-label">Direct %</label><input type="number" min="1" max="100" step="1" data-f="direct" value="${c[p].direct}"></div><div><label class="control-label">Indirect %</label><input type="number" min="0" max="99" step="1" data-f="indirect" value="${100 - c[p].direct}"></div></div>
+            <div class="calc-out" data-out="${p}"></div></div>`).join("")}</div>
+        <div id="calcTotals" class="quick-stats-grid"></div></section>`;
+    host.querySelectorAll("input,select").forEach(el => el.addEventListener("input", e => { const t = e.target; if (t.dataset.f === "direct") { const card = t.closest("[data-calc]"); card.querySelector('[data-f="indirect"]').value = 100 - (Number(t.value) || 0); } if (t.dataset.f === "indirect") { const card = t.closest("[data-calc]"); card.querySelector('[data-f="direct"]').value = 100 - (Number(t.value) || 0); } updateCalculator(); }));
+    host.addEventListener("click", e => { const b = e.target.closest("[data-use-req]"); if (!b) return; const [p, s, v] = b.dataset.useReq.split("|"); setProcessTab("coverage"); const inp = document.querySelector(`.req-input[data-req="${reqKey(p, s)}"]`); if (inp && !inp.disabled) { inp.value = v; toast(`${p} ${s.toUpperCase()} requirement set to ${v}. Press Save requirements.`); } else toast("Only Coordinator or Admin can change requirements."); });
+    updateCalculator();
+}
+function updateCalculator() {
+    const host = $("processCalculatorPanel"); if (!host || !host.querySelector("#calcHours")) return;
+    const c = { hours: Number($("calcHours").value) || 0, date: $("calcDate").value, shift: $("calcShift").value };
+    const planned = analyticsRowFor(fromKey(c.date || dateKey(new Date())), c.shift, activeEmployees()).processStats;
+    let sumDirect = 0, sumTotal = 0, sumIndirect = 0;
+    PROCESS_LIST.forEach(p => {
+        const card = host.querySelector(`[data-calc="${p}"]`), f = k => card.querySelector(`[data-f="${k}"]`).value;
+        c[p] = { plan: Number(f("plan")) || 0, rate: Number(f("rate")) || 0, direct: Math.min(100, Math.max(1, Number(f("direct")) || 75)) };
+        const r = calcProcess(c[p].plan, c[p].rate, c.hours, c[p].direct); sumDirect += r.direct; sumTotal += r.total; sumIndirect += r.indirect;
+        const plDirect = planned?.get(p)?.planned || 0, indProc = CALC_INDIRECT_PROCESS[p], plIndirect = indProc ? (planned?.get(indProc)?.planned || 0) : 0;
+        const dGap = plDirect - r.direct, iOver = plIndirect - r.indirect;
+        card.querySelector(`[data-out="${p}"]`).innerHTML = r.direct ? `<div class="calc-line"><span>Direct needed</span><b>${r.direct}</b></div><div class="calc-line"><span>Indirect allowed (up to)</span><b>${r.indirect}</b></div><div class="calc-line total"><span>Total headcount</span><b>${r.total}</b></div>
+            <small>${CALC_INDIRECT_NOTE[p]} · ${r.directPct}% direct / ${r.indirectPct}% indirect</small>
+            <div class="calc-compare"><div class="${dGap >= 0 ? "ok" : "bad"}">Planned ${p}: <b>${plDirect}</b> → ${dGap >= 0 ? `+${dGap} surplus` : `${dGap} short`}</div>${indProc ? `<div class="${iOver <= 0 ? "ok" : "warn"}">Planned ${indProc} (indirect): <b>${plIndirect}</b> → ${iOver <= 0 ? `${-iOver} free` : `${iOver} over the limit`}</div>` : ""}</div>
+            <button type="button" class="mini-btn" data-use-req="${p}|${c.shift}|${r.direct}">Use ${r.direct} as ${c.shift.toUpperCase()} requirement</button>` : `<small>Enter plan and units per hour.</small>`;
+    });
+    saveCalc(c);
+    $("calcTotals").innerHTML = [["Direct total", sumDirect], ["Indirect allowed", sumIndirect], ["Total headcount", sumTotal]].map(([l, v]) => `<div class="quick-stat"><span>${l}</span><strong>${v}</strong><small>${c.shift.toUpperCase()} shift</small></div>`).join("");
+}
+function setProcessTab(tab) {
+    processTab = tab;
+    document.querySelectorAll("[data-process-tab]").forEach(b => b.classList.toggle("active", b.dataset.processTab === tab));
+    $("processCoveragePanel").hidden = tab !== "coverage"; $("processCalculatorPanel").hidden = tab !== "calculator";
+    if (tab === "calculator") renderProcessCalculator(); else renderProcessCharts();
+}
+async function renderProcessPage() {
+    await loadProcessRequirements(); subscribeToProcessRealtime();
+    renderProcessRequirementInputs(); setProcessTab(processTab);
+}
+document.querySelectorAll("[data-process-tab]").forEach(b => b.addEventListener("click", () => setProcessTab(b.dataset.processTab)));
+$("processMonthPrev")?.addEventListener("click", () => { processMonth = new Date(processMonth.getFullYear(), processMonth.getMonth() - 1, 1, 12); renderProcessCharts(); });
+$("processMonthNext")?.addEventListener("click", () => { processMonth = new Date(processMonth.getFullYear(), processMonth.getMonth() + 1, 1, 12); renderProcessCharts(); });
+$("processReqSave")?.addEventListener("click", saveProcessRequirements);

@@ -2998,3 +2998,37 @@ tbody button.mini-btn:disabled{opacity:.4;cursor:not-allowed}
 .chart-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--c-line,#e6eaf2);border-radius:12px;padding:6px;background:#fff}
 .chart-block{margin:0 0 26px}.chart-block h4{display:flex;gap:8px;align-items:center}
 .chart-legend{font-size:12px;color:#6b7592;margin:10px 0 6px}.chart-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 4px 0 10px;vertical-align:middle}
+
+
+/* =========================================================
+   V39.7 — overview KPI, totals, charts v2, process page, calculator
+========================================================= */
+.overview-main-kpis{grid-template-columns:repeat(5,minmax(0,1fr))!important}
+@media (max-width:1100px){.overview-main-kpis{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media (max-width:600px){.overview-main-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+#leaveTab:not(.rest-mode) .rest-stats{display:none}
+.req-star{color:#ef4444;font-weight:800}
+.zero{color:#b6bdd0}.total-row td{font-weight:800;background:#f1f4ff;border-top:2px solid #c7d0f0}
+.extra-totals{margin:0 0 12px}
+.chart-layout{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:16px;align-items:start}
+.chart-side{border:1px solid var(--c-line,#e6eaf2);border-radius:14px;padding:14px;background:#fff;display:grid;gap:8px}
+.side-kpi strong{display:block;font-size:30px;letter-spacing:-.02em}.side-kpi span,.side-kpi small,.side-base span{color:#6b7592;font-size:12px}
+.side-base,.side-row{display:grid;grid-template-columns:12px 1fr auto auto;gap:8px;align-items:center;font-size:13px}
+.side-base{grid-template-columns:1fr auto;border-bottom:1px dashed #dfe4f0;padding-bottom:6px}
+.side-row i,.donut-legend i{width:10px;height:10px;border-radius:3px;display:inline-block}.side-row em,.donut-legend em{font-style:normal;color:#6b7592;min-width:48px;text-align:right}
+.side-note{font-size:12px;color:#6b7592;border-top:1px dashed #dfe4f0;padding-top:8px}
+.donut-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:14px}
+.donut-card{border:1px solid var(--c-line,#e6eaf2);border-radius:14px;padding:12px;background:#fff}.donut-card h5{margin:0 0 6px}
+.donut-body{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.donut-legend{list-style:none;margin:0;padding:0;display:grid;gap:5px;font-size:12.5px;flex:1;min-width:150px}
+.donut-legend li{display:grid;grid-template-columns:12px 1fr auto auto;gap:6px;align-items:center}
+.proc-shift{margin:14px 0}.proc-head{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:6px}
+.proc-stat{font-size:12.5px;color:#6b7592}.proc-stat b{color:#172033;font-size:14px}.proc-stat em{font-style:normal;color:#4f46e5;font-weight:700}.proc-stat.bad b{color:#ef4444}
+.req-input{width:110px}
+.calc-top{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-bottom:14px}
+.calc-card{border:1px solid var(--c-line,#e6eaf2);border-radius:14px;padding:14px;background:#fff;display:grid;gap:6px;align-content:start}.calc-card h4{margin:0 0 4px}
+.calc-pct{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.calc-out{margin-top:6px;display:grid;gap:6px}.calc-line{display:flex;justify-content:space-between}.calc-line.total{border-top:1px dashed #dfe4f0;padding-top:6px;font-size:16px}
+.calc-compare{display:grid;gap:4px;font-size:13px}.calc-compare .ok{color:#17653a}.calc-compare .bad{color:#b91c1c}.calc-compare .warn{color:#b45309}
+@media (max-width:900px){.chart-layout{grid-template-columns:1fr}}
