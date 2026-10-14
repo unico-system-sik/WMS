@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-release="beta">
 <head>
     <meta charset="UTF-8">
     <link rel="manifest" href="manifest.webmanifest">
@@ -10,11 +10,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="WMS">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
     <title>Warehouse Management System</title>
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://ipmyxkhnwijpdweeztgb.supabase.co wss://ipmyxkhnwijpdweeztgb.supabase.co; worker-src 'self' blob:;">
-    <link rel="stylesheet" href="style.css?v=39.8.1">
+    <link rel="stylesheet" href="style.css?v=39.9-beta1">
 </head>
 <body>
 
@@ -29,6 +30,7 @@
 
   <div class="login-card">
     <div class="login-brand">WAREHOUSE UNICO</div>
+    <div class="beta-badge beta-login" title="Test version">BETA · V39.9</div>
     <h1>Warehouse Management System</h1>
     <p class="login-subtitle">Sign in with your warehouse account to continue.</p>
 
@@ -57,7 +59,7 @@
       <span>Too many failed attempts. Try again in <b id="loginCountdown">10:00</b>.</span>
     </div>
 
-    <div class="login-footer">Warehouse Management System</div>
+    <div class="login-footer">Warehouse Management System · V39.9</div>
   </div>
 </div>
 
@@ -67,6 +69,7 @@
 
 <div id="currentUserBox" class="current-user-box hidden">
   <div id="currentUserLoginDisplay" class="current-user-login">—</div>
+  <span class="beta-badge beta-mobile" title="Test version">BETA</span>
   <button id="namesButton" class="names-button" type="button" title="Show employee names from the encrypted Excel file on the server">🔒 Names</button>
   <button id="logoutButton" class="logout-button" type="button">Log out</button>
 </div>
@@ -78,6 +81,7 @@
 
     <div class="brand">
         <h1>Warehouse UNICO</h1>
+        <span class="beta-badge" title="Test version">BETA · V39.9</span>
         <p>Management<br>System</p>
     </div>
     <nav>
@@ -932,6 +936,12 @@
             <span><strong class="attendance-code absent">A</strong> Absent</span>
             <span><strong class="attendance-code pending">P</strong> Pending</span>
             <span><strong class="attendance-code off">O</strong> Day off / no planned shift</span>
+            <span><strong class="attendance-day-badge vacation">U</strong> Vacation</span>
+            <span><strong class="attendance-day-badge sick">L4</strong> Sick leave</span>
+            <span><strong class="attendance-day-badge rest">R</strong> Rest shift</span>
+            <span><strong class="attendance-day-badge extra-day">D+</strong> Extra DAY</span>
+            <span><strong class="attendance-day-badge extra-night">N+</strong> Extra NIGHT</span>
+            <span><strong class="attendance-day-badge extra-off">OFF</strong> Extra OFF</span>
         </div>
         <div class="hours-matrix-top-scroll" id="hoursMatrixTopScroll" aria-label="Horizontal attendance scroll"><div id="hoursMatrixTopScrollInner"></div></div>
         <div class="table-wrap hours-attendance-matrix-wrap" id="hoursAllTableScroll">
@@ -1466,7 +1476,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=39.8.1"></script>
+<script src="script.js?v=39.9-beta1"></script>
 
 </body>
 </html>

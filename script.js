@@ -6467,7 +6467,7 @@ async function saveLeaveRecord(){
     for(const r of employeeLeaveRecords){if(r.employeeLogin===login && !(end<r.startDate||start>r.endDate)){toast("This leave period overlaps an existing leave record.");return;}}
     for(const d of [start,end]){const date=fromKey(d), key=scheduleKey(date,login); if(extraDays[key]){toast("Leave cannot overlap an Extra Day. Remove the Extra Day first.");return;}}
     const {data,error}=await supabaseClient.rpc("save_employee_leave",{p_employee_login:login,p_leave_type:type,p_start_date:start,p_end_date:end,p_note:note||null});
-    if(error){console.error("Leave save error:",error);toast(/leave_type|Invalid leave type|check constraint/i.test(error.message)?`Could not save: the database is not updated yet. Run the latest WMS SQL (V39.6) in Supabase. (${error.message})`:`Could not save: ${error.message}`);return;}
+    if(error){console.error("Leave save error:",error);toast(/leave_type|Invalid leave type|check constraint/i.test(error.message)?`Could not save: the database is not updated yet. Run the latest WMS SQL (WMS_FROM_ZERO_V39.9.sql) in Supabase. (${error.message})`:`Could not save: ${error.message}`);return;}
     if(data){employeeLeaveRecords.push({id:data.id,employeeLogin:data.employee_login,leaveType:data.leave_type,startDate:data.start_date,endDate:data.end_date,note:data.note||"",recordedBy:data.recorded_by_login||currentUser?.login||"",createdAt:data.created_at||new Date().toISOString()});}
     $("leaveEmployeeLogin").value="";$("leaveNote").value="";renderLeaveTab();renderScheduling();renderOverview();if($("analyticsPage")?.classList.contains("active-page"))renderAnalytics();toast("Leave saved and shown in the schedule.");
 }
@@ -6868,7 +6868,13 @@ function getHoursAttendanceDayCell(employee, date) {
     };
 }
 
+const WMS_DAY_HEADERS = new Map();
 function getHoursAttendanceDayHeaders(monthDate = hoursAttendanceMonth) {
+    const cacheKey = `${monthDate.getFullYear()}-${monthDate.getMonth()}`;
+    if (!WMS_DAY_HEADERS.has(cacheKey)) WMS_DAY_HEADERS.set(cacheKey, buildHoursAttendanceDayHeaders(monthDate));
+    return WMS_DAY_HEADERS.get(cacheKey).map(h => ({ ...h }));
+}
+function buildHoursAttendanceDayHeaders(monthDate) {
     const year = monthDate.getFullYear();
     const month = monthDate.getMonth();
     const headers = [];
@@ -7508,7 +7514,13 @@ function buildHoursAttendanceWorkbook(employees) {
         ["E", "Left early"],
         ["A", "Absent"],
         ["P", "Pending confirmation"],
-        ["O", "Day off / no planned shift"]
+        ["O", "Day off / no planned shift"],
+        ["U", "Vacation"],
+        ["L4", "Sick leave (L4)"],
+        ["R", "Rest shift (extra day off at the employer's request)"],
+        ["D+", "Extra DAY"],
+        ["N+", "Extra NIGHT"],
+        ["OFF", "Extra OFF"]
     ]);
     legendSheet["!cols"] = [{ wch: 10 }, { wch: 28 }];
     XLSX.utils.book_append_sheet(wb, legendSheet, "Legend");
@@ -8827,10 +8839,20 @@ function v383RenderScheduleTable() {
 }
 renderScheduleTable = v383RenderScheduleTable;
 
+// V39.9 beta: date labels are formatted once per day and reused (was 31 000 formatter calls per render with 500 employees).
+const WMS_DATE_LABELS = new Map();
+function wmsDateLabels(date) {
+    const k = date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate();
+    let v = WMS_DATE_LABELS.get(k);
+    if (!v) {
+        v = { d: date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }), w: date.toLocaleDateString("en-US", { weekday: "long" }) };
+        WMS_DATE_LABELS.set(k, v);
+    }
+    return v;
+}
 function v383GetAttendanceDayCell(employee, date) {
     const schedule = getSchedule(employee, date);
-    const dateLabel = date.toLocaleDateString("en-GB", {day:"2-digit",month:"2-digit",year:"numeric"});
-    const weekdayLabel = date.toLocaleDateString("en-US", {weekday:"long"});
+    const { d: dateLabel, w: weekdayLabel } = wmsDateLabels(date);
     if (!canConfirmEmployeeDate(employee, date)) {
         return {code:"O", className:"off", reason:"", title:`Before start date ${employee.startDate} · No attendance confirmation allowed`};
     }
@@ -8838,7 +8860,8 @@ function v383GetAttendanceDayCell(employee, date) {
     const extra = extraDays[scheduleKey(date, employee.login)];
     if (leave) {
         const isSick = leave.leaveType === "sick-leave";
-        return { code: isSick ? "L4" : "U", className: isSick ? "sick" : "vacation", title: `${weekdayLabel}, ${dateLabel} · ${leaveTypeLabel(leave.leaveType)} · ${leave.startDate} → ${leave.endDate}${leave.note ? ` · ${leave.note}` : ""}` };
+        const isRest = leave.leaveType === "rest";
+        return { code: isSick ? "L4" : isRest ? "R" : "U", className: isSick ? "sick" : isRest ? "rest" : "vacation", title: `${weekdayLabel}, ${dateLabel} · ${leaveTypeLabel(leave.leaveType)} · ${leave.startDate} → ${leave.endDate}${leave.note ? ` · ${leave.note}` : ""}` };
     }
     if (extra?.type === "extra-work-day") return { code: "D+", className: "extra-day", title: `${weekdayLabel}, ${dateLabel} · Extra work · DAY` };
     if (extra?.type === "extra-work-night") return { code: "N+", className: "extra-night", title: `${weekdayLabel}, ${dateLabel} · Extra work · NIGHT` };
@@ -9295,22 +9318,23 @@ setInterval(() => { if (typeof activeSchedulingTab === "string" && currentUser) 
 })();
 
 // Attendance monitoring: sort by absences and more
-function hoursAbsenceCounts(employee) {
+function hoursAbsenceCounts(employee, headers) {
     const c = { a: 0, e: 0, p: 0 };
-    getHoursAttendanceDayHeaders(hoursAttendanceMonth).forEach(({ date }) => { const k = v383GetAttendanceDayCell(employee, date).code; if (k === "A") c.a++; else if (k === "E") c.e++; else if (k === "P") c.p++; });
+    (headers || getHoursAttendanceDayHeaders(hoursAttendanceMonth)).forEach(({ date }) => { const k = v383GetAttendanceDayCell(employee, date).code; if (k === "A") c.a++; else if (k === "E") c.e++; else if (k === "P") c.p++; });
     return c;
 }
 const wmsOrigSortHours = sortHoursAttendanceEmployees;
 sortHoursAttendanceEmployees = function (list) {
     const m = $("hoursAllSort")?.value || ""; if (!m) return wmsOrigSortHours(list);
-    const k = m.startsWith("absent") ? "a" : m.startsWith("early") ? "e" : "p", dir = m.endsWith("asc") ? 1 : -1, cache = new Map(list.map(e => [e.login, hoursAbsenceCounts(e)[k]]));
+    const k = m.startsWith("absent") ? "a" : m.startsWith("early") ? "e" : "p", dir = m.endsWith("asc") ? 1 : -1, headers = getHoursAttendanceDayHeaders(hoursAttendanceMonth), cache = new Map(list.map(e => [e.login, hoursAbsenceCounts(e, headers)[k]]));
     return [...list].sort((x, y) => (cache.get(x.login) - cache.get(y.login)) * dir || String(x.login).localeCompare(String(y.login)));
 };
 const wmsOrigRenderAllHours = renderAllHoursAttendance;
 renderAllHoursAttendance = function () {
     wmsOrigRenderAllHours();
     if (!($("hoursAllSort")?.value)) return;
-    document.querySelectorAll("#hoursAllTableBody tr[data-hours-employee]").forEach(tr => { const e = employeeByLogin(tr.dataset.hoursEmployee), cell = tr.querySelector("td"); if (!e || !cell || cell.querySelector(".abs-count")) return; const c = hoursAbsenceCounts(e); cell.insertAdjacentHTML("beforeend", `<small class="abs-count"> · ${c.a} absent · ${c.e} left early · ${c.p} pending</small>`); });
+    const wmsHeadersNow = getHoursAttendanceDayHeaders(hoursAttendanceMonth);
+    document.querySelectorAll("#hoursAllTableBody tr[data-hours-employee]").forEach(tr => { const e = employeeByLogin(tr.dataset.hoursEmployee), cell = tr.querySelector("td"); if (!e || !cell || cell.querySelector(".abs-count")) return; const c = hoursAbsenceCounts(e, wmsHeadersNow); cell.insertAdjacentHTML("beforeend", `<small class="abs-count"> · ${c.a} absent · ${c.e} left early · ${c.p} pending</small>`); });
 };
 $("hoursAllSort")?.addEventListener("change", () => { hoursAllVisibleCount = LARGE_LIST_PAGE_SIZE; renderAllHoursAttendance(); });
 
@@ -9520,7 +9544,7 @@ async function saveProcessRequirements() {
     if (!canManageEmployees()) { toast("Only Coordinator or Admin can change requirements."); return; }
     const rows = [...document.querySelectorAll("#processReqBody .req-input")].map(i => { const [process, shift] = i.dataset.req.split("|"); return { process, shift, headcount: Math.max(0, Math.min(2000, parseInt(i.value, 10) || 0)) }; });
     const { error } = await supabaseClient.from("process_requirements").upsert(rows, { onConflict: "process,shift" });
-    if (error) { toast(/process_requirements|relation|does not exist/i.test(error.message) ? "Database not updated: run the latest WMS SQL (V39.8)." : `Could not save: ${error.message}`); return; }
+    if (error) { toast(/process_requirements|relation|does not exist/i.test(error.message) ? "Database not updated: run the latest WMS SQL (WMS_FROM_ZERO_V39.9.sql)." : `Could not save: ${error.message}`); return; }
     rows.forEach(r => { processRequirements[reqKey(r.process, r.shift)] = r.headcount; });
     renderAnalyticsTab(); toast("Required headcount saved.");
 }
@@ -9569,8 +9593,10 @@ function analyticsMonthData(shiftSel, scope) {
 function renderAttendanceCharts() {
     const host = $("analyticsCharts"); if (!host) return;
     const sel = $("attShiftSel")?.value || "day", scope = $("attScopeSel")?.value || "core", D = analyticsMonthData(sel, scope), items = D.items, S = chartSummary(items);
-    const sum = f => items.reduce((s, i) => s + f(i), 0), P = sum(i => i.scheduled), PR = sum(i => i.came), AB = sum(i => i.absent), PE = sum(i => i.pending), LE = Math.min(PR, sum(i => i.left)), OT = Math.max(0, PR - LE);
-    const reqDays = sum(i => i.required), rate = PR + AB ? (PR / (PR + AB) * 100).toFixed(1) + "%" : "—";
+    // V39.9 beta: outcomes are counted for the days that already happened (future days are not "pending" yet)
+    const todayKey = dateKey(new Date()), past = items.filter(i => i.date <= todayKey);
+    const sum = (f, arr = past) => arr.reduce((s, i) => s + f(i), 0), P = sum(i => i.scheduled), PR = sum(i => i.came), AB = sum(i => i.absent), PE = sum(i => i.pending), LE = Math.min(PR, sum(i => i.left)), OT = Math.max(0, PR - LE);
+    const Pmonth = sum(i => i.scheduled, items), reqDays = sum(i => i.required, items), reqPast = sum(i => i.required), rate = PR + AB ? (PR / (PR + AB) * 100).toFixed(1) + "%" : "—";
     const conf = items.filter(i => i.came + i.absent > 0), worst = conf.length ? conf.reduce((a, b) => (b.came / (b.came + b.absent)) < (a.came / (a.came + a.absent)) ? b : a) : null, best = conf.length ? conf.reduce((a, b) => (b.came / (b.came + b.absent)) > (a.came / (a.came + a.absent)) ? b : a) : null;
     const dow = Array.from({ length: 7 }, () => ({ c: 0, a: 0 })); conf.forEach(i => { dow[i.dow].c += i.came; dow[i.dow].a += i.absent; });
     const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], dowItems = [1, 2, 3, 4, 5, 6, 0].map(k => ({ label: names[k], value: dow[k].c + dow[k].a ? Math.round(dow[k].c / (dow[k].c + dow[k].a) * 1000) / 10 : 0 }));
@@ -9582,14 +9608,14 @@ function renderAttendanceCharts() {
         ${summaryChips(S)}
         <div class="chart-layout"><div class="chart-main">${triLegend()}${svgTri(items)}</div>
         <aside class="chart-side"><div class="side-kpi"><span>Attendance rate</span><strong>${rate}</strong><small>came ÷ (came + absent)</small></div>
-            <div class="side-base"><span>Scheduled (100%)</span><b>${P}</b></div>
+            <div class="side-base"><span>Scheduled so far (100%)</span><b>${P}</b></div>
             ${side.map(([l, v, c]) => `<div class="side-row"><i style="background:${c}"></i><span>${l}</span><b>${v}</b><em>${pct(v, P)}</em></div>`).join("")}
             <div class="side-base"><span>Required (month)</span><b>${reqDays}</b></div>
-            <div class="side-row"><i style="background:${C_SCHED}"></i><span>Scheduled vs required</span><b>${P}</b><em>${reqDays ? pct(P, reqDays) : "—"}</em></div>
-            <div class="side-row"><i style="background:${C_CAME}"></i><span>Came vs required</span><b>${PR}</b><em>${reqDays ? pct(PR, reqDays) : "—"}</em></div>
+            <div class="side-row"><i style="background:${C_SCHED}"></i><span>Scheduled vs required (month)</span><b>${Pmonth}</b><em>${reqDays ? pct(Pmonth, reqDays) : "—"}</em></div>
+            <div class="side-row"><i style="background:${C_CAME}"></i><span>Came vs required (so far)</span><b>${PR}</b><em>${reqPast ? pct(PR, reqPast) : "—"}</em></div>
             <div class="side-note">${best ? `Best day: <b>${best.date.slice(8)}</b> · Lowest day: <b>${worst.date.slice(8)}</b>` : "No confirmed days yet"}${reqDays ? "" : "<br>Set the required headcount in the Processes tab."}</div></aside></div>
         <h5 class="sub-h">Coverage by day</h5>${coverageStrip(items)}
-        <div class="donut-row">${donutBlock("Outcome of scheduled shifts", [{ label: "Came on time", value: OT, color: WMS_COLORS.present }, { label: "Left early", value: LE, color: WMS_COLORS.early }, { label: "Absent", value: AB, color: WMS_COLORS.absent }, { label: "Pending", value: PE, color: WMS_COLORS.pending }], P, "scheduled")}${donutBlock("Absence reasons", reasonSegs, AB, "absences")}${donutBlock("Absences by process", procSegs, AB, "absences")}
+        <div class="donut-row">${donutBlock("Outcome of scheduled shifts so far", [{ label: "Came on time", value: OT, color: WMS_COLORS.present }, { label: "Left early", value: LE, color: WMS_COLORS.early }, { label: "Absent", value: AB, color: WMS_COLORS.absent }, { label: "Pending", value: PE, color: WMS_COLORS.pending }], P, "scheduled")}${donutBlock("Absence reasons", reasonSegs, AB, "absences")}${donutBlock("Absences by process", procSegs, AB, "absences")}
         <div class="donut-card"><h5>Attendance rate by weekday (%)</h5>${svgHBars(dowItems, "#6366f1")}</div></div></section>`;
 }
 
@@ -9768,3 +9794,7 @@ function namesDialog() {
     });
 }
 $("namesButton")?.addEventListener("click", () => { if (namesMap) namesLock(); else namesDialog(); });
+
+
+/* V39.9 beta: the tab title says BETA while <html data-release="beta"> (set data-release="prod" for the live version). */
+if (document.documentElement.dataset.release === "beta" && !/^BETA/.test(document.title)) document.title = "BETA · " + document.title;
