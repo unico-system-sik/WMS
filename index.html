@@ -14,7 +14,7 @@
     <meta name="referrer" content="no-referrer">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://ipmyxkhnwijpdweeztgb.supabase.co wss://ipmyxkhnwijpdweeztgb.supabase.co; worker-src 'self' blob:;">
-    <link rel="stylesheet" href="style.css?v=39.7">
+    <link rel="stylesheet" href="style.css?v=39.8.1">
 </head>
 <body>
 
@@ -67,6 +67,7 @@
 
 <div id="currentUserBox" class="current-user-box hidden">
   <div id="currentUserLoginDisplay" class="current-user-login">—</div>
+  <button id="namesButton" class="names-button" type="button" title="Show employee names from the encrypted Excel file on the server">🔒 Names</button>
   <button id="logoutButton" class="logout-button" type="button">Log out</button>
 </div>
 
@@ -81,12 +82,11 @@
     </div>
     <nav>
         <button class="nav-btn active" data-page="overviewPage">📊 <span>Shift Overview</span></button>
-        <button class="nav-btn" data-page="employeesPage">👥 <span>Employees</span></button>
+        <button class="nav-btn" data-page="employeesPage">👥 <span>Employees</span><em id="employeesNavBadge" class="nav-badge" hidden>0</em></button>
         <button class="nav-btn" data-page="schedulingPage">📅 <span>Shift Scheduling</span></button>
         <button class="nav-btn" data-page="hoursAttendancePage">⏱️ <span>Attendance Monitoring</span></button>
         <button class="nav-btn" data-page="feedbackTrackerPage">📝 <span>Feedback Tracker</span></button>
         <button class="nav-btn" data-page="analyticsPage">📈 <span>Analytics</span></button>
-        <button class="nav-btn" data-page="processPage">🧩 <span>Process</span></button>
     </nav>
 </aside>
 
@@ -260,6 +260,7 @@
             <button id="exportEmployees" class="secondary" type="button" title="Coordinator/Admin only">Export Excel</button>
         </div>
     </header>
+    <div id="terminationNotices" class="notice-panel" hidden></div>
 
     <div class="subtabs">
         <button class="subtab active" data-employees-tab="employeeDatabaseTab">Employee Database</button>
@@ -691,6 +692,7 @@
     <section class="panel feedback-controls-panel">
         <div class="filters">
             <input id="feedbackSearch" placeholder="Search employee by login">
+            <select id="feedbackSort" aria-label="Sort employees"><option value="">Sort: login A → Z</option><option value="high">Most feedback first</option><option value="low">Fewest feedback first</option></select>
             <div class="multi-filter" id="feedbackBrigadeFilter">
                 <button type="button" class="multi-filter-button" data-multi-toggle="feedbackBrigadeFilter">All brigades ▾</button>
                 <div class="multi-filter-menu" data-multi-menu="feedbackBrigadeFilter"></div>
@@ -739,6 +741,7 @@
                 <p>Counts and percentages by error type, by day, with the same filters as the main tracker.</p>
             </div>
         </div>
+        <div class="stats-sort-row"><label class="control-label" for="feedbackStatsSort">Sort the tables below</label><select id="feedbackStatsSort"><option value="high">Largest → smallest</option><option value="low">Smallest → largest</option><option value="name">Name A → Z</option></select></div>
         <div class="cards five feedback-stat-kpis">
             <div class="card"><span>Total feedback</span><strong id="feedbackKpiTotal">0</strong><small>selected month / filters</small></div>
             <div class="card"><span>Employees affected</span><strong id="feedbackKpiEmployees">0</strong><small>employees with ≥1 feedback</small></div>
@@ -746,6 +749,7 @@
             <div class="card"><span>Top error</span><strong id="feedbackKpiTopError">—</strong><small id="feedbackKpiTopErrorCount">0 feedback</small></div>
             <div class="card"><span>Top brigade</span><strong id="feedbackKpiTopBrigade">—</strong><small id="feedbackKpiTopBrigadeCount">0 feedback</small></div>
         </div>
+        <div id="feedbackStatsCharts" class="feedback-stats-charts"></div>
         <div class="feedback-stats-summary-wrap">
             <h4>Error type summary</h4>
             <div class="table-wrap feedback-table-wrap">
@@ -984,29 +988,6 @@
 
 </section>
 
-<section id="processPage" class="page">
-    <div class="page-header">
-        <div><h2>Process</h2><p>Required headcount per process, planned vs present, and a headcount calculator.</p></div>
-        <div class="header-actions">
-            <button id="processMonthPrev" class="secondary" type="button">←</button>
-            <strong id="processMonthLabel" class="month-label"></strong>
-            <button id="processMonthNext" class="secondary" type="button">→</button>
-        </div>
-    </div>
-    <div class="subtabs">
-        <button type="button" class="subtab active" data-process-tab="coverage">Coverage</button>
-        <button type="button" class="subtab" data-process-tab="calculator">Calculator</button>
-    </div>
-    <div id="processCoveragePanel">
-        <section class="panel">
-            <div class="panel-title"><div><h3>Required headcount</h3><p>People needed per shift on each process. Only Coordinator or Admin can change it.</p></div><button id="processReqSave" class="primary" type="button">Save requirements</button></div>
-            <div class="table-wrap"><table><thead><tr><th>Process</th><th>DAY shift</th><th>NIGHT shift</th></tr></thead><tbody id="processReqBody"></tbody></table></div>
-        </section>
-        <div id="processCharts"></div>
-    </div>
-    <div id="processCalculatorPanel" hidden></div>
-</section>
-
 <section id="analyticsPage" class="page">
     <header class="page-header">
         <div><h2>Analytics</h2><p>Daily warehouse analysis with shift-level drill-down and process staffing for the selected period.</p></div>
@@ -1014,11 +995,28 @@
     </header>
     <div class="subtabs analytics-subtabs">
         <button type="button" class="subtab active" data-analytics-tab="table">Daily analysis</button>
-        <button type="button" class="subtab" data-analytics-tab="charts">Charts</button>
+        <button type="button" class="subtab" data-analytics-tab="attendance">Attendance</button>
+        <button type="button" class="subtab" data-analytics-tab="brigades">Brigades</button>
+        <button type="button" class="subtab" data-analytics-tab="processes">Processes</button>
     </div>
     <section id="analyticsChartsPanel" class="panel" hidden>
-        <div class="panel-title"><div><h3>Planned vs attendance</h3><p>Day and Night shifts separately for the selected month. Rate = present ÷ (present + absent) on confirmed days.</p></div></div>
+        <div class="panel-title"><div><h3>Attendance: required · scheduled · came</h3><p>For every day of the month. Required = headcount set in the Processes tab; scheduled = planned in the schedule; came = confirmed present.</p></div>
+            <div class="panel-controls"><select id="attShiftSel" aria-label="Shift"><option value="day">DAY shift</option><option value="night">NIGHT shift</option><option value="both">DAY + NIGHT</option></select>
+            <select id="attScopeSel" aria-label="Scope"><option value="core">Pick + Putaway + Abnormal</option><option value="all">All processes</option></select></div></div>
         <div id="analyticsCharts"></div>
+    </section>
+    <section id="analyticsBrigadePanel" class="panel" hidden>
+        <div class="panel-title"><div><h3>Attendance by brigade</h3><p>Scheduled vs came and attendance rate for every brigade in the selected month.</p></div>
+            <div class="panel-controls"><select id="brigShiftSel" aria-label="Shift"><option value="all">DAY + NIGHT</option><option value="day">DAY shift</option><option value="night">NIGHT shift</option></select></div></div>
+        <div id="analyticsBrigades"></div>
+    </section>
+    <section id="analyticsProcessPanel" class="panel" hidden>
+        <div class="panel-title"><div><h3>Processes: Pick · Putaway · Abnormal</h3><p>Set how many people each process needs per shift, then compare required vs scheduled vs came.</p></div>
+            <div class="panel-controls"><select id="procShiftSel" aria-label="Shift"><option value="day">DAY shift</option><option value="night">NIGHT shift</option><option value="both">DAY + NIGHT</option></select></div></div>
+        <h5 class="sub-h">Required headcount per shift <span class="muted">(only Coordinator / Admin can change)</span></h5>
+        <div class="table-wrap"><table><thead><tr><th>Process</th><th>DAY shift</th><th>NIGHT shift</th></tr></thead><tbody id="processReqBody"></tbody></table></div>
+        <div class="req-actions"><button id="processReqSave" class="primary" type="button">Save required headcount</button></div>
+        <div id="processCharts"></div>
     </section>
     <section class="panel analytics-daily-panel">
         <div class="panel-title"><div><h3>Daily shifts</h3><p>Click a DAY/NIGHT row. Details open directly under the selected shift. Feedback counts employees with at least one entry; drill-down shows all entries.</p></div><span id="analyticsMeta" class="muted">0 shifts</span></div>
@@ -1468,7 +1466,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="script.js?v=39.7"></script>
+<script src="script.js?v=39.8.1"></script>
 
 </body>
 </html>

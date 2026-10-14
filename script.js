@@ -11,6 +11,17 @@ if (!window.supabase) {
     throw new Error("Supabase library failed to load.");
 }
 
+// V39.8: the API returns max 1000 rows per request - read every page.
+async function fetchAllPages(makeQuery, pageSize = 1000) {
+    let all = [];
+    for (let from = 0; ; from += pageSize) {
+        const { data, error } = await makeQuery().range(from, from + pageSize - 1);
+        if (error) return { data: null, error };
+        const page = Array.isArray(data) ? data : [];
+        all = all.concat(page);
+        if (page.length < pageSize) return { data: all, error: null };
+    }
+}
 const supabaseClient = window.supabase.createClient(
     SUPABASE_URL,
     SUPABASE_PUBLISHABLE_KEY,
@@ -1014,11 +1025,11 @@ let employeeAssignmentHistoryByLogin = new Map();
 
 async function loadEmployeeAssignmentHistoryFromSupabase() {
     if (!currentUser) return false;
-    const { data, error } = await supabaseClient
+    const { data, error } = await fetchAllPages(() => supabaseClient
         .from("employee_assignment_history")
         .select("id, employee_login, effective_from, brigade, process, changed_by_login, changed_at")
         .order("employee_login", { ascending: true })
-        .order("effective_from", { ascending: true });
+        .order("effective_from", { ascending: true }));
     if (error) {
         console.error("Employee assignment history load error:", error);
         employeeAssignmentHistory = [];
@@ -1040,10 +1051,10 @@ async function loadEmployeeAssignmentHistoryFromSupabase() {
 }
 
 async function loadEmployeesFromSupabase() {
-    const { data, error } = await supabaseClient
+    const { data, error } = await fetchAllPages(() => supabaseClient
         .from("employees")
         .select("login, process, brigade, start_date, end_date, reason, status, qualifications, skills")
-        .order("login", { ascending: true });
+        .order("login", { ascending: true }));
 
     if (error) {
         employeesRemoteLoadError = String(error.message || "Employees could not be loaded from Supabase.");
@@ -1200,13 +1211,13 @@ function feedbackEntryEmployee(login) {
 async function loadFeedbackFromSupabase() {
     const first = `${feedbackMonthKey()}-01`;
     const last = `${feedbackMonthKey()}-${String(feedbackDays()).padStart(2,"0")}`;
-    const { data, error } = await supabaseClient
+    const { data, error } = await fetchAllPages(() => supabaseClient
         .from("feedback_entries")
         .select("id, work_date, employee_login, shift, error_type, note, confirmed_by, confirmed_by_login, confirmed_at, created_at")
         .gte("work_date", first)
         .lte("work_date", last)
         .order("work_date", { ascending: true })
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: true }));
     if (error) {
         console.error("Feedback load error:", error);
         feedbackEntries = []; feedbackLoaded = false; return false;
@@ -1696,6 +1707,7 @@ function employeeAssignmentForDate(employee, date) {
     const rows = employeeAssignmentHistoryByLogin.get(String(employee.login)) || [];
     let match = null;
     rows.forEach(row => { if (row.effective_from && row.effective_from <= dateText) match = row; });
+    if (!match) match = rows[0] || null;
     if (!match) return fallback;
     return { brigade: match.brigade || fallback.brigade, process: normalizeProcessName(match.process || fallback.process), effectiveFrom: match.effective_from || "", changedByLogin: match.changed_by_login || "", changedAt: match.changed_at || "" };
 }
@@ -1705,10 +1717,10 @@ function employeeProcessForDate(employee, date) { return employeeAssignmentForDa
 async function loadExtraDaysFromSupabase() {
     if (!currentUser) return false;
 
-    const { data, error } = await supabaseClient
+    const { data, error } = await fetchAllPages(() => supabaseClient
         .from("schedule_exceptions")
         .select("id, work_date, employee_login, type, shift, leader_id, leader_login, created_at")
-        .order("work_date", { ascending: true });
+        .order("work_date", { ascending: true }));
 
     if (error) {
         console.error("Extra Days load error:", error);
@@ -3979,18 +3991,13 @@ function monthKey(date) {
 }
 
 function getBrigadeMonthValue(brigade, date) {
-    const people = activeEmployees().filter(
-        employee => employee.brigade === brigade
+    // V39.8: the brigade row must come from an employee who NEVER changed brigade ("stable").
+    // Employees who moved between brigades can hold rows of their old brigade and must not feed the row.
+    const hasMoved = employee => new Set((employeeAssignmentHistoryByLogin.get(String(employee.login)) || []).map(h => h.brigade).filter(Boolean)).size > 1;
+    const source = activeEmployees().find(employee =>
+        !hasMoved(employee) && employee.brigade === brigade && schedules[scheduleKey(date, employee.login)]
     );
-
-    // Brigade rows remain the normal/default schedule. Individual overrides never alter them.
-    const source = people.find(employee =>
-        schedules[scheduleKey(date, employee.login)]
-    );
-
-    return source
-        ? schedules[scheduleKey(date, source.login)]
-        : defaultShiftForBrigade(brigade);
+    return source ? schedules[scheduleKey(date, source.login)] : defaultShiftForBrigade(brigade);
 }
 
 function setSchedulingTab(tabId, renderContent = true) {
@@ -5124,9 +5131,6 @@ function switchPage(pageId) {
         renderOverview();
     }
 
-    if (pageId === "processPage") {
-        renderProcessPage();
-    }
 
     if (pageId === "employeesPage") {
         renderEmployeeDatabase();
@@ -5181,13 +5185,13 @@ async function loadAnalyticsFeedbackFromSupabase() {
     if (!currentUser) return false;
     const first = `${analyticsMonthKey()}-01`;
     const last = `${analyticsMonthKey()}-${String(analyticsDays()).padStart(2, "0")}`;
-    const { data, error } = await supabaseClient
+    const { data, error } = await fetchAllPages(() => supabaseClient
         .from("feedback_entries")
         .select("id, work_date, employee_login, shift, error_type, note, confirmed_by_login, confirmed_at, created_at")
         .gte("work_date", first)
         .lte("work_date", last)
         .order("work_date", { ascending: true })
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: true }));
     if (error) {
         console.error("Analytics feedback load error:", error);
         analyticsFeedbackEntries = [];
@@ -6437,7 +6441,7 @@ renderScheduleTable=V33_renderScheduleTable;
 
 async function loadLeaveRecordsFromSupabase() {
     if(!currentUser) return false;
-    const {data,error}=await supabaseClient.from("employee_leave_records").select("id, employee_login, leave_type, start_date, end_date, note, recorded_by_login, created_at").order("start_date",{ascending:true});
+    const {data,error}=await fetchAllPages(() => supabaseClient.from("employee_leave_records").select("id, employee_login, leave_type, start_date, end_date, note, recorded_by_login, created_at").order("start_date",{ascending:true}));
     if(error){ console.error("Leave load error:",error); return false; }
     employeeLeaveRecords=(data||[]).map(r=>({id:r.id,employeeLogin:r.employee_login,leaveType:r.leave_type,startDate:r.start_date,endDate:r.end_date,note:r.note||"",recordedBy:r.recorded_by_login||"",createdAt:r.created_at||""}));
     leaveRemoteLoaded=true; return true;
@@ -6495,10 +6499,10 @@ saveHoursEdit = async function(event){
     return V33_originalSaveHoursEdit(event);
 };
 
-function V33_analyticsEnrich(row){
+function V33_analyticsEnrich(row, list){
     row.lateDetails=[];row.leftEarlyDetails=[];row.arrivalEarlyDetails=[];row.leftEarlyReasonStats={"Private leave":0,"Forced leave":0,"Feeling unwell":0,"Late arrival":0,"Terminated":0,"Other":0,"No reason recorded":0};row.feedbackTypeStats={};row.leaveDetails=[];
     const date=fromKey(row.date);
-    const employees=analyticsSelectedEmployees();
+    const employees=Array.isArray(list)?list:analyticsSelectedEmployees(); // V39.8: count only the employees passed in (brigade / process subsets)
     employees.forEach(employee=>{
         if(!employeeOperationalOnDate(employee,date)||!canConfirmEmployeeDate(employee,date))return;
         const leave=leaveRecordForDate(employee,date);
@@ -6513,7 +6517,7 @@ function V33_analyticsEnrich(row){
     row.leave=row.leaveDetails.length;row.late=row.lateDetails.length;row.leftEarly=row.leftEarlyDetails.length;
     return row;
 }
-analyticsRowFor=function(date,shift,employees){return V33_analyticsEnrich(V33_originalAnalyticsRowFor(date,shift,employees));};
+analyticsRowFor=function(date,shift,employees){return V33_analyticsEnrich(V33_originalAnalyticsRowFor(date,shift,employees),employees);};
 
 function V33_barList(title,map,total){const entries=Object.entries(map||{}).filter(([,v])=>Number(v)>0).sort((a,b)=>b[1]-a[1]);if(!entries.length)return `<section class="analytics-mini-chart"><h4>${esc(title)}</h4><div class="empty">No records.</div></section>`;const max=Math.max(...entries.map(([,v])=>Number(v)));return `<section class="analytics-mini-chart"><h4>${esc(title)}</h4>${entries.map(([label,value])=>`<div class="analytics-bar-row"><span>${esc(label)}</span><div class="analytics-bar-track"><i style="width:${Math.max(5,(Number(value)/max)*100)}%"></i></div><strong>${Number(value)} <small>${analyticsPct(Number(value),total)}</small></strong></div>`).join("")}</section>`;}
 
@@ -8645,6 +8649,7 @@ const V37_originalLogout = logout;
 logout = async function() {
     if (processRealtimeChannel) { try { await supabaseClient.removeChannel(processRealtimeChannel); } catch {} processRealtimeChannel=null; }
     if (assignmentHistoryRealtimeChannel) { try { await supabaseClient.removeChannel(assignmentHistoryRealtimeChannel); } catch {} assignmentHistoryRealtimeChannel=null; }
+    if (terminationChannel) { try { await supabaseClient.removeChannel(terminationChannel); } catch {} terminationChannel=null; }
     if (leaveRealtimeChannel) { try { await supabaseClient.removeChannel(leaveRealtimeChannel); } catch {} leaveRealtimeChannel=null; }
     if (trainingRealtimeChannel) { try { await supabaseClient.removeChannel(trainingRealtimeChannel); } catch {} trainingRealtimeChannel=null; }
     return V37_originalLogout();
@@ -9435,11 +9440,65 @@ function renderAnalyticsCharts() {
     }).join("");
 }
 
-// ---------- Process page ----------
-const PROCESS_LIST = ["Pick", "Putaway", "Abnormal"];
-let processMonth = new Date(); processMonth = new Date(processMonth.getFullYear(), processMonth.getMonth(), 1, 12);
-let processRequirements = {}, processRealtimeChannel = null, processTab = "coverage";
+/* =====================================================================
+   V39.8 — termination notices for Coordinator / Admin
+   (a Leader marks someone as "Terminated" in Shift Overview -> notice in Employees + badge)
+===================================================================== */
+let terminationNotices = [], terminationSeen = null, terminationChannel = null, terminationTimer = null;
+const termHiddenKey = () => `wms_term_hidden_${currentUser?.login || ""}`;
+function termHidden() { try { return new Set(JSON.parse(localStorage.getItem(termHiddenKey()) || "[]")); } catch { return new Set(); } }
+async function loadTerminationNotices() {
+    if (!currentUser || !canManageEmployees()) { terminationNotices = []; renderTerminationNotices(); return; }
+    const since = dateKey(new Date(Date.now() - 60 * 86400000));
+    const { data, error } = await supabaseClient.from("attendance")
+        .select("work_date, employee_login, reason, note, confirmed_by_login, confirmed_at, last_changed_by_login, last_changed_at, updated_at")
+        .eq("reason", "Terminated").gte("work_date", since).order("work_date", { ascending: false });
+    if (error) { console.warn("Termination notices:", error.message); return; }
+    const byLogin = new Map();
+    (data || []).forEach(r => { if (!byLogin.has(r.employee_login)) byLogin.set(r.employee_login, { login: r.employee_login, date: r.work_date, by: r.last_changed_by_login || r.confirmed_by_login || "", at: r.last_changed_at || r.confirmed_at || r.updated_at || "", note: r.note || "" }); });
+    terminationNotices = [...byLogin.values()];
+    const keys = new Set(terminationNotices.filter(n => employeeStillActive(n.login)).map(n => `${n.login}|${n.date}`));
+    if (terminationSeen) { const fresh = [...keys].filter(k => !terminationSeen.has(k) && !termHidden().has(k)); if (fresh.length) toast(`⚠ ${fresh.length} new termination notice${fresh.length > 1 ? "s" : ""} — see Employees.`); }
+    terminationSeen = keys; renderTerminationNotices();
+}
+function employeeStillActive(login) { const e = employeeByLogin(login); return !!e && String(e.status || "Active") !== "Former"; }
+function renderTerminationNotices() {
+    const box = $("terminationNotices"), badge = $("employeesNavBadge"); if (!box) return;
+    const hidden = termHidden(), list = terminationNotices.filter(n => employeeStillActive(n.login) && !hidden.has(`${n.login}|${n.date}`));
+    if (badge) { badge.textContent = String(list.length); badge.hidden = !list.length; }
+    box.hidden = !list.length; if (!list.length) { box.innerHTML = ""; return; }
+    box.innerHTML = `<div class="notice-head"><strong>⚠ Termination notices (${list.length})</strong><span>Marked as “Terminated” in Shift Overview — confirm to move the employee to Former.</span></div>` +
+        list.map(n => `<div class="notice-row"><div><strong>${esc(n.login)}</strong> · ${esc(fromKey(n.date).toLocaleDateString("en-GB"))}<br><small>reported by <b>${esc(n.by || "—")}</b>${n.at ? " · " + esc(new Date(n.at).toLocaleString("en-GB")) : ""}${n.note ? " · " + esc(n.note) : ""}</small></div>
+        <div class="notice-actions"><button type="button" class="primary" data-term-process="${esc(n.login)}|${esc(n.date)}|${esc(n.by)}">Mark as Former</button><button type="button" class="secondary" data-term-hide="${esc(n.login)}|${esc(n.date)}">Hide</button></div></div>`).join("");
+}
+document.addEventListener("click", e => {
+    const p = e.target.closest("[data-term-process]"), h = e.target.closest("[data-term-hide]");
+    if (p) { const [login, date, by] = p.dataset.termProcess.split("|"); openEmployeeStatusModal(login, "Former"); $("employeeEndDate").value = date; $("employeeReason").value = `Terminated (reported by ${by || "leader"})`; }
+    if (h) { const s = termHidden(); s.add(h.dataset.termHide); try { localStorage.setItem(termHiddenKey(), JSON.stringify([...s])); } catch {} renderTerminationNotices(); }
+});
+function subscribeTerminationNotices() {
+    if (terminationChannel || !currentUser) return;
+    terminationChannel = supabaseClient.channel("warehouse-termination-notices")
+        .on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, () => { clearTimeout(terminationTimer); terminationTimer = setTimeout(loadTerminationNotices, 600); })
+        .subscribe();
+}
+{ const boot = setInterval(() => { if (currentUser && typeof EMPLOYEES !== "undefined" && EMPLOYEES.length) { clearInterval(boot); loadTerminationNotices(); subscribeTerminationNotices(); setInterval(loadTerminationNotices, 120000); } }, 700); }
+{ const prev = renderEmployeeDatabase; renderEmployeeDatabase = function () { prev(); renderTerminationNotices(); }; }
+
+function renderAnalyticsCharts() { /* replaced by renderAttendanceCharts (V39.8) */ }
+
+/* =====================================================================
+   V39.8 (part 2) — Analytics tabs: Attendance (required / scheduled / came),
+   Brigades, Processes · Feedback sorting + charts · Names kept OUTSIDE the DB
+===================================================================== */
+const CORE_PROCESSES = ["Pick", "Putaway", "Abnormal"];
+const C_REQ = "#f97316", C_SCHED = "#94a3b8", C_CAME = "#22a06b";
+let processRequirements = {}, processRealtimeChannel = null, analyticsTabNow = "table";
 const reqKey = (p, s) => `${p}|${s}`;
+const reqFor = (p, shift) => shift === "both" ? (processRequirements[reqKey(p, "day")] || 0) + (processRequirements[reqKey(p, "night")] || 0) : (processRequirements[reqKey(p, shift)] || 0);
+const reqShift = shift => CORE_PROCESSES.reduce((s, p) => s + reqFor(p, shift), 0);
+const shiftList = sel => sel === "both" ? ["day", "night"] : sel === "all" ? ["day", "night"] : [sel];
+
 async function loadProcessRequirements() {
     const { data, error } = await supabaseClient.from("process_requirements").select("process, shift, headcount");
     if (error) { console.warn("process_requirements:", error.message); return false; }
@@ -9449,107 +9508,263 @@ async function loadProcessRequirements() {
 function subscribeToProcessRealtime() {
     if (processRealtimeChannel || !currentUser) return;
     processRealtimeChannel = supabaseClient.channel("warehouse-process-requirements")
-        .on("postgres_changes", { event: "*", schema: "public", table: "process_requirements" }, async () => { if (await loadProcessRequirements()) { renderProcessRequirementInputs(); renderProcessCharts(); } })
+        .on("postgres_changes", { event: "*", schema: "public", table: "process_requirements" }, async () => { if (await loadProcessRequirements() && analyticsTabNow !== "table") renderAnalyticsTab(); })
         .subscribe();
 }
 function renderProcessRequirementInputs() {
     const body = $("processReqBody"); if (!body) return; const can = canManageEmployees();
-    body.innerHTML = PROCESS_LIST.map(p => `<tr><td><strong>${p}</strong></td>${["day", "night"].map(s => `<td><input type="number" min="0" max="2000" step="1" class="req-input" data-req="${reqKey(p, s)}" value="${processRequirements[reqKey(p, s)] ?? 0}" ${can ? "" : "disabled"}></td>`).join("")}</tr>`).join("");
+    body.innerHTML = CORE_PROCESSES.map(p => `<tr><td><strong>${p}</strong></td>${["day", "night"].map(s => `<td><input type="number" min="0" max="2000" step="1" class="req-input" data-req="${reqKey(p, s)}" value="${processRequirements[reqKey(p, s)] ?? 0}" ${can ? "" : "disabled"}></td>`).join("")}</tr>`).join("") + `<tr class="total-row"><td>Total per shift</td><td>${reqShift("day")}</td><td>${reqShift("night")}</td></tr>`;
     if ($("processReqSave")) $("processReqSave").hidden = !can;
 }
 async function saveProcessRequirements() {
     if (!canManageEmployees()) { toast("Only Coordinator or Admin can change requirements."); return; }
     const rows = [...document.querySelectorAll("#processReqBody .req-input")].map(i => { const [process, shift] = i.dataset.req.split("|"); return { process, shift, headcount: Math.max(0, Math.min(2000, parseInt(i.value, 10) || 0)) }; });
     const { error } = await supabaseClient.from("process_requirements").upsert(rows, { onConflict: "process,shift" });
-    if (error) { toast(/process_requirements|relation|does not exist/i.test(error.message) ? "Database not updated: run the latest WMS SQL (V39.7)." : `Could not save: ${error.message}`); return; }
+    if (error) { toast(/process_requirements|relation|does not exist/i.test(error.message) ? "Database not updated: run the latest WMS SQL (V39.8)." : `Could not save: ${error.message}`); return; }
     rows.forEach(r => { processRequirements[reqKey(r.process, r.shift)] = r.headcount; });
-    renderProcessCharts(); toast("Requirements saved.");
+    renderAnalyticsTab(); toast("Required headcount saved.");
 }
-function svgProcessChart(items, color, required) {
-    const W = Math.max(760, items.length * 28), H = 230, L = 36, B = 26, T = 14, max = Math.max(1, required, ...items.map(i => Math.max(i.planned, i.present)));
-    const slot = (W - L - 8) / items.length, bw = Math.min(11, slot / 2.6), y = v => T + (H - T - B) * (1 - v / max);
+
+// ---- shared SVG helpers
+function svgTri(items) {
+    const W = Math.max(760, items.length * 34), H = 250, L = 38, B = 28, T = 14, max = Math.max(1, ...items.map(i => Math.max(i.required, i.scheduled, i.came)));
+    const slot = (W - L - 8) / items.length, bw = Math.min(9, slot / 3.6), y = v => T + (H - T - B) * (1 - v / max);
     const grid = [0, .25, .5, .75, 1].map(f => { const v = Math.round(max * f), yy = y(v); return `<line x1="${L}" x2="${W - 4}" y1="${yy}" y2="${yy}" stroke="#e6eaf2"/><text x="${L - 6}" y="${yy + 4}" font-size="10" text-anchor="end" fill="#6b7592">${v}</text>`; }).join("");
-    const bars = items.map((it, i) => { const x = L + i * slot + slot / 2; return `<g><title>${it.date}: required ${required}, planned ${it.planned}, present ${it.present}</title><rect x="${x - bw - 1}" y="${y(it.planned)}" width="${bw}" height="${H - B - y(it.planned)}" rx="2" fill="#cbd5e1"/><rect x="${x + 1}" y="${y(it.present)}" width="${bw}" height="${H - B - y(it.present)}" rx="2" fill="${color}"/><text x="${x}" y="${H - 8}" font-size="10" text-anchor="middle" fill="#6b7592">${it.d}</text></g>`; }).join("");
-    const line = required > 0 ? `<line x1="${L}" x2="${W - 4}" y1="${y(required)}" y2="${y(required)}" stroke="#ef4444" stroke-width="2" stroke-dasharray="6 4"/><text x="${W - 6}" y="${y(required) - 5}" font-size="11" text-anchor="end" fill="#ef4444" font-weight="700">Required ${required}</text>` : "";
-    return `<div class="chart-scroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img">${grid}${bars}${line}</svg></div>`;
+    const bar = (x, v, c) => `<rect x="${(x).toFixed(1)}" y="${y(v).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, H - B - y(v)).toFixed(1)}" rx="2" fill="${c}"/>`;
+    const bars = items.map((it, i) => { const x = L + i * slot + slot / 2; return `<g><title>${it.date}: required ${it.required}, scheduled ${it.scheduled}, came ${it.came}</title>${bar(x - bw * 1.5 - 2, it.required, C_REQ)}${bar(x - bw * 0.5, it.scheduled, C_SCHED)}${bar(x + bw * 0.5 + 2, it.came, C_CAME)}<text x="${x.toFixed(1)}" y="${H - 9}" font-size="10" text-anchor="middle" fill="#6b7592">${it.d}</text></g>`; }).join("");
+    return `<div class="chart-scroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Required, scheduled and came">${grid}${bars}</svg></div>`;
 }
-function renderProcessCharts() {
+const triLegend = () => `<p class="chart-legend"><i style="background:${C_REQ}"></i> Required <i style="background:${C_SCHED}"></i> Scheduled <i style="background:${C_CAME}"></i> Came</p>`;
+function coverageStrip(items) {
+    const cells = items.map(i => { const conf = i.came + i.absent > 0, val = conf ? i.came : i.scheduled, ratio = i.required > 0 ? val / i.required : null, cls = ratio == null ? "na" : ratio >= 1 ? "ok" : ratio >= .9 ? "warn" : "bad"; return `<span class="cov ${cls}${conf ? "" : " plan"}" title="${i.date}: required ${i.required}, scheduled ${i.scheduled}, came ${i.came}">${i.d}</span>`; }).join("");
+    return `<div class="cov-strip">${cells}</div><p class="chart-legend"><span class="cov ok">≥100%</span> <span class="cov warn">90–99%</span> <span class="cov bad">&lt;90%</span> <span class="cov na">no requirement</span> filled = confirmed (came vs required), outlined = planned (scheduled vs required)</p>`;
+}
+function chartSummary(items) {
+    const conf = items.filter(i => i.came + i.absent > 0), sched = items.filter(i => i.scheduled > 0), avg = (a, f) => a.length ? a.reduce((s, i) => s + f(i), 0) / a.length : 0, req = items.length ? items[0].required : 0;
+    return { req, avgSched: avg(sched, i => i.scheduled), avgCame: avg(conf, i => i.came), belowSched: req ? sched.filter(i => i.scheduled < req).length : 0, belowCame: req ? conf.filter(i => i.came < req).length : 0 };
+}
+const summaryChips = S => `<div class="proc-head"><span class="proc-stat">Required <b>${S.req}</b></span><span class="proc-stat">Avg scheduled <b>${S.avgSched.toFixed(1)}</b> <em>${S.req ? pct(S.avgSched, S.req) : "—"}</em></span><span class="proc-stat">Avg came <b>${S.avgCame.toFixed(1)}</b> <em>${S.req ? pct(S.avgCame, S.req) : "—"}</em></span><span class="proc-stat ${S.belowSched ? "bad" : ""}">Days scheduled below required <b>${S.belowSched}</b></span><span class="proc-stat ${S.belowCame ? "bad" : ""}">Days came below required <b>${S.belowCame}</b></span></div>`;
+function svgHBars(items, color) {
+    if (!items.length) return `<div class="empty">No data.</div>`;
+    const max = Math.max(1, ...items.map(i => i.value)), rowH = 26, H = items.length * rowH + 6, L = 130, W = 560;
+    return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img">${items.map((it, i) => { const w = (W - L - 60) * it.value / max, y = 4 + i * rowH; return `<g><title>${esc(it.label)}: ${it.value}</title><text x="${L - 8}" y="${y + 15}" font-size="12" text-anchor="end" fill="#334155">${esc(String(it.label).slice(0, 22))}</text><rect x="${L}" y="${y + 3}" width="${Math.max(2, w).toFixed(1)}" height="16" rx="4" fill="${it.color || color}"/><text x="${L + Math.max(2, w) + 6}" y="${y + 15}" font-size="12" font-weight="700" fill="#172033">${it.value}</text></g>`; }).join("")}</svg>`;
+}
+
+// ---- Tab: Attendance (required / scheduled / came)
+function analyticsMonthData(shiftSel, scope) {
+    const people = analyticsSelectedEmployees(), n = analyticsDays(), core = scope === "core", inScope = p => !core || CORE_PROCESSES.includes(normalizeProcessName(p));
+    const out = { items: [], reasons: new Map(), byProc: new Map() };
+    for (let d = 1; d <= n; d++) {
+        const date = new Date(analyticsMonth.getFullYear(), analyticsMonth.getMonth(), d, 12), it = { d, date: dateKey(date), dow: date.getDay(), required: reqShift(shiftSel), scheduled: 0, came: 0, absent: 0, pending: 0, left: 0 };
+        shiftList(shiftSel).forEach(sh => {
+            const r = analyticsRowFor(date, sh, people);
+            r.processStats.forEach((v, p) => { if (!inScope(p)) return; it.scheduled += v.planned || 0; it.came += v.present || 0; it.absent += v.absent || 0; it.pending += v.pending || 0; if (v.absent) out.byProc.set(p, (out.byProc.get(p) || 0) + v.absent); });
+            (r.earlyDetails || []).forEach(x => { if (x.leftEarlyMinutes > 0 && inScope(x.process)) it.left++; });
+            (r.absentDetails || []).forEach(a => { if (!inScope(a.process)) return; const k = a.reason || "No reason"; out.reasons.set(k, (out.reasons.get(k) || 0) + 1); });
+        });
+        out.items.push(it);
+    }
+    return out;
+}
+function renderAttendanceCharts() {
+    const host = $("analyticsCharts"); if (!host) return;
+    const sel = $("attShiftSel")?.value || "day", scope = $("attScopeSel")?.value || "core", D = analyticsMonthData(sel, scope), items = D.items, S = chartSummary(items);
+    const sum = f => items.reduce((s, i) => s + f(i), 0), P = sum(i => i.scheduled), PR = sum(i => i.came), AB = sum(i => i.absent), PE = sum(i => i.pending), LE = Math.min(PR, sum(i => i.left)), OT = Math.max(0, PR - LE);
+    const reqDays = sum(i => i.required), rate = PR + AB ? (PR / (PR + AB) * 100).toFixed(1) + "%" : "—";
+    const conf = items.filter(i => i.came + i.absent > 0), worst = conf.length ? conf.reduce((a, b) => (b.came / (b.came + b.absent)) < (a.came / (a.came + a.absent)) ? b : a) : null, best = conf.length ? conf.reduce((a, b) => (b.came / (b.came + b.absent)) > (a.came / (a.came + a.absent)) ? b : a) : null;
+    const dow = Array.from({ length: 7 }, () => ({ c: 0, a: 0 })); conf.forEach(i => { dow[i.dow].c += i.came; dow[i.dow].a += i.absent; });
+    const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], dowItems = [1, 2, 3, 4, 5, 6, 0].map(k => ({ label: names[k], value: dow[k].c + dow[k].a ? Math.round(dow[k].c / (dow[k].c + dow[k].a) * 1000) / 10 : 0 }));
+    const palette = ["#6366f1", "#06b6d4", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b", "#94a3b8"];
+    const reasonSegs = [...D.reasons].sort((a, b) => b[1] - a[1]).map(([label, value], i) => ({ label, value, color: palette[i % palette.length] }));
+    const procSegs = [...D.byProc].sort((a, b) => b[1] - a[1]).map(([label, value], i) => ({ label, value, color: palette[i % palette.length] }));
+    const side = [["Came on time", OT, WMS_COLORS.present], ["Left early", LE, WMS_COLORS.early], ["Absent", AB, WMS_COLORS.absent], ["Pending (not confirmed)", PE, WMS_COLORS.pending]];
+    host.innerHTML = `<section class="chart-block">
+        ${summaryChips(S)}
+        <div class="chart-layout"><div class="chart-main">${triLegend()}${svgTri(items)}</div>
+        <aside class="chart-side"><div class="side-kpi"><span>Attendance rate</span><strong>${rate}</strong><small>came ÷ (came + absent)</small></div>
+            <div class="side-base"><span>Scheduled (100%)</span><b>${P}</b></div>
+            ${side.map(([l, v, c]) => `<div class="side-row"><i style="background:${c}"></i><span>${l}</span><b>${v}</b><em>${pct(v, P)}</em></div>`).join("")}
+            <div class="side-base"><span>Required (month)</span><b>${reqDays}</b></div>
+            <div class="side-row"><i style="background:${C_SCHED}"></i><span>Scheduled vs required</span><b>${P}</b><em>${reqDays ? pct(P, reqDays) : "—"}</em></div>
+            <div class="side-row"><i style="background:${C_CAME}"></i><span>Came vs required</span><b>${PR}</b><em>${reqDays ? pct(PR, reqDays) : "—"}</em></div>
+            <div class="side-note">${best ? `Best day: <b>${best.date.slice(8)}</b> · Lowest day: <b>${worst.date.slice(8)}</b>` : "No confirmed days yet"}${reqDays ? "" : "<br>Set the required headcount in the Processes tab."}</div></aside></div>
+        <h5 class="sub-h">Coverage by day</h5>${coverageStrip(items)}
+        <div class="donut-row">${donutBlock("Outcome of scheduled shifts", [{ label: "Came on time", value: OT, color: WMS_COLORS.present }, { label: "Left early", value: LE, color: WMS_COLORS.early }, { label: "Absent", value: AB, color: WMS_COLORS.absent }, { label: "Pending", value: PE, color: WMS_COLORS.pending }], P, "scheduled")}${donutBlock("Absence reasons", reasonSegs, AB, "absences")}${donutBlock("Absences by process", procSegs, AB, "absences")}
+        <div class="donut-card"><h5>Attendance rate by weekday (%)</h5>${svgHBars(dowItems, "#6366f1")}</div></div></section>`;
+}
+
+// ---- Tab: Brigades
+function renderBrigadeTab() {
+    const host = $("analyticsBrigades"); if (!host) return;
+    const sel = $("brigShiftSel")?.value || "all", people = analyticsSelectedEmployees(), n = analyticsDays(), shifts = shiftList(sel);
+    const agg = new Map(BRIGADES.map(b => [b, { b, sched: 0, came: 0, absent: 0, pending: 0, left: 0, late: 0, days: [] }]));
+    for (let d = 1; d <= n; d++) {
+        const date = new Date(analyticsMonth.getFullYear(), analyticsMonth.getMonth(), d, 12);
+        BRIGADES.forEach(b => {
+            const list = people.filter(e => employeeBrigadeForDate(e, date) === b), g = agg.get(b); let s = 0, c = 0, a = 0, p = 0, l = 0, lt = 0;
+            if (list.length) shifts.forEach(sh => { const r = analyticsRowFor(date, sh, list); s += r.planned; c += r.present; a += r.absent; p += r.pending; l += r.leftEarly; lt += r.late; });
+            g.sched += s; g.came += c; g.absent += a; g.pending += p; g.left += l; g.late += lt; g.days.push({ d, date: dateKey(date), s, c, a, rate: c + a > 0 ? c / (c + a) * 100 : null });
+        });
+    }
+    const rows = [...agg.values()], rate = g => g.came + g.absent > 0 ? g.came / (g.came + g.absent) * 100 : null, withRate = rows.filter(g => rate(g) != null);
+    const best = withRate.length ? withRate.reduce((a, b) => rate(b) > rate(a) ? b : a) : null, worst = withRate.length ? withRate.reduce((a, b) => rate(b) < rate(a) ? b : a) : null;
+    const W = 760, H = 250, L = 38, B = 30, T = 22, max = Math.max(1, ...rows.map(g => Math.max(g.sched, g.came))), slot = (W - L - 8) / rows.length, bw = Math.min(22, slot / 3.2), y = v => T + (H - T - B) * (1 - v / max);
+    const bars = rows.map((g, i) => { const x = L + i * slot + slot / 2, r = rate(g); return `<g><title>${g.b}: scheduled ${g.sched}, came ${g.came}, absent ${g.absent}</title><rect x="${(x - bw - 1).toFixed(1)}" y="${y(g.sched).toFixed(1)}" width="${bw.toFixed(1)}" height="${(H - B - y(g.sched)).toFixed(1)}" rx="3" fill="${C_SCHED}"/><rect x="${(x + 1).toFixed(1)}" y="${y(g.came).toFixed(1)}" width="${bw.toFixed(1)}" height="${(H - B - y(g.came)).toFixed(1)}" rx="3" fill="${C_CAME}"/><text x="${x}" y="${H - 11}" font-size="12" font-weight="700" text-anchor="middle" fill="#334155">${g.b}</text><text x="${x}" y="${Math.min(y(g.sched), y(g.came)) - 5}" font-size="11" text-anchor="middle" fill="#4f46e5" font-weight="700">${r == null ? "" : r.toFixed(0) + "%"}</text></g>`; }).join("");
+    const grid = [0, .5, 1].map(f => `<line x1="${L}" x2="${W - 4}" y1="${y(max * f)}" y2="${y(max * f)}" stroke="#e6eaf2"/><text x="${L - 6}" y="${y(max * f) + 4}" font-size="10" text-anchor="end" fill="#6b7592">${Math.round(max * f)}</text>`).join("");
+    const cls = r => r == null ? "h0" : r >= 95 ? "h4" : r >= 90 ? "h3" : r >= 80 ? "h2" : "h1";
+    const heat = `<div class="chart-scroll"><table class="heat-table"><thead><tr><th>Brigade</th>${Array.from({ length: n }, (_, i) => `<th>${i + 1}</th>`).join("")}</tr></thead><tbody>${rows.map(g => `<tr><th>${g.b}</th>${g.days.map(x => `<td class="${cls(x.rate)}" title="${x.date} · ${g.b}: scheduled ${x.s}, came ${x.c}, absent ${x.a}${x.rate == null ? "" : ", rate " + x.rate.toFixed(0) + "%"}"></td>`).join("")}</tr>`).join("")}</tbody></table></div><p class="chart-legend"><span class="heat-key h4"></span> ≥95% <span class="heat-key h3"></span> 90–95% <span class="heat-key h2"></span> 80–90% <span class="heat-key h1"></span> &lt;80% <span class="heat-key h0"></span> no confirmed data</p>`;
+    host.innerHTML = `<div class="cards four"><div class="card"><span>Best brigade</span><strong>${best ? best.b : "—"}</strong><small>${best ? rate(best).toFixed(1) + "% attendance" : "no confirmed data"}</small></div><div class="card"><span>Lowest brigade</span><strong>${worst ? worst.b : "—"}</strong><small>${worst ? rate(worst).toFixed(1) + "% attendance" : "no confirmed data"}</small></div><div class="card"><span>Scheduled shifts</span><strong>${rows.reduce((s, g) => s + g.sched, 0)}</strong><small>all brigades</small></div><div class="card"><span>Absences</span><strong>${rows.reduce((s, g) => s + g.absent, 0)}</strong><small>all brigades</small></div></div>
+        <p class="chart-legend"><i style="background:${C_SCHED}"></i> Scheduled <i style="background:${C_CAME}"></i> Came · % = attendance rate</p>
+        <div class="chart-scroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img">${grid}${bars}</svg></div>
+        <div class="table-wrap"><table><thead><tr><th>Brigade</th><th>Scheduled</th><th>Came</th><th>Absent</th><th>Left early</th><th>Late</th><th>Pending</th><th>Attendance rate</th><th>Absence rate</th></tr></thead><tbody>${rows.map(g => { const r = rate(g); return `<tr><td><strong>${g.b}</strong></td><td>${g.sched}</td><td>${g.came}</td><td>${g.absent}</td><td>${g.left}</td><td>${g.late}</td><td>${g.pending}</td><td><b>${r == null ? "—" : r.toFixed(1) + "%"}</b></td><td>${g.came + g.absent ? (100 - r).toFixed(1) + "%" : "—"}</td></tr>`; }).join("")}</tbody></table></div>
+        <h5 class="sub-h">Daily attendance rate by brigade</h5>${heat}`;
+}
+
+// ---- Tab: Processes (Pick / Putaway / Abnormal)
+function renderProcessesTab() {
+    renderProcessRequirementInputs();
     const host = $("processCharts"); if (!host) return;
-    $("processMonthLabel").textContent = processMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-    const people = activeEmployees(), y = processMonth.getFullYear(), m = processMonth.getMonth(), n = new Date(y, m + 1, 0).getDate(), cache = {};
-    ["day", "night"].forEach(sh => { cache[sh] = []; for (let d = 1; d <= n; d++) { const date = new Date(y, m, d, 12); cache[sh].push({ d, date: dateKey(date), ps: analyticsRowFor(date, sh, people).processStats }); } });
-    host.innerHTML = PROCESS_LIST.map(p => `<section class="panel chart-block"><h4>${p}</h4>${["day", "night"].map(sh => {
-        const req = processRequirements[reqKey(p, sh)] || 0, color = sh === "day" ? WMS_COLORS.day : WMS_COLORS.night;
-        const items = cache[sh].map(c => { const v = c.ps && c.ps.get(p) || {}; return { d: c.d, date: c.date, planned: v.planned || 0, present: v.present || 0, absent: v.absent || 0 }; });
-        const confirmed = items.filter(i => i.present + i.absent > 0), avg = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
-        const avgPlanned = avg(items.filter(i => i.planned > 0).map(i => i.planned)), avgPresent = avg(confirmed.map(i => i.present));
-        const below = items.filter(i => req > 0 && i.planned > 0 && i.planned < req).length, belowPresent = confirmed.filter(i => req > 0 && i.present < req).length;
-        return `<div class="proc-shift"><div class="proc-head"><span class="shift-pill ${sh}">${sh === "day" ? "DAY" : "NIGHT"}</span>
-            <span class="proc-stat">Required <b>${req}</b></span><span class="proc-stat">Avg planned <b>${avgPlanned.toFixed(1)}</b> <em>${req ? pct(avgPlanned, req) : "—"}</em></span>
-            <span class="proc-stat">Avg present <b>${avgPresent.toFixed(1)}</b> <em>${req ? pct(avgPresent, req) : "—"}</em></span>
-            <span class="proc-stat ${below ? "bad" : ""}">Days planned below requirement <b>${below}</b></span><span class="proc-stat ${belowPresent ? "bad" : ""}">Days present below requirement <b>${belowPresent}</b></span></div>
-            <p class="chart-legend"><i style="background:${WMS_COLORS.planned}"></i> Planned <i style="background:${color}"></i> Present <i style="background:#ef4444"></i> Required</p>${svgProcessChart(items, color, req)}</div>`;
-    }).join("")}</section>`).join("");
-}
-// Headcount calculator
-const CALC_DEFAULT = { hours: 10, Pick: { plan: 0, rate: 0, direct: 75 }, Putaway: { plan: 0, rate: 0, direct: 75 }, Abnormal: { plan: 0, rate: 0, direct: 75 }, date: "", shift: "day" };
-const CALC_INDIRECT_NOTE = { Pick: "Consolidation, leaders, instructors …", Putaway: "Buffer, leaders, instructors …", Abnormal: "support roles" };
-const CALC_INDIRECT_PROCESS = { Pick: "Consolidation", Putaway: "Buffer", Abnormal: null };
-function calcProcess(plan, rate, hours, directPct) {
-    plan = Number(plan) || 0; rate = Number(rate) || 0; hours = Number(hours) || 0;
-    const dp = Math.min(100, Math.max(1, Number(directPct) || 0)), direct = plan > 0 && rate > 0 && hours > 0 ? Math.ceil(plan / (rate * hours)) : 0;
-    const total = direct ? Math.ceil(direct / (dp / 100)) : 0;
-    return { direct, total, indirect: total - direct, directPct: dp, indirectPct: 100 - dp };
-}
-function loadCalc() { try { return { ...CALC_DEFAULT, ...JSON.parse(localStorage.getItem("wms_calc_v1") || "{}") }; } catch { return { ...CALC_DEFAULT }; } }
-function saveCalc(c) { try { localStorage.setItem("wms_calc_v1", JSON.stringify(c)); } catch {} }
-function renderProcessCalculator() {
-    const host = $("processCalculatorPanel"); if (!host) return;
-    const c = loadCalc(); if (!c.date) c.date = dateKey(new Date());
-    host.innerHTML = `<section class="panel"><div class="panel-title"><div><h3>Headcount calculator</h3><p>Enter the plan and the norm. Direct = people working on the process itself; Indirect = support (Consolidation for Pick, Buffer for Putaway, leaders, instructors …). Direct % + Indirect % = 100% of the total headcount.</p></div></div>
-        <div class="calc-top"><div><label class="control-label">Productive hours per person</label><input id="calcHours" type="number" min="1" max="24" step="0.25" value="${c.hours}"></div>
-        <div><label class="control-label">Compare with schedule: date</label><input id="calcDate" type="date" value="${c.date}"></div>
-        <div><label class="control-label">Shift</label><select id="calcShift"><option value="day" ${c.shift === "day" ? "selected" : ""}>DAY</option><option value="night" ${c.shift === "night" ? "selected" : ""}>NIGHT</option></select></div></div>
-        <div class="calc-grid">${PROCESS_LIST.map(p => `<div class="calc-card" data-calc="${p}"><h4>${p}</h4>
-            <label class="control-label">Plan (units)</label><input type="number" min="0" step="1" data-f="plan" value="${c[p].plan || ""}" placeholder="e.g. 12000">
-            <label class="control-label">Units per person per hour</label><input type="number" min="0" step="0.1" data-f="rate" value="${c[p].rate || ""}" placeholder="e.g. 120">
-            <div class="calc-pct"><div><label class="control-label">Direct %</label><input type="number" min="1" max="100" step="1" data-f="direct" value="${c[p].direct}"></div><div><label class="control-label">Indirect %</label><input type="number" min="0" max="99" step="1" data-f="indirect" value="${100 - c[p].direct}"></div></div>
-            <div class="calc-out" data-out="${p}"></div></div>`).join("")}</div>
-        <div id="calcTotals" class="quick-stats-grid"></div></section>`;
-    host.querySelectorAll("input,select").forEach(el => el.addEventListener("input", e => { const t = e.target; if (t.dataset.f === "direct") { const card = t.closest("[data-calc]"); card.querySelector('[data-f="indirect"]').value = 100 - (Number(t.value) || 0); } if (t.dataset.f === "indirect") { const card = t.closest("[data-calc]"); card.querySelector('[data-f="direct"]').value = 100 - (Number(t.value) || 0); } updateCalculator(); }));
-    host.addEventListener("click", e => { const b = e.target.closest("[data-use-req]"); if (!b) return; const [p, s, v] = b.dataset.useReq.split("|"); setProcessTab("coverage"); const inp = document.querySelector(`.req-input[data-req="${reqKey(p, s)}"]`); if (inp && !inp.disabled) { inp.value = v; toast(`${p} ${s.toUpperCase()} requirement set to ${v}. Press Save requirements.`); } else toast("Only Coordinator or Admin can change requirements."); });
-    updateCalculator();
-}
-function updateCalculator() {
-    const host = $("processCalculatorPanel"); if (!host || !host.querySelector("#calcHours")) return;
-    const c = { hours: Number($("calcHours").value) || 0, date: $("calcDate").value, shift: $("calcShift").value };
-    const planned = analyticsRowFor(fromKey(c.date || dateKey(new Date())), c.shift, activeEmployees()).processStats;
-    let sumDirect = 0, sumTotal = 0, sumIndirect = 0;
-    PROCESS_LIST.forEach(p => {
-        const card = host.querySelector(`[data-calc="${p}"]`), f = k => card.querySelector(`[data-f="${k}"]`).value;
-        c[p] = { plan: Number(f("plan")) || 0, rate: Number(f("rate")) || 0, direct: Math.min(100, Math.max(1, Number(f("direct")) || 75)) };
-        const r = calcProcess(c[p].plan, c[p].rate, c.hours, c[p].direct); sumDirect += r.direct; sumTotal += r.total; sumIndirect += r.indirect;
-        const plDirect = planned?.get(p)?.planned || 0, indProc = CALC_INDIRECT_PROCESS[p], plIndirect = indProc ? (planned?.get(indProc)?.planned || 0) : 0;
-        const dGap = plDirect - r.direct, iOver = plIndirect - r.indirect;
-        card.querySelector(`[data-out="${p}"]`).innerHTML = r.direct ? `<div class="calc-line"><span>Direct needed</span><b>${r.direct}</b></div><div class="calc-line"><span>Indirect allowed (up to)</span><b>${r.indirect}</b></div><div class="calc-line total"><span>Total headcount</span><b>${r.total}</b></div>
-            <small>${CALC_INDIRECT_NOTE[p]} · ${r.directPct}% direct / ${r.indirectPct}% indirect</small>
-            <div class="calc-compare"><div class="${dGap >= 0 ? "ok" : "bad"}">Planned ${p}: <b>${plDirect}</b> → ${dGap >= 0 ? `+${dGap} surplus` : `${dGap} short`}</div>${indProc ? `<div class="${iOver <= 0 ? "ok" : "warn"}">Planned ${indProc} (indirect): <b>${plIndirect}</b> → ${iOver <= 0 ? `${-iOver} free` : `${iOver} over the limit`}</div>` : ""}</div>
-            <button type="button" class="mini-btn" data-use-req="${p}|${c.shift}|${r.direct}">Use ${r.direct} as ${c.shift.toUpperCase()} requirement</button>` : `<small>Enter plan and units per hour.</small>`;
+    const sel = $("procShiftSel")?.value || "day", people = analyticsSelectedEmployees(), n = analyticsDays(), rows = [];
+    for (let d = 1; d <= n; d++) { const date = new Date(analyticsMonth.getFullYear(), analyticsMonth.getMonth(), d, 12); rows.push({ d, date: dateKey(date), ps: shiftList(sel).map(sh => analyticsRowFor(date, sh, people).processStats) }); }
+    const blocks = CORE_PROCESSES.map(p => {
+        const items = rows.map(r => { const it = { d: r.d, date: r.date, required: reqFor(p, sel), scheduled: 0, came: 0, absent: 0 }; r.ps.forEach(ps => { const v = ps.get(p) || {}; it.scheduled += v.planned || 0; it.came += v.present || 0; it.absent += v.absent || 0; }); return it; });
+        return { p, items, S: chartSummary(items) };
     });
-    saveCalc(c);
-    $("calcTotals").innerHTML = [["Direct total", sumDirect], ["Indirect allowed", sumIndirect], ["Total headcount", sumTotal]].map(([l, v]) => `<div class="quick-stat"><span>${l}</span><strong>${v}</strong><small>${c.shift.toUpperCase()} shift</small></div>`).join("");
+    host.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Process</th><th>Required</th><th>Avg scheduled</th><th>Scheduled vs required</th><th>Avg came</th><th>Came vs required</th><th>Days below required (came)</th></tr></thead><tbody>${blocks.map(({ p, S }) => `<tr><td><strong>${p}</strong></td><td>${S.req}</td><td>${S.avgSched.toFixed(1)}</td><td>${S.req ? pct(S.avgSched, S.req) : "—"}</td><td>${S.avgCame.toFixed(1)}</td><td>${S.req ? pct(S.avgCame, S.req) : "—"}</td><td>${S.belowCame}</td></tr>`).join("")}</tbody></table></div>`
+        + blocks.map(({ p, items, S }) => `<section class="chart-block"><h4>${p}</h4>${summaryChips(S)}${triLegend()}${svgTri(items)}${coverageStrip(items)}</section>`).join("");
 }
-function setProcessTab(tab) {
-    processTab = tab;
-    document.querySelectorAll("[data-process-tab]").forEach(b => b.classList.toggle("active", b.dataset.processTab === tab));
-    $("processCoveragePanel").hidden = tab !== "coverage"; $("processCalculatorPanel").hidden = tab !== "calculator";
-    if (tab === "calculator") renderProcessCalculator(); else renderProcessCharts();
+
+function renderAnalyticsTab() {
+    if (analyticsTabNow === "attendance") renderAttendanceCharts();
+    else if (analyticsTabNow === "brigades") renderBrigadeTab();
+    else if (analyticsTabNow === "processes") renderProcessesTab();
 }
-async function renderProcessPage() {
-    await loadProcessRequirements(); subscribeToProcessRealtime();
-    renderProcessRequirementInputs(); setProcessTab(processTab);
+async function setAnalyticsTab(tab) {
+    analyticsTabNow = tab;
+    document.querySelectorAll("[data-analytics-tab]").forEach(b => b.classList.toggle("active", b.dataset.analyticsTab === tab));
+    if ($("analyticsChartsPanel")) $("analyticsChartsPanel").hidden = tab !== "attendance";
+    if ($("analyticsBrigadePanel")) $("analyticsBrigadePanel").hidden = tab !== "brigades";
+    if ($("analyticsProcessPanel")) $("analyticsProcessPanel").hidden = tab !== "processes";
+    document.querySelectorAll("#analyticsPage .analytics-daily-panel, #analyticsPage .analytics-period-panel").forEach(p => { p.hidden = tab !== "table"; });
+    if (tab === "attendance" || tab === "processes") { await loadProcessRequirements(); subscribeToProcessRealtime(); }
+    renderAnalyticsTab();
 }
-document.querySelectorAll("[data-process-tab]").forEach(b => b.addEventListener("click", () => setProcessTab(b.dataset.processTab)));
-$("processMonthPrev")?.addEventListener("click", () => { processMonth = new Date(processMonth.getFullYear(), processMonth.getMonth() - 1, 1, 12); renderProcessCharts(); });
-$("processMonthNext")?.addEventListener("click", () => { processMonth = new Date(processMonth.getFullYear(), processMonth.getMonth() + 1, 1, 12); renderProcessCharts(); });
+{ const prev = renderAnalytics; renderAnalytics = function () { prev(); if (analyticsTabNow !== "table") renderAnalyticsTab(); }; }
+["attShiftSel", "attScopeSel", "brigShiftSel", "procShiftSel"].forEach(id => $(id)?.addEventListener("change", renderAnalyticsTab));
 $("processReqSave")?.addEventListener("click", saveProcessRequirements);
+
+// ---- Feedback Tracker: sorting + charts
+{ const prevFe = feedbackFilteredEmployees; feedbackFilteredEmployees = function () {
+    const list = prevFe(), mode = $("feedbackSort")?.value || ""; if (!mode) return list;
+    const idx = buildFeedbackDailyIndex(feedbackEntriesFilteredForView()).byEmployee, dir = mode === "high" ? -1 : 1;
+    return [...list].sort((a, b) => ((idx.get(a.login) || 0) - (idx.get(b.login) || 0)) * dir || String(a.login).localeCompare(String(b.login)));
+}; }
+function sortBodyRows(bodyId, col, mode) {
+    const body = $(bodyId); if (!body) return;
+    const rows = [...body.querySelectorAll("tr")].filter(r => !r.classList.contains("feedback-stats-total-row") && r.children.length > col), totals = [...body.querySelectorAll("tr.feedback-stats-total-row")];
+    if (mode === "name" && bodyId === "feedbackDailyStatsBody") return;
+    const num = r => parseFloat(r.children[col].textContent) || 0;
+    rows.sort((a, b) => mode === "high" ? num(b) - num(a) || 0 : mode === "low" ? num(a) - num(b) || 0 : String(a.children[0].textContent).localeCompare(String(b.children[0].textContent), undefined, { numeric: true }));
+    rows.forEach(r => body.appendChild(r)); totals.forEach(r => body.appendChild(r));
+}
+function enhanceFeedbackStats() {
+    const mode = $("feedbackStatsSort")?.value || "high";
+    [["feedbackStatsSummaryBody", 1], ["feedbackStatsEmployeeBody", 1], ["feedbackStatsBrigadeBody", 1], ["feedbackStatsProcessBody", 1], ["feedbackDailyStatsBody", 4]].forEach(([id, col]) => sortBodyRows(id, col, mode));
+    const host = $("feedbackStatsCharts"); if (!host) return;
+    const list = feedbackEntriesFilteredForView(), y = feedbackMonth.getFullYear(), m = feedbackMonth.getMonth(), n = new Date(y, m + 1, 0).getDate();
+    if (!list.length) { host.innerHTML = `<div class="empty">No feedback in this month / filters.</div>`; return; }
+    const daily = Array.from({ length: n }, (_, i) => ({ d: i + 1, day: 0, night: 0 })), by = (f) => { const mp = new Map(); list.forEach(e => { const k = f(e); mp.set(k, (mp.get(k) || 0) + 1); }); return [...mp].sort((a, b) => b[1] - a[1]); };
+    list.forEach(e => { const i = parseInt(String(e.work_date).slice(8), 10) - 1; if (daily[i]) { if (e.shift === "night") daily[i].night++; else daily[i].day++; } });
+    const W = Math.max(760, n * 30), H = 220, L = 34, B = 26, T = 12, max = Math.max(1, ...daily.map(x => x.day + x.night)), slot = (W - L - 8) / n, bw = Math.min(16, slot * .7), yy = v => T + (H - T - B) * (1 - v / max);
+    const dbars = daily.map((x, i) => { const cx = L + i * slot + slot / 2; return `<g><title>${y}-${String(m + 1).padStart(2, "0")}-${String(x.d).padStart(2, "0")}: DAY ${x.day}, NIGHT ${x.night}</title><rect x="${(cx - bw / 2).toFixed(1)}" y="${yy(x.day).toFixed(1)}" width="${bw.toFixed(1)}" height="${(H - B - yy(x.day)).toFixed(1)}" fill="${WMS_COLORS.day}"/><rect x="${(cx - bw / 2).toFixed(1)}" y="${yy(x.day + x.night).toFixed(1)}" width="${bw.toFixed(1)}" height="${(yy(x.day) - yy(x.day + x.night)).toFixed(1)}" fill="${WMS_COLORS.night}"/><text x="${cx.toFixed(1)}" y="${H - 9}" font-size="10" text-anchor="middle" fill="#6b7592">${x.d}</text></g>`; }).join("");
+    const dgrid = [0, .5, 1].map(f => `<line x1="${L}" x2="${W - 4}" y1="${yy(max * f)}" y2="${yy(max * f)}" stroke="#e6eaf2"/><text x="${L - 6}" y="${yy(max * f) + 4}" font-size="10" text-anchor="end" fill="#6b7592">${Math.round(max * f)}</text>`).join("");
+    const dayN = daily.reduce((s, x) => s + x.day, 0), nightN = daily.reduce((s, x) => s + x.night, 0), palette = ["#6366f1", "#06b6d4", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b", "#94a3b8"];
+    const types = by(e => String(e.error_type || "Other")).slice(0, 10).map(([label, value], i) => ({ label, value, color: palette[i % palette.length] }));
+    const brig = by(e => { const emp = employeeByLogin(e.employee_login); return emp ? employeeBrigadeForDate(emp, fromKey(e.work_date)) : "?"; }).map(([label, value]) => ({ label, value }));
+    const top = by(e => e.employee_login).slice(0, 10).map(([label, value]) => ({ label, value }));
+    host.innerHTML = `<div class="chart-block"><h5 class="sub-h">Feedback per day (DAY + NIGHT)</h5><p class="chart-legend"><i style="background:${WMS_COLORS.day}"></i> DAY <i style="background:${WMS_COLORS.night}"></i> NIGHT</p><div class="chart-scroll"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img">${dgrid}${dbars}</svg></div></div>
+        <div class="donut-row">${donutBlock("DAY vs NIGHT", [{ label: "DAY", value: dayN, color: WMS_COLORS.day }, { label: "NIGHT", value: nightN, color: WMS_COLORS.night }], list.length, "feedback")}
+        <div class="donut-card"><h5>Top error types</h5>${svgHBars(types, "#6366f1")}</div><div class="donut-card"><h5>By brigade</h5>${svgHBars(brig, "#06b6d4")}</div><div class="donut-card"><h5>Top 10 employees</h5>${svgHBars(top, "#ef4444")}</div></div>`;
+}
+{ const prev = renderFeedbackCurrentSubtab; renderFeedbackCurrentSubtab = function () { prev(); if (feedbackActiveSubtab === "statistics") enhanceFeedbackStats(); }; }
+$("feedbackSort")?.addEventListener("change", () => { feedbackVisibleCount = LARGE_LIST_PAGE_SIZE; renderFeedbackTracker(); });
+$("feedbackStatsSort")?.addEventListener("change", enhanceFeedbackStats);
+
+/* =====================================================================
+   Employee names — NOT stored in the database.
+   They live in an (encrypted) Excel file next to the site: data/employee_names.enc
+   (Login | First name | Last name). The browser decrypts it in memory with a passphrase.
+===================================================================== */
+const NAMES_ENC_URL = "data/employee_names.enc";
+let namesMap = null, namesObserver = null, namesIdleTimer = null, namesApplyTimer = null;
+async function namesDecrypt(buf, pass) {
+    const b = new Uint8Array(buf);
+    if (new TextDecoder().decode(b.slice(0, 5)) !== "WMSN1") throw new Error("This is not an encrypted WMS names file.");
+    const km = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt: b.slice(5, 21), iterations: 310000, hash: "SHA-256" }, km, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: b.slice(21, 33) }, key, b.slice(33)));
+}
+function namesParse(bytes) {
+    const wb = XLSX.read(bytes, { type: "array" }), rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" }), map = new Map();
+    const norm = s => String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\u0400-\u04ff]/g, "");
+    const L = ["login", "user", "username", "id", "employeeid", "логін", "логин"], F = ["firstname", "name", "imie", "imya", "ім'я", "імя", "имя", "first"], S = ["lastname", "surname", "nazwisko", "прізвище", "призвище", "фамилия", "last"];
+    rows.forEach(r => {
+        const keys = Object.keys(r), find = list => keys.find(k => list.includes(norm(k))), kl = find(L) || keys[0], kf = find(F) || keys[1], ks = find(S) || keys[2];
+        const login = String(r[kl] ?? "").trim().toLowerCase(), name = `${String(r[kf] ?? "").trim()} ${String(r[ks] ?? "").trim()}`.trim();
+        if (login && name) map.set(login, name);
+    });
+    return map;
+}
+function namesApply() {
+    if (!namesMap) return;
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: n => { const p = n.parentElement; if (!p || /^(SCRIPT|STYLE|TEXTAREA|INPUT|SELECT|OPTION|TITLE)$/.test(p.tagName) || p.closest(".emp-fullname,.names-dialog") || n.nextSibling?.classList?.contains("emp-fullname")) return NodeFilter.FILTER_REJECT; const t = n.nodeValue.trim(); return t && t.length <= 40 && namesMap.has(t.toLowerCase()) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT; } }), hits = [];
+    while (w.nextNode()) hits.push(w.currentNode);
+    hits.forEach(n => { const s = document.createElement("small"); s.className = "emp-fullname"; s.textContent = " · " + namesMap.get(n.nodeValue.trim().toLowerCase()); n.after(s); });
+}
+function namesSchedule() { clearTimeout(namesApplyTimer); namesApplyTimer = setTimeout(namesApply, 150); }
+function namesLock(silent) {
+    namesMap = null; clearTimeout(namesIdleTimer); namesObserver?.disconnect(); namesObserver = null;
+    document.querySelectorAll(".emp-fullname").forEach(el => el.remove());
+    const b = $("namesButton"); if (b) b.textContent = "🔒 Names";
+    if (!silent) toast("Names hidden.");
+}
+function namesUnlocked(map, source) {
+    namesMap = map; const b = $("namesButton"); if (b) b.textContent = "🔓 Hide names";
+    namesObserver?.disconnect(); namesObserver = new MutationObserver(namesSchedule); namesObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+    const bump = () => { clearTimeout(namesIdleTimer); namesIdleTimer = setTimeout(() => { namesLock(true); toast("Names hidden after 30 minutes of inactivity."); }, 30 * 60000); };
+    ["mousemove", "keydown", "click", "touchstart"].forEach(ev => document.addEventListener(ev, bump, { passive: true })); bump();
+    namesApply(); toast(`Names loaded for ${map.size} employees (${source}). They stay in this browser tab only.`);
+}
+async function namesLoad(pass, localFile) {
+    let buf, source;
+    if (localFile) { buf = await localFile.arrayBuffer(); source = "file from this computer / company drive"; }
+    else {
+        // V39.8: only the ENCRYPTED file is ever read from the web server (a plain .xlsx there would be public).
+        const r = await fetch(NAMES_ENC_URL, { cache: "no-store" });
+        if (!r.ok) throw new Error("No encrypted names file (data/employee_names.enc) on the server. Choose the Excel file from your company drive below.");
+        buf = await r.arrayBuffer(); source = "server, encrypted";
+    }
+    const isEnc = new TextDecoder().decode(new Uint8Array(buf).slice(0, 5)) === "WMSN1";
+    if (isEnc && !pass) throw new Error("Enter the passphrase of the names file.");
+    const bytes = isEnc ? await namesDecrypt(buf, pass) : new Uint8Array(buf);
+    const map = namesParse(bytes);
+    if (!map.size) throw new Error("No names found. The first sheet must have the columns Login | First name | Last name.");
+    return { map, source };
+}
+function namesDialog() {
+    let d = $("namesDialog"); if (d) d.remove();
+    d = document.createElement("div"); d.id = "namesDialog"; d.className = "wms-pop names-dialog";
+    d.innerHTML = `<form class="wms-pop-card" autocomplete="off"><div class="wms-pop-head"><h3>🔒 Show employee names</h3><button type="button" class="icon-btn" data-x>×</button></div>
+        <p class="muted">Names are <b>not</b> stored in the database. They are read from an encrypted Excel file on the server and kept only in this browser tab.</p>
+        <label class="control-label">Passphrase</label><input id="namesPass" type="password" autocomplete="off" placeholder="Passphrase of the names file">
+        <label class="control-label">Or open a file from this computer (.enc or .xlsx)</label><input id="namesFile" type="file" accept=".enc,.xlsx,.xls">
+        <p id="namesErr" class="names-err" hidden></p><div class="notice-actions"><button class="primary" type="submit">Unlock</button><button class="secondary" type="button" data-x>Cancel</button></div></form>`;
+    document.body.appendChild(d); $("namesPass").focus();
+    d.addEventListener("click", e => { if (e.target === d || e.target.closest("[data-x]")) d.remove(); });
+    d.querySelector("form").addEventListener("submit", async e => {
+        e.preventDefault(); const err = $("namesErr"), btn = d.querySelector('button[type="submit"]'); err.hidden = true; btn.disabled = true; btn.textContent = "Decrypting…";
+        try { const r = await namesLoad($("namesPass").value, $("namesFile").files[0]); d.remove(); namesUnlocked(r.map, r.source); }
+        catch (ex) { err.hidden = false; err.textContent = ex.name === "OperationError" ? "Wrong passphrase or damaged file." : String(ex.message || ex); btn.disabled = false; btn.textContent = "Unlock"; }
+    });
+}
+$("namesButton")?.addEventListener("click", () => { if (namesMap) namesLock(); else namesDialog(); });
